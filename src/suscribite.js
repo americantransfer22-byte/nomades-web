@@ -16,7 +16,7 @@ const state = {
   step: 1,
   planes: [],
   cliente: { first_name:'', last_name:'', dni:'', phone:'', email:'', street:'', street_number:'', street_type:'calle', neighborhood:'', city:'', province:'', country:'Argentina', postal_code:'', zone:'', logistics_note:'' },
-  plan: { eggs: null, frequency: 'weekly', payment_method: 'cash' },
+  plan: { eggs: null, frequency: 'weekly', payment_method: 'cash', preferred_weekday: null },
   tieneReferencia: false,
   referencia: { full_name:'', phone:'', dni:'', relationship:'' },
   enviando: false,
@@ -26,7 +26,8 @@ const state = {
   localidades: [],
   localidadesLoading: false,
   disponibilidad: null,
-  disponibilidadLoading: false
+  disponibilidadLoading: false,
+  alternativas: null
 }
 
 function header(){
@@ -73,6 +74,13 @@ const TIPOS_VIA = [
   { value: 'calle', label: 'Calle' },
   { value: 'avenida', label: 'Avenida' },
   { value: 'pasaje', label: 'Pasaje' }
+]
+const DIAS_SEMANA = [
+  { value: 1, label: 'Lunes' },
+  { value: 2, label: 'Martes' },
+  { value: 3, label: 'Miércoles' },
+  { value: 4, label: 'Jueves' },
+  { value: 5, label: 'Viernes' }
 ]
 
 const PROVINCIAS = [
@@ -142,19 +150,42 @@ function disponibilidadHtml(){
     const fecha = new Date(state.disponibilidad.next_date+'T00:00:00').toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long'})
     return `<div class="alert info">✅ ¡Hay lugar! Tu primera entrega sería el <b>${fecha}</b>.</div>`
   }
+  if(state.plan.preferred_weekday !== null && state.alternativas && state.alternativas.length){
+    const diaElegidoLabel = DIAS_SEMANA.find(d=>d.value===state.plan.preferred_weekday)?.label || ''
+    return `<div class="alert info">
+      🔥 <b>${diaElegidoLabel} está muy pedido</b>, no queda lugar. Pero sí hay lugar estos otros días — elegí uno y arrancamos ahí:
+      <div class="grid two" style="margin-top:10px">
+        ${state.alternativas.map(a=>{
+          const label = DIAS_SEMANA.find(d=>d.value===a.weekday)?.label || ''
+          const fechaCorta = new Date(a.date+'T00:00:00').toLocaleDateString('es-AR',{day:'numeric',month:'short'})
+          return `<button type="button" class="btn ghost" data-alt-dia="${a.weekday}">${label} <small>(${fechaCorta})</small></button>`
+        }).join('')}
+      </div>
+      <p class="muted" style="margin-top:8px;margin-bottom:0">O si preferís, quedate en lista de espera para ${diaElegidoLabel.toLowerCase()} con 50% off en tu primera entrega.</p>
+    </div>`
+  }
+  if(state.plan.preferred_weekday !== null && state.alternativas && state.alternativas.length===0){
+    return `<div class="alert info">🔥 <b>¡Estamos a tope!</b> No hay lugar en ningún día por ahora para esa cantidad. Anotate en la lista de espera y asegurate tu lugar con <b>50% de descuento en tu primera entrega</b> apenas se libere un cupo.</div>`
+  }
   return `<div class="alert info">🔥 <b>¡Somos muy pedidos esta semana!</b> Ya no quedan lugares para este plan, pero podés anotarte ahora mismo en la lista de espera y asegurarte tu lugar en orden de llegada. Como agradecimiento por tu paciencia, tu <b>primera entrega tiene 50% de descuento</b> apenas se libere un cupo. ¡No te quedes afuera, completá el formulario!</div>`
 }
 
 async function consultarDisponibilidad(){
   if(!state.plan.eggs || !state.plan.frequency) return
   state.disponibilidadLoading = true
+  state.alternativas = null
   const box = document.querySelector('#disponibilidad_box')
   if(box) box.innerHTML = disponibilidadHtml()
-  const { data, error } = await supabase.rpc('check_availability', { p_egg_quantity: state.plan.eggs, p_frequency: state.plan.frequency })
+  const { data, error } = await supabase.rpc('check_availability', { p_egg_quantity: state.plan.eggs, p_frequency: state.plan.frequency, p_preferred_weekday: state.plan.preferred_weekday })
   state.disponibilidadLoading = false
   state.disponibilidad = (!error && data) ? data : null
+  if(!state.disponibilidad?.available && state.plan.preferred_weekday !== null){
+    const { data: alt } = await supabase.rpc('available_days_summary', { p_egg_quantity: state.plan.eggs, p_frequency: state.plan.frequency })
+    state.alternativas = (alt || []).filter(a=>a.weekday !== state.plan.preferred_weekday)
+  }
   const box2 = document.querySelector('#disponibilidad_box')
   if(box2) box2.innerHTML = disponibilidadHtml()
+  document.querySelectorAll('[data-alt-dia]').forEach(b=> b.onclick = ()=>{ state.plan.preferred_weekday = Number(b.dataset.altDia); state.disponibilidad=null; render(); consultarDisponibilidad() })
 }
 
 function paso2(){
@@ -170,6 +201,12 @@ function paso2(){
     </div>
     <div class="field"><label>¿Cómo preferís pagar?</label>
       <div class="grid three">${METODOS_PAGO.map(m=>`<button class="btn ${p.payment_method===m.value?'primary':'ghost'}" data-pay="${m.value}">${m.label}</button>`).join('')}</div>
+    </div>
+    <div class="field"><label>¿Preferís algún día en particular para tu entrega? (opcional)</label>
+      <div class="grid three">
+        <button type="button" class="btn ${p.preferred_weekday===null?'primary':'ghost'}" data-dia="">Cualquiera (más rápido)</button>
+        ${DIAS_SEMANA.map(d=>`<button type="button" class="btn ${p.preferred_weekday===d.value?'primary':'ghost'}" data-dia="${d.value}">${d.label}</button>`).join('')}
+      </div>
     </div>
     <div id="disponibilidad_box">${disponibilidadHtml()}</div>
     <div id="err2" class="alert danger" style="display:none"></div>
@@ -276,6 +313,7 @@ function bind(){
     document.querySelectorAll('[data-eggs]').forEach(b=> b.onclick = ()=>{ state.plan.eggs = Number(b.dataset.eggs); state.disponibilidad=null; render(); consultarDisponibilidad() })
     document.querySelectorAll('[data-freq]').forEach(b=> b.onclick = ()=>{ state.plan.frequency = b.dataset.freq; state.disponibilidad=null; render(); consultarDisponibilidad() })
     document.querySelectorAll('[data-pay]').forEach(b=> b.onclick = ()=>{ state.plan.payment_method = b.dataset.pay; render() })
+    document.querySelectorAll('[data-dia]').forEach(b=> b.onclick = ()=>{ state.plan.preferred_weekday = b.dataset.dia ? Number(b.dataset.dia) : null; state.disponibilidad=null; render(); consultarDisponibilidad() })
     document.querySelector('#back2').onclick = ()=>{ state.step=1; render() }
     document.querySelector('#next2').onclick = ()=>{
       const box = document.querySelector('#err2')
@@ -324,7 +362,7 @@ async function enviar(){
       const r = state.referencia
       receiverPayload = { full_name: r.full_name.trim(), dni: r.dni.trim(), phone: r.phone.trim() || '', relationship: r.relationship.trim() || '' }
     }
-    const subscriptionPayload = { frequency: state.plan.frequency, egg_quantity: state.plan.eggs, payment_method: state.plan.payment_method }
+    const subscriptionPayload = { frequency: state.plan.frequency, egg_quantity: state.plan.eggs, payment_method: state.plan.payment_method, preferred_weekday: state.plan.preferred_weekday }
 
     const { data, error } = await supabase.rpc('public_signup', {
       p_customer: customerPayload, p_receiver: receiverPayload, p_subscription: subscriptionPayload
