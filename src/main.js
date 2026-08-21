@@ -324,6 +324,7 @@ async function admin(){
       <div class="field"><label>Nombre</label><input id="staff_new_name"/></div>
       <div class="field"><label>Rol</label><select id="staff_new_role"><option value="campo">Personal de campo</option><option value="repartidor">Repartidor</option><option value="admin">Administrador</option></select></div>
     </div>
+    <div class="field"><label>Código de acceso (opcional — si lo dejás vacío, se genera uno automático)</label><input id="staff_new_code" placeholder="Ej: 123 (mín. 3 caracteres, letras o números)"/></div>
     <button class="btn primary" id="btn_crear_staff">➕ Generar código de acceso</button>
     <div id="codigo_generado" style="margin-top:10px"></div>
     <div style="margin-top:16px">${staff.length?staff.map(s=>`<div class="row"><span>${s.full_name||'(sin nombre)'} <span class="badge">${rolLabel[s.role]||s.role}</span></span><span><button class="btn ghost" data-reset="${s.user_id}">🔄 Nuevo código</button> <button class="btn ghost" data-revoke="${s.user_id}">❌ Revocar</button></span></div>`).join(''):'<p class="muted">Todavía no agregaste personal.</p>'}</div>
@@ -332,9 +333,10 @@ async function admin(){
   document.querySelector('#btn_crear_staff').onclick = async ()=>{
     const full_name = document.querySelector('#staff_new_name').value.trim()
     const role = document.querySelector('#staff_new_role').value
+    const custom_code = document.querySelector('#staff_new_code').value.trim()
     const box = document.querySelector('#codigo_generado')
     box.innerHTML = '<p class="muted">Generando…</p>'
-    const { data, error } = await supabase.functions.invoke('manage-staff', { body: { action:'create', full_name, role } })
+    const { data, error } = await supabase.functions.invoke('manage-staff', { body: { action:'create', full_name, role, custom_code } })
     if(error){ box.innerHTML = `<div class="alert danger">No se pudo generar: ${error.message}</div>`; return }
     box.innerHTML = `<div class="alert info"><b>✅ Código generado para ${full_name||'este usuario'}:</b><br><span style="font-size:20px;font-weight:bold;letter-spacing:2px">${data.code}</span><br><small>Copialo ahora — no se vuelve a mostrar. Pasáselo a la persona para que entre por "Acceso del equipo".</small></div>`
     render()
@@ -346,7 +348,8 @@ async function admin(){
     render()
   })
   document.querySelectorAll('[data-reset]').forEach(b=>b.onclick=async()=>{
-    const { data, error } = await supabase.functions.invoke('manage-staff', { body: { action:'reset', user_id:b.dataset.reset } })
+    const custom_code = prompt('Escribí el nuevo código para esta persona (o dejalo vacío para generar uno automático):') || ''
+    const { data, error } = await supabase.functions.invoke('manage-staff', { body: { action:'reset', user_id:b.dataset.reset, custom_code } })
     if(error){ alert('Error: '+error.message); return }
     alert('Nuevo código: '+data.code+'\n\nCopialo ahora, no se vuelve a mostrar.')
   })
