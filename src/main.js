@@ -105,12 +105,20 @@ const FRECUENCIAS = { weekly:'Semanal', biweekly:'Quincenal', monthly:'Mensual' 
 
 const TIPOS_VIA = { calle:'Calle', avenida:'Avenida', pasaje:'Pasaje' }
 
+const METODOS_PAGO_LABEL = { cash:'efectivo', transfer:'transferencia', mp:'Mercado Pago' }
+
+function formatearFecha(fechaStr){
+  const d = new Date(fechaStr+'T00:00:00')
+  const texto = d.toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long',year:'numeric'})
+  return texto.charAt(0).toUpperCase()+texto.slice(1)
+}
+
 function cuentaPanel(){
   const c = cuenta.customer
   const next = cuenta.next_order
   const tipoVia = TIPOS_VIA[c.street_type] || 'Calle'
   layout(`<h2>👤 Hola, ${c.first_name}</h2>
-  <div class="card"><h3>Tu próximo pedido</h3>${next?`<div class="row"><span>${next.delivery_date}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div><p>${next.quantity_maples||''} maple(s)</p>`:'<p class="muted">No tenés entregas próximas.</p>'}</div>
+  <div class="card"><h3>Tu próximo pedido</h3>${next?`<div class="row"><span>${formatearFecha(next.delivery_date)}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div><p>${next.quantity_maples||''} maple(s)</p>${next.payment_method?`<div class="alert info">💡 Recordá: el pago es en <b>${METODOS_PAGO_LABEL[next.payment_method]||next.payment_method}</b>.</div>`:''}`:'<p class="muted">No tenés entregas próximas.</p>'}</div>
   <div class="card" id="card_subs"><h3>Tus suscripciones</h3>${cuenta.subscriptions.length?cuenta.subscriptions.map(s=>`<div class="row"><span>${s.egg_quantity} huevos · ${FRECUENCIAS[s.frequency]||s.frequency}${s.status==='waitlist'?' · <span class="badge" style="background:#b3841f">🕒 Lista de espera</span>':''}</span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="badge">${s.payment_status==='paid'?'✅ Pago al día':'🟡 Pago pendiente'}</span><button class="btn ghost" data-cambiar-plan="${s.id}" style="font-size:12px;padding:6px 12px">✏️ Cambiar plan</button></span></div>`).join(''):'<p class="muted">No tenés suscripciones activas.</p>'}</div>
   <div class="card" id="card_datos"><h3>Tus datos</h3><p>🏠 ${tipoVia} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'} (CP ${c.postal_code||'-'})</p><p>📍 Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'}</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
   <button class="btn ghost" id="btn_logout_cuenta">Cerrar sesión</button>`)
