@@ -15,13 +15,15 @@ const METODOS_PAGO = [
 const state = {
   step: 1,
   planes: [],
-  cliente: { first_name:'', last_name:'', dni:'', phone:'', email:'', street:'', street_number:'', neighborhood:'', city:'Rosario', zone:'', logistics_note:'' },
+  cliente: { first_name:'', last_name:'', dni:'', phone:'', email:'', street:'', street_number:'', street_type:'calle', neighborhood:'', city:'', province:'', country:'Argentina', zone:'', logistics_note:'' },
   plan: { eggs: null, frequency: 'weekly', payment_method: 'cash' },
   tieneReferencia: false,
   referencia: { full_name:'', phone:'', dni:'', relationship:'' },
   enviando: false,
   error: '',
-  exito: false
+  exito: false,
+  localidades: [],
+  localidadesLoading: false
 }
 
 function header(){
@@ -40,9 +42,11 @@ function validarPaso1(){
   if(!/^\d{7,8}$/.test(c.dni.trim())) return 'El DNI debe tener 7 u 8 números, sin puntos.'
   if(!c.phone.trim()) return 'Falta el teléfono.'
   if(c.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c.email.trim())) return 'El email no parece válido.'
-  if(!c.street.trim()) return 'Falta la calle.'
+  if(!c.street.trim()) return 'Falta el nombre de la calle.'
   if(!c.street_number.trim()) return 'Falta la altura/número.'
   if(!c.neighborhood.trim()) return 'Falta el barrio.'
+  if(!c.province) return 'Elegí tu provincia.'
+  if(!c.city) return 'Elegí tu localidad.'
   if(!c.zone) return 'Elegí tu zona (Norte, Sur, Este u Oeste).'
   return ''
 }
@@ -62,6 +66,31 @@ const ZONAS = [
   { value: 'este', label: 'Este' },
   { value: 'oeste', label: 'Oeste' }
 ]
+const TIPOS_VIA = [
+  { value: 'calle', label: 'Calle' },
+  { value: 'avenida', label: 'Avenida' },
+  { value: 'pasaje', label: 'Pasaje' }
+]
+
+const PROVINCIAS = [
+  'Buenos Aires','Catamarca','Chaco','Chubut','Ciudad Autónoma de Buenos Aires','Córdoba','Corrientes',
+  'Entre Ríos','Formosa','Jujuy','La Pampa','La Rioja','Mendoza','Misiones','Neuquén','Río Negro','Salta',
+  'San Juan','San Luis','Santa Cruz','Santa Fe','Santiago del Estero','Tierra del Fuego, Antártida e Islas del Atlántico Sur','Tucumán'
+]
+
+async function cargarLocalidades(provincia){
+  state.localidadesLoading = true; state.localidades = []; render()
+  try{
+    const url = `https://apis.datos.gob.ar/georef/api/localidades?provincia=${encodeURIComponent(provincia)}&campos=nombre&max=5000`
+    const res = await fetch(url)
+    const data = await res.json()
+    const nombres = [...new Set((data.localidades||[]).map(l=>l.nombre))].sort((a,b)=>a.localeCompare(b,'es'))
+    state.localidades = nombres
+  }catch(e){
+    state.localidades = []
+  }
+  state.localidadesLoading = false; render()
+}
 
 function paso1(){
   const c = state.cliente
@@ -75,9 +104,23 @@ function paso1(){
       <div class="field"><label>Teléfono / WhatsApp *</label><input id="f_phone" inputmode="tel" value="${c.phone}"/></div>
       <div class="field"><label>Email</label><input id="f_email" type="email" value="${c.email}"/></div>
       <div class="field"><label>Barrio *</label><input id="f_neighborhood" value="${c.neighborhood}"/></div>
-      <div class="field"><label>Calle *</label><input id="f_street" value="${c.street}"/></div>
+    </div>
+    <div class="field"><label>Tipo de vía *</label>
+      <div class="grid three">${TIPOS_VIA.map(t=>`<button type="button" class="btn ${c.street_type===t.value?'primary':'ghost'}" data-street-type="${t.value}">${t.label}</button>`).join('')}</div>
+    </div>
+    <div class="grid two">
+      <div class="field"><label>Nombre de la calle *</label><input id="f_street" value="${c.street}"/></div>
       <div class="field"><label>Altura/número *</label><input id="f_street_number" value="${c.street_number}"/></div>
-      <div class="field"><label>Ciudad</label><input id="f_city" value="${c.city}"/></div>
+    </div>
+    <div class="grid two">
+      <div class="field"><label>Provincia *</label><select id="f_province">
+        <option value="">Seleccioná tu provincia</option>
+        ${PROVINCIAS.map(p=>`<option value="${p}" ${c.province===p?'selected':''}>${p}</option>`).join('')}
+      </select></div>
+      <div class="field"><label>Localidad *</label><select id="f_city" ${!c.province || state.localidadesLoading ? 'disabled':''}>
+        <option value="">${state.localidadesLoading?'Cargando localidades…':(c.province?'Seleccioná tu localidad':'Elegí primero la provincia')}</option>
+        ${state.localidades.map(l=>`<option value="${l}" ${c.city===l?'selected':''}>${l}</option>`).join('')}
+      </select></div>
     </div>
     <div class="field"><label>Zona *</label>
       <div class="grid two">${ZONAS.map(z=>`<button type="button" class="btn ${c.zone===z.value?'primary':'ghost'}" data-zone="${z.value}">${z.label}</button>`).join('')}</div>
@@ -137,11 +180,14 @@ function paso4(){
   const freqLabel = FRECUENCIAS.find(f=>f.value===p.frequency)?.label || p.frequency
   const payLabel = METODOS_PAGO.find(m=>m.value===p.payment_method)?.label || p.payment_method
   const planInfo = state.planes.find(pl=>pl.egg_quantity===p.eggs)
+  const tipoViaLabel = TIPOS_VIA.find(t=>t.value===c.street_type)?.label || 'Calle'
   return `
   <div class="card">
     <h2>4. Confirmar suscripción</h2>
     <div class="row"><span>Cliente</span><span><b>${c.first_name} ${c.last_name}</b></span></div>
-    <div class="row"><span>Dirección</span><span>${c.street} ${c.street_number}, ${c.neighborhood} (Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'})</span></div>
+    <div class="row"><span>Dirección</span><span>${tipoViaLabel} ${c.street} ${c.street_number}</span></div>
+    <div class="row"><span>Barrio</span><span>${c.neighborhood} (Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'})</span></div>
+    <div class="row"><span>Localidad</span><span>${c.city}, ${c.province}, Argentina</span></div>
     <div class="row"><span>Plan</span><span><b>${p.eggs} huevos</b> · ${freqLabel}</span></div>
     <div class="row"><span>Precio</span><span><b>$${planInfo?Number(planInfo.price).toLocaleString('es-AR'):'-'}</b></span></div>
     <div class="row"><span>Forma de pago</span><span>${payLabel}</span></div>
@@ -168,7 +214,7 @@ function render(){
 
 function bind(){
   if(state.step===1){
-    const ids = ['first_name','last_name','dni','phone','email','neighborhood','street','street_number','city']
+    const ids = ['first_name','last_name','dni','phone','email','neighborhood','street','street_number']
     ids.forEach(id=>{
       const el = document.querySelector('#f_'+id)
       if(el) el.oninput = ()=> state.cliente[id] = el.value
@@ -176,6 +222,16 @@ function bind(){
     const noteEl = document.querySelector('#f_note')
     if(noteEl) noteEl.oninput = ()=> state.cliente.logistics_note = noteEl.value
     document.querySelectorAll('[data-zone]').forEach(b=> b.onclick = ()=>{ state.cliente.zone = b.dataset.zone; render() })
+    document.querySelectorAll('[data-street-type]').forEach(b=> b.onclick = ()=>{ state.cliente.street_type = b.dataset.streetType; render() })
+    const provinceEl = document.querySelector('#f_province')
+    if(provinceEl) provinceEl.onchange = ()=>{
+      state.cliente.province = provinceEl.value
+      state.cliente.city = ''
+      if(provinceEl.value) cargarLocalidades(provinceEl.value)
+      else { state.localidades = []; render() }
+    }
+    const cityEl = document.querySelector('#f_city')
+    if(cityEl) cityEl.onchange = ()=> state.cliente.city = cityEl.value
     document.querySelector('#next1').onclick = ()=>{
       const err = validarPaso1()
       const box = document.querySelector('#err1')
@@ -224,8 +280,9 @@ async function enviar(){
     const customerPayload = {
       first_name: c.first_name.trim(), last_name: c.last_name.trim(), dni: c.dni.trim(),
       phone: c.phone.trim(), email: c.email.trim() || '',
-      street: c.street.trim(), street_number: c.street_number.trim(),
-      neighborhood: c.neighborhood.trim(), city: c.city.trim() || 'Rosario',
+      street: c.street.trim(), street_number: c.street_number.trim(), street_type: c.street_type || 'calle',
+      neighborhood: c.neighborhood.trim(), city: c.city,
+      province: c.province, country: 'Argentina',
       zone: c.zone || '',
       logistics_note: c.logistics_note.trim() || ''
     }
