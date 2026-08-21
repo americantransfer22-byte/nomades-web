@@ -15,7 +15,7 @@ const METODOS_PAGO = [
 const state = {
   step: 1,
   planes: [],
-  cliente: { first_name:'', last_name:'', dni:'', phone:'', email:'', street:'', street_number:'', neighborhood:'', city:'Rosario', logistics_note:'' },
+  cliente: { first_name:'', last_name:'', dni:'', phone:'', email:'', street:'', street_number:'', neighborhood:'', city:'Rosario', zone:'', logistics_note:'' },
   plan: { eggs: null, frequency: 'weekly', payment_method: 'cash' },
   tieneReferencia: false,
   referencia: { full_name:'', phone:'', dni:'', relationship:'' },
@@ -43,6 +43,7 @@ function validarPaso1(){
   if(!c.street.trim()) return 'Falta la calle.'
   if(!c.street_number.trim()) return 'Falta la altura/número.'
   if(!c.neighborhood.trim()) return 'Falta el barrio.'
+  if(!c.zone) return 'Elegí tu zona (Norte, Sur, Este u Oeste).'
   return ''
 }
 
@@ -54,6 +55,13 @@ function validarPaso3(){
   if(!r.phone.trim()) return 'Falta el teléfono de la persona de referencia.'
   return ''
 }
+
+const ZONAS = [
+  { value: 'norte', label: 'Norte' },
+  { value: 'sur', label: 'Sur' },
+  { value: 'este', label: 'Este' },
+  { value: 'oeste', label: 'Oeste' }
+]
 
 function paso1(){
   const c = state.cliente
@@ -70,6 +78,9 @@ function paso1(){
       <div class="field"><label>Calle *</label><input id="f_street" value="${c.street}"/></div>
       <div class="field"><label>Altura/número *</label><input id="f_street_number" value="${c.street_number}"/></div>
       <div class="field"><label>Ciudad</label><input id="f_city" value="${c.city}"/></div>
+    </div>
+    <div class="field"><label>Zona *</label>
+      <div class="grid two">${ZONAS.map(z=>`<button type="button" class="btn ${c.zone===z.value?'primary':'ghost'}" data-zone="${z.value}">${z.label}</button>`).join('')}</div>
     </div>
     <div class="field"><label>Observación para la entrega (opcional)</label><textarea id="f_note" rows="2" placeholder="Ej: portón negro, timbre 3B, entregar después de las 18hs">${c.logistics_note}</textarea></div>
     <div id="err1" class="alert danger" style="display:none"></div>
@@ -130,7 +141,7 @@ function paso4(){
   <div class="card">
     <h2>4. Confirmar suscripción</h2>
     <div class="row"><span>Cliente</span><span><b>${c.first_name} ${c.last_name}</b></span></div>
-    <div class="row"><span>Dirección</span><span>${c.street} ${c.street_number}, ${c.neighborhood}</span></div>
+    <div class="row"><span>Dirección</span><span>${c.street} ${c.street_number}, ${c.neighborhood} (Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'})</span></div>
     <div class="row"><span>Plan</span><span><b>${p.eggs} huevos</b> · ${freqLabel}</span></div>
     <div class="row"><span>Precio</span><span><b>$${planInfo?Number(planInfo.price).toLocaleString('es-AR'):'-'}</b></span></div>
     <div class="row"><span>Forma de pago</span><span>${payLabel}</span></div>
@@ -164,6 +175,7 @@ function bind(){
     })
     const noteEl = document.querySelector('#f_note')
     if(noteEl) noteEl.oninput = ()=> state.cliente.logistics_note = noteEl.value
+    document.querySelectorAll('[data-zone]').forEach(b=> b.onclick = ()=>{ state.cliente.zone = b.dataset.zone; render() })
     document.querySelector('#next1').onclick = ()=>{
       const err = validarPaso1()
       const box = document.querySelector('#err1')
@@ -214,6 +226,7 @@ async function enviar(){
       phone: c.phone.trim(), email: c.email.trim() || '',
       street: c.street.trim(), street_number: c.street_number.trim(),
       neighborhood: c.neighborhood.trim(), city: c.city.trim() || 'Rosario',
+      zone: c.zone || '',
       logistics_note: c.logistics_note.trim() || ''
     }
     let receiverPayload = null
