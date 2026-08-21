@@ -10,7 +10,7 @@ let staffProfile = null // datos del perfil del trabajador logueado
 function navStaffFor(role){
   if(role==='admin') return [['clientes','Clientes'],['pedidos','Pedidos'],['repartidor','Repartidor'],['campo','Campo'],['admin','Administración'],['perfil','Mi perfil']]
   if(role==='campo') return [['campo','Campo'],['perfil','Mi perfil']]
-  if(role==='repartidor') return [['repartidor','Repartidor'],['perfil','Mi perfil']]
+  if(role==='repartidor') return [['repartidor','Repartidor'],['historial','Historial'],['perfil','Mi perfil']]
   return []
 }
 
@@ -562,6 +562,33 @@ async function repartidor(){
   document.querySelectorAll('[data-delivery]').forEach(b=>b.onclick=()=>openDelivery(b.dataset.delivery))
 }
 
+async function historialRepartidor(){
+  const { data, error } = await supabase.rpc('repartidor_historial', {})
+  const items = data || []
+  const porFecha = {}
+  items.forEach(it=>{ porFecha[it.date] ??= []; porFecha[it.date].push(it) })
+  const fechas = Object.keys(porFecha).sort((a,b)=>b.localeCompare(a))
+  const html = fechas.length ? fechas.map(fecha=>{
+    const entregas = porFecha[fecha]
+    const entregados = entregas.filter(e=>e.type==='delivered').length
+    const incidencias = entregas.filter(e=>e.type==='incident').length
+    const fechaLabel = formatearFecha(fecha)
+    return `<details class="card" style="margin-bottom:10px">
+      <summary style="cursor:pointer;font-weight:800;list-style:none">${fechaLabel} — ${entregados} entregado(s)${incidencias?`, ${incidencias} incidencia(s)`:''}</summary>
+      <div style="margin-top:12px">
+        ${entregas.map(e=>{
+          if(e.type==='delivered'){
+            const distinto = e.expected_method && e.expected_method !== e.payment_method
+            return `<div class="row"><span>🟢 <b>${e.time}</b> · ${e.customer_name}<br><small>${e.address}</small><br><small>${e.description}</small></span><span style="text-align:right"><b>$${Number(e.amount||0).toLocaleString('es-AR')}</b><br><small>${METODOS_PAGO_LABEL[e.payment_method]||e.payment_method}${distinto?` (esperado: ${METODOS_PAGO_LABEL[e.expected_method]||e.expected_method})`:''}</small></span></div>`
+          }
+          return `<div class="row"><span>🔴 <b>${e.time}</b> · ${e.customer_name}<br><small>${e.address}</small></span><span class="badge" style="background:#a33">⚠️ ${e.failure_reason||'Incidencia'}</span></div>`
+        }).join('')}
+      </div>
+    </details>`
+  }).join('') : '<div class="card"><p class="muted">Todavía no tenés entregas registradas.</p></div>'
+  layout(`<h2>📋 Historial de entregas</h2>${html}`)
+}
+
 async function openDelivery(id){
   const { data: detalle, error: errDet } = await supabase.rpc('delivery_detail', { p_order_id: id })
   if(errDet || !detalle || detalle.error) return alert('No se pudo cargar el pedido')
@@ -665,7 +692,7 @@ async function openDelivery(id){
     const idx = prompt('Motivo:\n'+motivos.map((m,i)=>`${i+1}. ${m}`).join('\n')+'\n\nEscribí el número:')
     const reason = motivos[Number(idx)-1]
     if(!reason)return
-    const {error}=await supabase.from('delivery_attempts').insert({order_id:id,status:'failed',failure_reason:reason})
+    const {error}=await supabase.from('delivery_attempts').insert({order_id:id,status:'failed',failure_reason:reason,driver_id:session.user.id})
     if(error)return alert(error.message)
     await supabase.from('orders').update({status:'incident'}).eq('id',id)
     alert('Incidencia registrada'); current='repartidor'; render()
@@ -900,6 +927,7 @@ async function render(){
   if(current==='clientes')return clientes();
   if(current==='pedidos')return pedidos();
   if(current==='repartidor')return repartidor();
+  if(current==='historial')return historialRepartidor();
   if(current==='campo')return campo();
   return admin()
 }
