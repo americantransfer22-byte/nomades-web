@@ -1,0 +1,9 @@
+<!doctype html><html lang="es"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><meta name="theme-color" content="#173f22"/><title>NÓMADES</title><link rel="stylesheet" href="./src/styles/app.css?v=15"></head><body><div id="app"></div><script>
+  window.addEventListener('error', function(e){
+    var app = document.getElementById('app');
+    if (app && !app.innerHTML) {
+      app.innerHTML = '<div style="padding:24px;font-family:sans-serif;color:#7a1f1f;background:#fdecea;border:1px solid #f5c2c0;border-radius:8px;margin:16px;"><b>Ocurrió un error al cargar la página.</b><br><br>Detalle técnico (mandale esto a Claude):<br><code style="white-space:pre-wrap;word-break:break-all;">' + (e.message || e) + '</code></div>';
+    }
+  });
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script type="module" src="./src/main.js?v=15"></script></body></html>
