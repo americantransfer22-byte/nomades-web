@@ -111,11 +111,96 @@ function cuentaPanel(){
   const tipoVia = TIPOS_VIA[c.street_type] || 'Calle'
   layout(`<h2>👤 Hola, ${c.first_name}</h2>
   <div class="card"><h3>Tu próximo pedido</h3>${next?`<div class="row"><span>${next.delivery_date}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div><p>${next.quantity_maples||''} maple(s)</p>`:'<p class="muted">No tenés entregas próximas.</p>'}</div>
-  <div class="card"><h3>Tus suscripciones</h3>${cuenta.subscriptions.length?cuenta.subscriptions.map(s=>`<div class="row"><span>${s.egg_quantity} huevos · ${FRECUENCIAS[s.frequency]||s.frequency}</span><span class="badge">${s.payment_status==='paid'?'✅ Pago al día':'🟡 Pago pendiente'}</span></div>`).join(''):'<p class="muted">No tenés suscripciones activas.</p>'}</div>
+  <div class="card" id="card_subs"><h3>Tus suscripciones</h3>${cuenta.subscriptions.length?cuenta.subscriptions.map(s=>`<div class="row"><span>${s.egg_quantity} huevos · ${FRECUENCIAS[s.frequency]||s.frequency}${s.status==='waitlist'?' · <span class="badge" style="background:#b3841f">🕒 Lista de espera</span>':''}</span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="badge">${s.payment_status==='paid'?'✅ Pago al día':'🟡 Pago pendiente'}</span><button class="btn ghost" data-cambiar-plan="${s.id}" style="font-size:12px;padding:6px 12px">✏️ Cambiar plan</button></span></div>`).join(''):'<p class="muted">No tenés suscripciones activas.</p>'}</div>
   <div class="card" id="card_datos"><h3>Tus datos</h3><p>🏠 ${tipoVia} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'} (CP ${c.postal_code||'-'})</p><p>📍 Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'}</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
   <button class="btn ghost" id="btn_logout_cuenta">Cerrar sesión</button>`)
   document.querySelector('#btn_logout_cuenta').onclick = ()=>{ cuenta=null; current='inicio'; render() }
   document.querySelector('#btn_editar_datos').onclick = ()=>editarDatosForm(c)
+  document.querySelectorAll('[data-cambiar-plan]').forEach(b=>b.onclick = ()=>{
+    const sub = cuenta.subscriptions.find(s=>s.id===b.dataset.cambiarPlan)
+    if(sub) cambiarPlanForm(sub)
+  })
+}
+
+let planesDisponibles = []
+
+async function cambiarPlanForm(sub){
+  const box = document.querySelector('#card_subs')
+  box.innerHTML = `<h3>Cambiar plan</h3><p class="muted">Cargando opciones…</p>`
+  if(!planesDisponibles.length){
+    const { data } = await supabase.from('plan_prices').select('egg_quantity,price').eq('active', true).order('egg_quantity')
+    planesDisponibles = data || [{egg_quantity:15,price:7000},{egg_quantity:30,price:12000}]
+  }
+  let eggsSel = sub.egg_quantity
+  let freqSel = sub.frequency
+  let diaSel = null
+  let disponibilidad = null
+  let alternativas = null
+  const DIAS_LOCAL = [[1,'Lunes'],[2,'Martes'],[3,'Miércoles'],[4,'Jueves'],[5,'Viernes']]
+  const render2 = ()=>{
+    let dispHtml = ''
+    if(disponibilidad!==null){
+      if(disponibilidad.available){
+        dispHtml = `<div class="alert info">✅ Hay lugar. Próxima entrega: <b>${new Date(disponibilidad.next_date+'T00:00:00').toLocaleDateString('es-AR',{day:'numeric',month:'long'})}</b></div>`
+      } else if(diaSel!==null && alternativas && alternativas.length){
+        const diaLabel = DIAS_LOCAL.find(([v])=>v===diaSel)?.[1]||''
+        dispHtml = `<div class="alert info">🔥 ${diaLabel} no tiene lugar, pero sí estos días:
+          <div class="grid two" style="margin-top:10px">${alternativas.map(a=>{
+            const l = DIAS_LOCAL.find(([v])=>v===a.weekday)?.[1]||''
+            const f = new Date(a.date+'T00:00:00').toLocaleDateString('es-AR',{day:'numeric',month:'short'})
+            return `<button type="button" class="btn ghost" data-alt-dia="${a.weekday}">${l} <small>(${f})</small></button>`
+          }).join('')}</div></div>`
+      } else {
+        dispHtml = `<div class="alert info">🔥 No hay lugar libre ahora mismo para esta cantidad — pero tranquilo, tu suscripción actual sigue activa hasta que cambies, y si confirmás quedás en lista de espera para la ampliación.</div>`
+      }
+    }
+    box.innerHTML = `<h3>Cambiar plan</h3>
+      <div class="field"><label>Cantidad de huevos</label>
+        <div class="grid two">${planesDisponibles.map(pl=>`<button type="button" class="btn ${eggsSel===pl.egg_quantity?'primary':'ghost'}" data-eggs="${pl.egg_quantity}">${pl.egg_quantity} huevos<br><small>$${Number(pl.price).toLocaleString('es-AR')}</small></button>`).join('')}</div>
+      </div>
+      <div class="field"><label>Frecuencia</label>
+        <div class="grid three">${Object.entries(FRECUENCIAS).map(([v,l])=>`<button type="button" class="btn ${freqSel===v?'primary':'ghost'}" data-freq="${v}">${l}</button>`).join('')}</div>
+      </div>
+      <div class="field"><label>¿Día preferido? (opcional)</label>
+        <div class="grid three">
+          <button type="button" class="btn ${diaSel===null?'primary':'ghost'}" data-dia="">Cualquiera</button>
+          ${DIAS_LOCAL.map(([v,l])=>`<button type="button" class="btn ${diaSel===v?'primary':'ghost'}" data-dia="${v}">${l}</button>`).join('')}
+        </div>
+      </div>
+      <div id="disp_cambio">${dispHtml}</div>
+      <div id="err_cambio" class="alert danger" style="display:none"></div>
+      <button class="btn primary" id="btn_confirmar_cambio">Confirmar cambio</button>
+      <button class="btn ghost" id="btn_cancelar_cambio" style="margin-left:8px">Cancelar</button>`
+    document.querySelectorAll('[data-eggs]').forEach(b=>b.onclick=async()=>{ eggsSel=Number(b.dataset.eggs); disponibilidad=null; render2(); await consultar() })
+    document.querySelectorAll('[data-freq]').forEach(b=>b.onclick=async()=>{ freqSel=b.dataset.freq; disponibilidad=null; render2(); await consultar() })
+    document.querySelectorAll('[data-dia]').forEach(b=>b.onclick=async()=>{ diaSel=b.dataset.dia?Number(b.dataset.dia):null; disponibilidad=null; render2(); await consultar() })
+    document.querySelectorAll('[data-alt-dia]').forEach(b=>b.onclick=async()=>{ diaSel=Number(b.dataset.altDia); disponibilidad=null; render2(); await consultar() })
+    document.querySelector('#btn_cancelar_cambio').onclick = ()=>cuentaPanel()
+    document.querySelector('#btn_confirmar_cambio').onclick = async ()=>{
+      const errBox = document.querySelector('#err_cambio')
+      const { data, error } = await supabase.rpc('customer_update_subscription', {
+        p_dni: cuenta.customer.dni, p_customer_id: cuenta.customer.id, p_subscription_id: sub.id,
+        p_egg_quantity: eggsSel, p_frequency: freqSel, p_preferred_weekday: diaSel
+      })
+      if(error || !data?.ok){ errBox.textContent='No pudimos hacer el cambio. Probá de nuevo.'; errBox.style.display='block'; return }
+      const { data: fresh } = await supabase.rpc('customer_login', { p_dni: cuenta.customer.dni })
+      if(fresh?.found) cuenta = fresh
+      alert(data.status==='active' ? '✅ Plan actualizado. Próxima entrega: '+data.next_delivery_date : '🕒 Quedaste en lista de espera para la ampliación de tu plan.')
+      cuentaPanel()
+    }
+  }
+  const consultar = async ()=>{
+    const { data, error } = await supabase.rpc('check_availability', { p_egg_quantity: eggsSel, p_frequency: freqSel, p_preferred_weekday: diaSel })
+    disponibilidad = (!error && data) ? data : null
+    alternativas = null
+    if(!disponibilidad?.available && diaSel !== null){
+      const { data: alt } = await supabase.rpc('available_days_summary', { p_egg_quantity: eggsSel, p_frequency: freqSel })
+      alternativas = (alt||[]).filter(a=>a.weekday !== diaSel)
+    }
+    render2()
+  }
+  render2()
+  await consultar()
 }
 
 const ZONAS = [
