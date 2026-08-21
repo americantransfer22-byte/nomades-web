@@ -15,7 +15,7 @@ const METODOS_PAGO = [
 const state = {
   step: 1,
   planes: [],
-  cliente: { first_name:'', last_name:'', dni:'', phone:'', email:'', street:'', street_number:'', street_type:'calle', neighborhood:'', city:'', province:'', country:'Argentina', zone:'', logistics_note:'' },
+  cliente: { first_name:'', last_name:'', dni:'', phone:'', email:'', street:'', street_number:'', street_type:'calle', neighborhood:'', city:'', province:'', country:'Argentina', postal_code:'', zone:'', logistics_note:'' },
   plan: { eggs: null, frequency: 'weekly', payment_method: 'cash' },
   tieneReferencia: false,
   referencia: { full_name:'', phone:'', dni:'', relationship:'' },
@@ -121,6 +121,7 @@ function paso1(){
         <option value="">${state.localidadesLoading?'Cargando localidades…':(c.province?'Seleccioná tu localidad':'Elegí primero la provincia')}</option>
         ${state.localidades.map(l=>`<option value="${l}" ${c.city===l?'selected':''}>${l}</option>`).join('')}
       </select></div>
+      <div class="field"><label>Código postal</label><input id="f_postal_code" value="${c.postal_code}"/></div>
     </div>
     <div class="field"><label>Zona *</label>
       <div class="grid two">${ZONAS.map(z=>`<button type="button" class="btn ${c.zone===z.value?'primary':'ghost'}" data-zone="${z.value}">${z.label}</button>`).join('')}</div>
@@ -214,7 +215,7 @@ function render(){
 
 function bind(){
   if(state.step===1){
-    const ids = ['first_name','last_name','dni','phone','email','neighborhood','street','street_number']
+    const ids = ['first_name','last_name','dni','phone','email','neighborhood','street','street_number','postal_code']
     ids.forEach(id=>{
       const el = document.querySelector('#f_'+id)
       if(el) el.oninput = ()=> state.cliente[id] = el.value
@@ -282,7 +283,7 @@ async function enviar(){
       phone: c.phone.trim(), email: c.email.trim() || '',
       street: c.street.trim(), street_number: c.street_number.trim(), street_type: c.street_type || 'calle',
       neighborhood: c.neighborhood.trim(), city: c.city,
-      province: c.province, country: 'Argentina',
+      province: c.province, country: 'Argentina', postal_code: c.postal_code.trim() || '',
       zone: c.zone || '',
       logistics_note: c.logistics_note.trim() || ''
     }
