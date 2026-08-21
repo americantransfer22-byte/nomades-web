@@ -459,6 +459,10 @@ async function admin(){
   const productos = await q('products','id,name,unit_label,category,current_qty,active')
   const { data: movimientosRaw } = await supabase.from('stock_movements').select('id,product_id,type,quantity,note,created_by,created_at').order('created_at',{ascending:false}).limit(20)
   const movimientos = movimientosRaw || []
+  const { data: waitlistRaw } = await supabase.from('waitlist').select('id,customer_id,egg_quantity,frequency,position,created_at,customers(first_name,last_name,phone)').order('position')
+  const waitlist = waitlistRaw || []
+  const { data: settingsRaw } = await supabase.from('farm_settings').select('key,value').eq('key','default_daily_capacity_maples').single()
+  const capacidadBase = settingsRaw?.value || '10'
   const staffMap = Object.fromEntries(staff.map(s=>[s.user_id, s.full_name||'(sin nombre)']))
   const productMap = Object.fromEntries(productos.map(p=>[p.id, p]))
   const CATEGORIAS = [{value:'alimento',label:'Alimento'},{value:'sanidad',label:'Sanidad'},{value:'limpieza',label:'Limpieza'},{value:'otro',label:'Otro'}]
@@ -500,6 +504,18 @@ async function admin(){
         const fecha = new Date(m.created_at).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})
         return `<div class="row"><span>${tipoLabel} · ${prod?prod.name:'(producto eliminado)'}<br><small>${quien} · ${fecha}${m.note?' · '+m.note:''}</small></span><span>${m.quantity} ${prod?prod.unit_label:''}</span></div>`
       }).join('') : '<p class="muted">Sin movimientos todavía.</p>'}
+    </div>
+  </div>
+  <div class="card"><h3>📅 Capacidad y lista de espera</h3>
+    <div class="field"><label>Capacidad base diaria (maples), por si todavía no hay producción cargada para estimar</label><input id="cap_base" type="number" min="0" value="${capacidadBase}"/></div>
+    <button class="btn ghost" id="btn_guardar_capacidad">Guardar capacidad base</button>
+    <div id="err_capacidad" class="alert danger" style="display:none;margin-top:8px"></div>
+    <div style="margin-top:16px"><h3 style="font-size:15px">Lista de espera (${waitlist.length})</h3>
+      ${waitlist.length? waitlist.map((w,i)=>{
+        const c = w.customers||{}
+        const freqLabel = FRECUENCIAS[w.frequency]||w.frequency
+        return `<div class="row"><span><b>#${i+1}</b> ${c.first_name||''} ${c.last_name||''}<br><small>${w.egg_quantity} huevos · ${freqLabel} · 📞 ${c.phone||'-'}</small></span><button class="btn primary" data-promover="${w.id}">✅ Activar</button></div>`
+      }).join('') : '<p class="muted">Nadie en lista de espera por ahora 🎉</p>'}
     </div>
   </div>`)
 
@@ -543,6 +559,21 @@ async function admin(){
     if(!qty || qty<=0){ alert('Ingresá una cantidad válida.'); return }
     const { error } = await supabase.from('stock_movements').insert({ product_id:id, type:'compra', quantity:qty, created_by: session?.user?.id || null })
     if(error){ alert('Error: '+error.message); return }
+    render()
+  })
+  document.querySelector('#btn_guardar_capacidad').onclick = async ()=>{
+    const val = document.querySelector('#cap_base').value.trim()
+    const box = document.querySelector('#err_capacidad')
+    if(!val || Number(val)<=0){ box.textContent='Ingresá un número válido.'; box.style.display='block'; return }
+    const { error } = await supabase.from('farm_settings').update({ value: val }).eq('key','default_daily_capacity_maples')
+    if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
+    render()
+  }
+  document.querySelectorAll('[data-promover]').forEach(b=>b.onclick=async()=>{
+    if(!confirm('¿Activar a esta persona? Va a pasar de la lista de espera a suscripción activa, con 50% de descuento en su primera entrega.'))return
+    const { data, error } = await supabase.rpc('promote_waitlist_entry', { p_waitlist_id: b.dataset.promover })
+    if(error || !data?.ok){ alert('No se pudo activar: '+(data?.error||error?.message||'')); return }
+    alert('Activado ✅ Próxima entrega: '+data.next_delivery_date)
     render()
   })
 }
