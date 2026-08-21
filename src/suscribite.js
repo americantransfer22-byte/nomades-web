@@ -209,7 +209,7 @@ function paso2(){
   <div class="card">
     <h2>2. Elegí tu plan</h2>
     <div class="field"><label>Elegí y combiná los tamaños que quieras (podés mezclar varios)</label>
-      ${state.planes.map(pl=>`<div class="row"><span>${pl.egg_quantity} huevos <small class="muted">($${Number(pl.price).toLocaleString('es-AR')} c/u)</small></span><span style="display:flex;align-items:center;gap:8px"><button type="button" class="btn ghost" data-carrito-menos="${pl.egg_quantity}" style="padding:6px 14px">−</button><b style="min-width:20px;text-align:center;display:inline-block">${p.carrito[pl.egg_quantity]||0}</b><button type="button" class="btn ghost" data-carrito-mas="${pl.egg_quantity}" style="padding:6px 14px">+</button></span></div>`).join('')}
+      ${state.planes.map(pl=>`<div class="row"><span>Maple de ${pl.egg_quantity} huevos <small class="muted">$${Number(pl.price).toLocaleString('es-AR')} el maple ($${Math.round(pl.price/pl.egg_quantity).toLocaleString('es-AR')} por huevo)</small></span><span style="display:flex;align-items:center;gap:8px"><button type="button" class="btn ghost" data-carrito-menos="${pl.egg_quantity}" style="padding:6px 14px">−</button><b style="min-width:20px;text-align:center;display:inline-block">${p.carrito[pl.egg_quantity]||0}</b><button type="button" class="btn ghost" data-carrito-mas="${pl.egg_quantity}" style="padding:6px 14px">+</button></span></div>`).join('')}
     </div>
     <div class="alert info"><b>Total: ${total} huevos</b> ${carritoResumen()?`(${carritoResumen()})`:''} · $${precioCarrito().toLocaleString('es-AR')}</div>
     <div class="field" style="margin-top:10px"><label>Frecuencia de entrega</label>
