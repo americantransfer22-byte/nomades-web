@@ -120,6 +120,7 @@ function cuentaPanel(){
   layout(`<h2>👤 Hola, ${c.first_name}</h2>
   <div class="card"><h3>Tu próximo pedido</h3>${next?`<div class="row"><span>${formatearFecha(next.delivery_date)}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div><p>${next.quantity_maples||''} maple(s)</p>${next.payment_method?`<div class="alert info">💡 Recordá: el pago es en <b>${METODOS_PAGO_LABEL[next.payment_method]||next.payment_method}</b>.</div>`:''}`:'<p class="muted">No tenés entregas próximas.</p>'}</div>
   <div class="card" id="card_subs"><h3>Tus suscripciones</h3>${cuenta.subscriptions.length?cuenta.subscriptions.map(s=>`<div class="row"><span>${s.egg_quantity} huevos · ${FRECUENCIAS[s.frequency]||s.frequency}${s.status==='waitlist'?' · <span class="badge" style="background:#b3841f">🕒 Lista de espera</span>':''}</span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="badge">${s.payment_status==='paid'?'✅ Pago al día':'🟡 Pago pendiente'}</span><button class="btn ghost" data-cambiar-plan="${s.id}" style="font-size:12px;padding:6px 12px">✏️ Cambiar plan</button></span></div>`).join(''):'<p class="muted">No tenés suscripciones activas.</p>'}</div>
+  <div class="card" id="card_pagos"><h3>💳 Historial de pagos</h3><p class="muted">Cargando…</p></div>
   <div class="card" id="card_datos"><h3>Tus datos</h3><p>🏠 ${tipoVia} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'} (CP ${c.postal_code||'-'})</p><p>📍 Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'}</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
   <button class="btn ghost" id="btn_logout_cuenta">Cerrar sesión</button>`)
   document.querySelector('#btn_logout_cuenta').onclick = ()=>{ cuenta=null; current='inicio'; render() }
@@ -128,6 +129,20 @@ function cuentaPanel(){
     const sub = cuenta.subscriptions.find(s=>s.id===b.dataset.cambiarPlan)
     if(sub) cambiarPlanForm(sub)
   })
+  cargarHistorialPagos(c)
+}
+
+async function cargarHistorialPagos(c){
+  const box = document.querySelector('#card_pagos')
+  const { data } = await supabase.rpc('customer_payment_history', { p_dni: c.dni, p_customer_id: c.id })
+  const pagos = data || []
+  if(!box) return
+  if(!pagos.length){ box.innerHTML = `<h3>💳 Historial de pagos</h3><p class="muted">Todavía no tenés pagos registrados.</p>`; return }
+  box.innerHTML = `<h3>💳 Historial de pagos</h3>${pagos.map(p=>{
+    const distinto = p.expected_method && p.expected_method !== p.actual_method
+    const fecha = new Date(p.date).toLocaleDateString('es-AR',{day:'numeric',month:'short',year:'numeric'})
+    return `<div class="row"><span>${fecha}${distinto?` <small class="muted">(pagaste ${METODOS_PAGO_LABEL[p.actual_method]||p.actual_method}, tenías seteado ${METODOS_PAGO_LABEL[p.expected_method]||p.expected_method})</small>`:` <small class="muted">${METODOS_PAGO_LABEL[p.actual_method]||p.actual_method}</small>`}</span><span><b>$${Number(p.amount||0).toLocaleString('es-AR')}</b></span></div>`
+  }).join('')}`
 }
 
 let planesDisponibles = []
@@ -548,11 +563,74 @@ async function repartidor(){
 }
 
 async function openDelivery(id){
-  const {data:r,error}=await supabase.from('orders').select('id,status,important_note,customers(id,first_name,last_name,phone,street,street_number,neighborhood)').eq('id',id).single()
-  if(error||!r)return alert('No se pudo cargar el pedido')
-  const c=r.customers||{}
-  layout(`<h2>Detalle de entrega</h2>${r.important_note?`<div class="alert warning"><b>⚠️ OBSERVACIÓN IMPORTANTE</b><br>${r.important_note}</div>`:''}<div class="grid two"><div class="card"><h3>${c.street||''} ${c.street_number||''}</h3><p>${c.first_name||''} ${c.last_name||''}</p><p>📞 ${c.phone||'-'}</p><button class="btn ghost" onclick="window.open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent('${(c.street||'')+' '+(c.street_number||'')+' '+(c.neighborhood||'')}'),'_blank')">📍 Google Maps</button></div><div class="card"><h3>Confirmar entrega</h3><div class="field"><label>DNI de quien recibe</label><input id="dni" autocomplete="off" /></div><button class="btn primary" id="validate">Validar DNI</button><div id="validation" style="margin-top:12px"></div><button class="btn primary" id="confirm" style="width:100%;margin-top:12px" disabled>✅ Confirmar entrega</button><button class="btn ghost" id="failed" style="width:100%;margin-top:8px">❌ No pude entregar</button></div></div>`)
+  const { data: detalle, error: errDet } = await supabase.rpc('delivery_detail', { p_order_id: id })
+  if(errDet || !detalle || detalle.error) return alert('No se pudo cargar el pedido')
+  const r = detalle.order, c = detalle.customer, sub = detalle.subscription || {}
+  const { data: settingsRaw } = await supabase.from('farm_settings').select('key,value').in('key',['transfer_cbu','transfer_alias','mp_alias'])
+  const cfg = Object.fromEntries((settingsRaw||[]).map(s=>[s.key,s.value]))
+  const montoDefault = sub.price_at_signup || 0
+  layout(`<h2>Detalle de entrega</h2>${r.important_note?`<div class="alert warning"><b>⚠️ OBSERVACIÓN IMPORTANTE</b><br>${r.important_note}</div>`:''}
+  <div class="grid two">
+    <div class="card">
+      <h3>${c.street||''} ${c.street_number||''}</h3>
+      <p>${c.first_name||''} ${c.last_name||''}</p>
+      <p>📞 ${c.phone||'-'}</p>
+      <p>📦 ${FRECUENCIAS[sub.frequency]||sub.frequency||'-'} · ${sub.egg_quantity||'-'} huevos${sub.plan_breakdown?` (${sub.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')})`:''}</p>
+      <p>💰 A cobrar: <b>$${Number(montoDefault).toLocaleString('es-AR')}</b></p>
+      <p>💳 Método configurado: <b>${METODOS_PAGO_LABEL[sub.payment_method]||sub.payment_method||'-'}</b></p>
+      <button class="btn ghost" onclick="window.open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent('${(c.street||'')+' '+(c.street_number||'')+' '+(c.neighborhood||'')}'),'_blank')">📍 Google Maps</button>
+    </div>
+    <div class="card">
+      <h3>Confirmar entrega</h3>
+      <div class="field"><label>DNI de quien recibe</label><input id="dni" autocomplete="off" /></div>
+      <button class="btn primary" id="validate">Validar DNI</button>
+      <div id="validation" style="margin-top:12px"></div>
+      <div class="field" style="margin-top:12px"><label>Monto cobrado</label><input id="monto_cobrado" type="number" value="${montoDefault}"/></div>
+      <div class="field"><label>¿Con qué método pagó?</label>
+        <div class="grid three" id="metodo_group">
+          <button type="button" class="btn ${sub.payment_method==='cash'?'primary':'ghost'}" data-metodo="cash">Efectivo</button>
+          <button type="button" class="btn ${sub.payment_method==='transfer'?'primary':'ghost'}" data-metodo="transfer">Transferencia</button>
+          <button type="button" class="btn ${sub.payment_method==='mp'?'primary':'ghost'}" data-metodo="mp">Mercado Pago</button>
+        </div>
+      </div>
+      <div id="datos_transferencia"></div>
+      <div id="err_confirm" class="alert danger" style="display:none"></div>
+      <button class="btn primary" id="confirm" style="width:100%;margin-top:12px" disabled>✅ Confirmar entrega</button>
+      <button class="btn ghost" id="failed" style="width:100%;margin-top:8px">❌ No pude entregar</button>
+    </div>
+  </div>`)
   let receiverId=null
+  let metodoSel = sub.payment_method || 'cash'
+  let comprobanteFile = null
+  let comprobanteUrl = ''
+
+  const renderDatosTransferencia = ()=>{
+    const box = document.querySelector('#datos_transferencia')
+    if(metodoSel === 'cash'){ box.innerHTML=''; return }
+    const cbu = cfg.transfer_cbu||'', alias = cfg.transfer_alias||'', mpAlias = cfg.mp_alias||''
+    box.innerHTML = `<div class="alert info">
+      ${metodoSel==='transfer'?`<p style="margin:0 0 6px">CBU: <b id="txt_cbu">${cbu||'(no cargado)'}</b> ${cbu?'<button type=\"button\" class=\"btn ghost\" data-copiar=\"txt_cbu\" style=\"padding:2px 8px;font-size:11px\">Copiar</button>':''}</p>
+      <p style="margin:0">Alias: <b id="txt_alias">${alias||'(no cargado)'}</b> ${alias?'<button type=\"button\" class=\"btn ghost\" data-copiar=\"txt_alias\" style=\"padding:2px 8px;font-size:11px\">Copiar</button>':''}</p>`:
+      `<p style="margin:0">Alias MP: <b id="txt_mp">${mpAlias||'(no cargado)'}</b> ${mpAlias?'<button type=\"button\" class=\"btn ghost\" data-copiar=\"txt_mp\" style=\"padding:2px 8px;font-size:11px\">Copiar</button>':''}</p>`}
+    </div>
+    <div class="field"><label>Foto del comprobante *</label><input type="file" id="comprobante_input" accept="image/*"/></div>`
+    const inputFile = document.querySelector('#comprobante_input')
+    if(inputFile) inputFile.onchange = (e)=>{ comprobanteFile = e.target.files[0]||null }
+    box.querySelectorAll('[data-copiar]').forEach(btn=> btn.onclick = ()=>{
+      const texto = document.querySelector('#'+btn.dataset.copiar).textContent
+      navigator.clipboard?.writeText(texto)
+      btn.textContent = '✅'
+      setTimeout(()=>{ btn.textContent='Copiar' }, 1500)
+    })
+  }
+  renderDatosTransferencia()
+  document.querySelectorAll('#metodo_group [data-metodo]').forEach(b=> b.onclick = ()=>{
+    metodoSel = b.dataset.metodo
+    document.querySelectorAll('#metodo_group [data-metodo]').forEach(x=> x.className = 'btn '+(x.dataset.metodo===metodoSel?'primary':'ghost'))
+    comprobanteFile = null
+    renderDatosTransferencia()
+  })
+
   document.querySelector('#validate').onclick=async()=>{
     const dni=document.querySelector('#dni').value.trim()
     const {data,error}=await supabase.rpc('validate_delivery_receiver',{p_order_id:id,p_dni:dni})
@@ -561,12 +639,24 @@ async function openDelivery(id){
     receiverId=data.receiver_id; out.innerHTML=`<div class="alert info">✅ Identidad validada: <b>${data.receiver_name}</b></div>`; document.querySelector('#confirm').disabled=false
   }
   document.querySelector('#confirm').onclick=async()=>{
-    const {error}=await supabase.rpc('confirm_delivery',{p_order_id:id,p_receiver_id:receiverId})
-    if(error)return alert(error.message)
-    alert('Entrega confirmada'); current='repartidor'; render()
+    const errBox = document.querySelector('#err_confirm')
+    if(metodoSel!=='cash' && !comprobanteFile){ errBox.textContent='Subí la foto del comprobante antes de confirmar.'; errBox.style.display='block'; return }
+    const monto = Number(document.querySelector('#monto_cobrado').value) || montoDefault
+    if(comprobanteFile){
+      const path = `${id}/receipt_${Date.now()}.${(comprobanteFile.name.split('.').pop()||'jpg')}`
+      const { error: upErr } = await supabase.storage.from('payment-receipts').upload(path, comprobanteFile)
+      if(upErr){ errBox.textContent='No se pudo subir el comprobante: '+upErr.message; errBox.style.display='block'; return }
+      const { data: pub } = supabase.storage.from('payment-receipts').getPublicUrl(path)
+      comprobanteUrl = pub.publicUrl
+    }
+    const {data, error}=await supabase.rpc('confirm_delivery',{p_order_id:id,p_receiver_id:receiverId,p_actual_method:metodoSel,p_amount:monto,p_receipt_url:comprobanteUrl||null})
+    if(error || !data?.ok){ errBox.textContent='No se pudo confirmar: '+(error?.message||data?.error||''); errBox.style.display='block'; return }
+    alert('Entrega confirmada ✅'); current='repartidor'; render()
   }
   document.querySelector('#failed').onclick=async()=>{
-    const reason=prompt('Motivo: ausente / no responde / DNI no autorizado / dirección incorrecta / otro')
+    const motivos = ['Ausente','No responde','DNI no autorizado','Dirección incorrecta','Cliente no pudo pagar','Otro']
+    const idx = prompt('Motivo:\n'+motivos.map((m,i)=>`${i+1}. ${m}`).join('\n')+'\n\nEscribí el número:')
+    const reason = motivos[Number(idx)-1]
     if(!reason)return
     const {error}=await supabase.from('delivery_attempts').insert({order_id:id,status:'failed',failure_reason:reason})
     if(error)return alert(error.message)
@@ -582,8 +672,11 @@ async function admin(){
   const movimientos = movimientosRaw || []
   const { data: waitlistRaw } = await supabase.from('waitlist').select('id,customer_id,egg_quantity,frequency,position,created_at,customers(first_name,last_name,phone)').order('position')
   const waitlist = waitlistRaw || []
-  const { data: settingsRaw } = await supabase.from('farm_settings').select('key,value').eq('key','default_daily_capacity_maples').single()
-  const capacidadBase = settingsRaw?.value || '10'
+  const { data: settingsAllRaw } = await supabase.from('farm_settings').select('key,value').in('key',['default_daily_capacity_maples','transfer_cbu','transfer_alias','mp_alias'])
+  const settingsMap = Object.fromEntries((settingsAllRaw||[]).map(s=>[s.key,s.value]))
+  const capacidadBase = settingsMap.default_daily_capacity_maples || '300'
+  const { data: pagosRaw } = await supabase.from('payments').select('id,amount,expected_method,method,reconciled,created_at,customers(first_name,last_name)').order('created_at',{ascending:false}).limit(30)
+  const pagos = pagosRaw || []
   const staffMap = Object.fromEntries(staff.map(s=>[s.user_id, s.full_name||'(sin nombre)']))
   const productMap = Object.fromEntries(productos.map(p=>[p.id, p]))
   const CATEGORIAS = [{value:'alimento',label:'Alimento'},{value:'sanidad',label:'Sanidad'},{value:'limpieza',label:'Limpieza'},{value:'otro',label:'Otro'}]
@@ -649,6 +742,29 @@ async function admin(){
         const freqLabel = FRECUENCIAS[w.frequency]||w.frequency
         return `<div class="row"><span><b>#${i+1}</b> ${c.first_name||''} ${c.last_name||''}<br><small>${w.egg_quantity} huevos · ${freqLabel} · 📞 ${c.phone||'-'}</small></span><button class="btn primary" data-promover="${w.id}">✅ Activar</button></div>`
       }).join('') : '<p class="muted">Nadie en lista de espera por ahora 🎉</p>'}
+    </div>
+  </div>
+  <div class="card"><h3>💳 Datos para transferencia / billetera virtual</h3>
+    <p class="muted">Esto se le muestra al repartidor cuando un cliente paga digital, para que pueda copiarlo y compartirlo.</p>
+    <div class="field"><label>CBU</label><input id="cfg_cbu" value="${settingsMap.transfer_cbu||''}"/></div>
+    <div class="field"><label>Alias (transferencia)</label><input id="cfg_alias" value="${settingsMap.transfer_alias||''}"/></div>
+    <div class="field"><label>Alias Mercado Pago</label><input id="cfg_mp" value="${settingsMap.mp_alias||''}"/></div>
+    <button class="btn ghost" id="btn_guardar_pago_config">Guardar datos de cobro</button>
+  </div>
+  <div class="card"><h3>🧾 Rendición y conciliación</h3>
+    ${(()=>{
+      const hoy = new Date().toISOString().slice(0,10)
+      const pagosHoy = pagos.filter(p=>p.created_at.slice(0,10)===hoy)
+      const totalPorMetodo = m => pagosHoy.filter(p=>p.method===m).reduce((s,p)=>s+Number(p.amount||0),0)
+      return `<div class="grid three"><div class="card stat">Efectivo hoy<b>$${totalPorMetodo('cash').toLocaleString('es-AR')}</b></div><div class="card stat">Transferencia hoy<b>$${totalPorMetodo('transfer').toLocaleString('es-AR')}</b></div><div class="card stat">Mercado Pago hoy<b>$${totalPorMetodo('mp').toLocaleString('es-AR')}</b></div></div>`
+    })()}
+    <div style="margin-top:16px">
+      ${pagos.length? pagos.map(p=>{
+        const c=p.customers||{}
+        const distinto = p.expected_method && p.expected_method !== p.method
+        const fecha = new Date(p.created_at).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})
+        return `<div class="row"><span>${c.first_name||''} ${c.last_name||''} <span class="badge">${METODOS_PAGO_LABEL[p.method]||p.method}</span>${distinto?` <small class="muted">(esperado: ${METODOS_PAGO_LABEL[p.expected_method]||p.expected_method})</small>`:''}<br><small>${fecha} · $${Number(p.amount||0).toLocaleString('es-AR')}</small></span><label style="display:flex;align-items:center;gap:6px"><input type="checkbox" data-conciliar="${p.id}" ${p.reconciled?'checked':''}/> Conciliado</label></div>`
+      }).join('') : '<p class="muted">Todavía no hay pagos registrados.</p>'}
     </div>
   </div>`)
 
@@ -733,6 +849,19 @@ async function admin(){
     if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
     render()
   }
+  document.querySelector('#btn_guardar_pago_config').onclick = async ()=>{
+    const cbu = document.querySelector('#cfg_cbu').value.trim()
+    const alias = document.querySelector('#cfg_alias').value.trim()
+    const mp = document.querySelector('#cfg_mp').value.trim()
+    await supabase.from('farm_settings').update({ value: cbu }).eq('key','transfer_cbu')
+    await supabase.from('farm_settings').update({ value: alias }).eq('key','transfer_alias')
+    await supabase.from('farm_settings').update({ value: mp }).eq('key','mp_alias')
+    alert('Datos de cobro guardados ✅')
+  }
+  document.querySelectorAll('[data-conciliar]').forEach(chk=>chk.onchange=async()=>{
+    const { error } = await supabase.from('payments').update({ reconciled: chk.checked }).eq('id', chk.dataset.conciliar)
+    if(error){ alert('Error: '+error.message); chk.checked=!chk.checked }
+  })
 }
 
 async function render(){
