@@ -102,13 +102,16 @@ function cuentaLogin(){
 
 const FRECUENCIAS = { weekly:'Semanal', biweekly:'Quincenal', monthly:'Mensual' }
 
+const TIPOS_VIA = { calle:'Calle', avenida:'Avenida', pasaje:'Pasaje' }
+
 function cuentaPanel(){
   const c = cuenta.customer
   const next = cuenta.next_order
+  const tipoVia = TIPOS_VIA[c.street_type] || 'Calle'
   layout(`<h2>👤 Hola, ${c.first_name}</h2>
   <div class="card"><h3>Tu próximo pedido</h3>${next?`<div class="row"><span>${next.delivery_date}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div><p>${next.quantity_maples||''} maple(s)</p>`:'<p class="muted">No tenés entregas próximas.</p>'}</div>
   <div class="card"><h3>Tus suscripciones</h3>${cuenta.subscriptions.length?cuenta.subscriptions.map(s=>`<div class="row"><span>${s.egg_quantity} huevos · ${FRECUENCIAS[s.frequency]||s.frequency}</span><span class="badge">${s.payment_status==='paid'?'✅ Pago al día':'🟡 Pago pendiente'}</span></div>`).join(''):'<p class="muted">No tenés suscripciones activas.</p>'}</div>
-  <div class="card" id="card_datos"><h3>Tus datos</h3><p>${c.street||''} ${c.street_number||''}, ${c.neighborhood||''}</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><p>📍 Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
+  <div class="card" id="card_datos"><h3>Tus datos</h3><p>🏠 ${tipoVia} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'}</p><p>📍 Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'}</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
   <button class="btn ghost" id="btn_logout_cuenta">Cerrar sesión</button>`)
   document.querySelector('#btn_logout_cuenta').onclick = ()=>{ cuenta=null; current='inicio'; render() }
   document.querySelector('#btn_editar_datos').onclick = ()=>editarDatosForm(c)
@@ -120,16 +123,57 @@ const ZONAS = [
   { value: 'este', label: 'Este' },
   { value: 'oeste', label: 'Oeste' }
 ]
+const TIPOS_VIA_OPCIONES = [
+  { value: 'calle', label: 'Calle' },
+  { value: 'avenida', label: 'Avenida' },
+  { value: 'pasaje', label: 'Pasaje' }
+]
+
+const PROVINCIAS = [
+  'Buenos Aires','Catamarca','Chaco','Chubut','Ciudad Autónoma de Buenos Aires','Córdoba','Corrientes',
+  'Entre Ríos','Formosa','Jujuy','La Pampa','La Rioja','Mendoza','Misiones','Neuquén','Río Negro','Salta',
+  'San Juan','San Luis','Santa Cruz','Santa Fe','Santiago del Estero','Tierra del Fuego, Antártida e Islas del Atlántico Sur','Tucumán'
+]
+
+async function cargarLocalidadesEdit(provincia, citySel){
+  const grp = document.querySelector('#ed_city_wrap')
+  if(!grp) return
+  grp.innerHTML = `<label>Localidad</label><select id="ed_city" disabled><option>Cargando localidades…</option></select>`
+  try{
+    const url = `https://apis.datos.gob.ar/georef/api/localidades?provincia=${encodeURIComponent(provincia)}&campos=nombre&max=5000`
+    const res = await fetch(url)
+    const data = await res.json()
+    const nombres = [...new Set((data.localidades||[]).map(l=>l.nombre))].sort((a,b)=>a.localeCompare(b,'es'))
+    grp.innerHTML = `<label>Localidad</label><select id="ed_city">
+      <option value="">Seleccioná tu localidad</option>
+      ${nombres.map(n=>`<option value="${n}" ${citySel===n?'selected':''}>${n}</option>`).join('')}
+    </select>`
+    document.querySelector('#ed_city').onchange = (e)=>{ citySelValue = e.target.value }
+  }catch(e){
+    grp.innerHTML = `<label>Localidad</label><select id="ed_city"><option value="">No se pudo cargar</option></select>`
+  }
+}
+let citySelValue = ''
 
 function editarDatosForm(c){
   let zonaSel = c.zone || ''
+  let viaSel = c.street_type || 'calle'
+  citySelValue = c.city || ''
   const box = document.querySelector('#card_datos')
   box.innerHTML = `<h3>Editar mis datos</h3>
     <div class="field"><label>Teléfono</label><input id="ed_phone" value="${c.phone||''}"/></div>
     <div class="field"><label>Email</label><input id="ed_email" value="${c.email||''}"/></div>
-    <div class="field"><label>Calle</label><input id="ed_street" value="${c.street||''}"/></div>
+    <div class="field"><label>Tipo de vía</label><div class="grid three" id="ed_via_group">${TIPOS_VIA_OPCIONES.map(t=>`<button type="button" class="btn ${viaSel===t.value?'primary':'ghost'}" data-via="${t.value}">${t.label}</button>`).join('')}</div></div>
+    <div class="field"><label>Nombre de la calle</label><input id="ed_street" value="${c.street||''}"/></div>
     <div class="field"><label>Número</label><input id="ed_street_number" value="${c.street_number||''}"/></div>
     <div class="field"><label>Barrio</label><input id="ed_neighborhood" value="${c.neighborhood||''}"/></div>
+    <div class="field"><label>Provincia</label><select id="ed_province">
+      <option value="">Seleccioná tu provincia</option>
+      ${PROVINCIAS.map(p=>`<option value="${p}" ${c.province===p?'selected':''}>${p}</option>`).join('')}
+    </select></div>
+    <div class="field" id="ed_city_wrap"><label>Localidad</label><select id="ed_city" ${!c.province?'disabled':''}>
+      <option value="">${c.province?'Elegí la provincia de nuevo para cargar localidades':'Elegí primero la provincia'}</option>
+    </select></div>
     <div class="field"><label>Zona</label><div class="grid two" id="ed_zone_group">${ZONAS.map(z=>`<button type="button" class="btn ${zonaSel===z.value?'primary':'ghost'}" data-zone="${z.value}">${z.label}</button>`).join('')}</div></div>
     <div id="err_edit" class="alert danger" style="display:none"></div>
     <button class="btn primary" id="btn_guardar_datos">Guardar cambios</button>
@@ -138,6 +182,15 @@ function editarDatosForm(c){
     zonaSel = b.dataset.zone
     document.querySelectorAll('#ed_zone_group [data-zone]').forEach(x=> x.className = 'btn ' + (x.dataset.zone===zonaSel?'primary':'ghost'))
   })
+  document.querySelectorAll('#ed_via_group [data-via]').forEach(b=> b.onclick = ()=>{
+    viaSel = b.dataset.via
+    document.querySelectorAll('#ed_via_group [data-via]').forEach(x=> x.className = 'btn ' + (x.dataset.via===viaSel?'primary':'ghost'))
+  })
+  document.querySelector('#ed_province').onchange = (e)=>{
+    citySelValue = ''
+    if(e.target.value) cargarLocalidadesEdit(e.target.value, '')
+  }
+  if(c.province) cargarLocalidadesEdit(c.province, c.city || '')
   document.querySelector('#btn_cancelar_edit').onclick = ()=>cuentaPanel()
   document.querySelector('#btn_guardar_datos').onclick = async ()=>{
     const errBox = document.querySelector('#err_edit')
@@ -149,11 +202,15 @@ function editarDatosForm(c){
       p_street: document.querySelector('#ed_street').value.trim(),
       p_street_number: document.querySelector('#ed_street_number').value.trim(),
       p_neighborhood: document.querySelector('#ed_neighborhood').value.trim(),
-      p_zone: zonaSel
+      p_zone: zonaSel,
+      p_street_type: viaSel,
+      p_city: citySelValue || c.city || '',
+      p_province: document.querySelector('#ed_province').value,
+      p_country: 'Argentina'
     }
     const { data, error } = await supabase.rpc('customer_update', payload)
     if(error || !data?.ok){ errBox.textContent='No pudimos guardar los cambios. Probá de nuevo.'; errBox.style.display='block'; return }
-    Object.assign(c, { phone: payload.p_phone||c.phone, email: payload.p_email||c.email, street: payload.p_street||c.street, street_number: payload.p_street_number||c.street_number, neighborhood: payload.p_neighborhood||c.neighborhood, zone: payload.p_zone||c.zone })
+    Object.assign(c, { phone: payload.p_phone||c.phone, email: payload.p_email||c.email, street: payload.p_street||c.street, street_number: payload.p_street_number||c.street_number, neighborhood: payload.p_neighborhood||c.neighborhood, zone: payload.p_zone||c.zone, street_type: payload.p_street_type||c.street_type, city: payload.p_city||c.city, province: payload.p_province||c.province, country: payload.p_country||c.country })
     cuentaPanel()
   }
 }
