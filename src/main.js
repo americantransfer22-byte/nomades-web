@@ -717,6 +717,14 @@ async function admin(){
   const CATLABEL = {alimento:'Alimento',sanidad:'Sanidad',limpieza:'Limpieza',otro:'Otro'}
   const { data: planPricesRaw } = await supabase.from('plan_prices').select('id,egg_quantity,price,active').order('egg_quantity')
   const planPrices = planPricesRaw || []
+  const { data: catsRaw } = await supabase.from('finance_categories').select('id,name,type,active').order('name')
+  const categorias = catsRaw || []
+  const { data: entriesRaw } = await supabase.from('finance_entries').select('id,category_id,type,amount,entry_date,description,attachment_url').order('entry_date',{ascending:false}).limit(30)
+  const movimientosFinanzas = entriesRaw || []
+  const { data: dashboardRaw } = await supabase.rpc('finance_dashboard', {})
+  const dash = dashboardRaw || {}
+  const categoriaMap = Object.fromEntries(categorias.map(c=>[c.id,c]))
+  const TIPO_CAT_LABEL = { fixed:'Fijo', variable:'Variable', income:'Ingreso' }
   const count=s=>orders.filter(x=>x.status===s).length
   const pendientesDePago = subs.filter(s=>s.payment_status==='pending')
   const rolLabel = {admin:'Administrador',campo:'Personal de campo',repartidor:'Repartidor'}
@@ -810,6 +818,50 @@ async function admin(){
         const fecha = new Date(p.created_at).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})
         return `<div class="row"><span>${c.first_name||''} ${c.last_name||''} <span class="badge">${METODOS_PAGO_LABEL[p.method]||p.method}</span>${distinto?` <small class="muted">(esperado: ${METODOS_PAGO_LABEL[p.expected_method]||p.expected_method})</small>`:''}<br><small>${fecha} · $${Number(p.amount||0).toLocaleString('es-AR')}</small></span><label style="display:flex;align-items:center;gap:6px"><input type="checkbox" data-conciliar="${p.id}" ${p.reconciled?'checked':''}/> Conciliado</label></div>`
       }).join('') : '<p class="muted">Todavía no hay pagos registrados.</p>'}
+    </div>
+  </div>
+  <div class="card"><h3>💰 Finanzas</h3>
+    <div class="grid two">
+      <div class="card stat">Ventas (30 días)<b>$${Number(dash.ventas||0).toLocaleString('es-AR')}</b></div>
+      <div class="card stat">Gastos (30 días)<b>$${Number(dash.gastos||0).toLocaleString('es-AR')}</b></div>
+      <div class="card stat">Pérdidas (30 días)<b>$${Number(dash.perdidas||0).toLocaleString('es-AR')}</b></div>
+      <div class="card stat">Beneficio neto (30 días)<b style="color:${Number(dash.beneficio_neto||0)>=0?'inherit':'#a33'}">$${Number(dash.beneficio_neto||0).toLocaleString('es-AR')}</b></div>
+    </div>
+    <div class="alert info" style="margin-top:10px"><b>Caja total acumulada: $${Number(dash.caja||0).toLocaleString('es-AR')}</b></div>
+
+    <div class="group" style="margin-top:16px"><h3 style="font-size:15px">Categorías</h3>
+      <div class="grid two">
+        <div class="field"><label>Nombre</label><input id="cat_new_name" placeholder="Ej: Combustible"/></div>
+        <div class="field"><label>Tipo</label><select id="cat_new_type"><option value="fixed">Gasto fijo</option><option value="variable">Gasto variable</option><option value="income">Ingreso</option></select></div>
+      </div>
+      <button class="btn ghost" id="btn_crear_categoria">➕ Agregar categoría</button>
+      <div style="margin-top:10px">${categorias.length? categorias.map(c=>`<div class="row"><span>${c.name} <span class="badge">${TIPO_CAT_LABEL[c.type]||c.type}</span>${!c.active?' <small class="muted">(inactiva)</small>':''}</span><button class="btn ghost" data-cat-toggle="${c.id}" data-cat-active="${c.active}">${c.active?'Desactivar':'Activar'}</button></div>`).join('') : '<p class="muted">Todavía no hay categorías.</p>'}</div>
+    </div>
+
+    <div class="group" style="margin-top:16px"><h3 style="font-size:15px">Registrar movimiento</h3>
+      <div class="field"><label>Tipo</label>
+        <div class="grid two">
+          <button type="button" class="btn ghost" id="btn_tipo_expense" data-fin-tipo="expense">Gasto</button>
+          <button type="button" class="btn ghost" id="btn_tipo_income" data-fin-tipo="income">Ingreso</button>
+        </div>
+      </div>
+      <div class="field"><label>Categoría</label><select id="fin_categoria"><option value="">Elegí el tipo primero</option></select></div>
+      <div class="grid two">
+        <div class="field"><label>Monto</label><input id="fin_amount" type="number" min="0"/></div>
+        <div class="field"><label>Fecha</label><input id="fin_date" type="date" value="${new Date().toISOString().slice(0,10)}"/></div>
+      </div>
+      <div class="field"><label>Descripción</label><input id="fin_desc" placeholder="Ej: nafta de la semana"/></div>
+      <div class="field"><label>Comprobante (opcional)</label><input type="file" id="fin_receipt" accept="image/*,application/pdf"/></div>
+      <div id="err_finanzas" class="alert danger" style="display:none"></div>
+      <button class="btn primary" id="btn_guardar_movimiento">Guardar movimiento</button>
+    </div>
+
+    <div class="group" style="margin-top:16px"><h3 style="font-size:15px">Últimos movimientos</h3>
+      ${movimientosFinanzas.length? movimientosFinanzas.map(m=>{
+        const cat = categoriaMap[m.category_id]
+        const fecha = new Date(m.entry_date+'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})
+        return `<div class="row"><span>${m.type==='expense'?'🔴':'🟢'} ${cat?cat.name:'(sin categoría)'} <br><small>${fecha}${m.description?' · '+m.description:''}</small>${m.attachment_url?` <br><a href="${m.attachment_url}" target="_blank" style="font-size:12px">Ver comprobante</a>`:''}</span><span><b>$${Number(m.amount||0).toLocaleString('es-AR')}</b></span></div>`
+      }).join('') : '<p class="muted">Todavía no hay movimientos cargados.</p>'}
     </div>
   </div>`)
 
@@ -916,6 +968,56 @@ async function admin(){
     const { error } = await supabase.from('payments').update({ reconciled: chk.checked }).eq('id', chk.dataset.conciliar)
     if(error){ alert('Error: '+error.message); chk.checked=!chk.checked }
   })
+  document.querySelector('#btn_crear_categoria').onclick = async ()=>{
+    const name = document.querySelector('#cat_new_name').value.trim()
+    const type = document.querySelector('#cat_new_type').value
+    if(!name){ alert('Ponele un nombre a la categoría.'); return }
+    const { error } = await supabase.from('finance_categories').insert({ name, type, active: true })
+    if(error){ alert('Error: '+error.message); return }
+    render()
+  }
+  document.querySelectorAll('[data-cat-toggle]').forEach(b=>b.onclick=async()=>{
+    const activeNow = b.dataset.catActive === 'true'
+    const { error } = await supabase.from('finance_categories').update({ active: !activeNow }).eq('id', b.dataset.catToggle)
+    if(error){ alert('Error: '+error.message); return }
+    render()
+  })
+  let finTipoSel = 'expense'
+  const actualizarCategoriasFinanzas = ()=>{
+    const sel = document.querySelector('#fin_categoria')
+    const tiposPermitidos = finTipoSel==='expense' ? ['fixed','variable'] : ['income']
+    const opciones = categorias.filter(c=>c.active && tiposPermitidos.includes(c.type))
+    sel.innerHTML = opciones.length ? opciones.map(c=>`<option value="${c.id}">${c.name}</option>`).join('') : '<option value="">No hay categorías de este tipo — creá una arriba</option>'
+  }
+  document.querySelectorAll('[data-fin-tipo]').forEach(b=>b.onclick=()=>{
+    finTipoSel = b.dataset.finTipo
+    document.querySelectorAll('[data-fin-tipo]').forEach(x=> x.className = 'btn '+(x.dataset.finTipo===finTipoSel?'primary':'ghost'))
+    actualizarCategoriasFinanzas()
+  })
+  document.querySelector('#btn_tipo_expense').className = 'btn primary'
+  actualizarCategoriasFinanzas()
+  let comprobanteFinanzas = null
+  document.querySelector('#fin_receipt').onchange = (e)=>{ comprobanteFinanzas = e.target.files[0]||null }
+  document.querySelector('#btn_guardar_movimiento').onclick = async ()=>{
+    const box = document.querySelector('#err_finanzas')
+    const category_id = document.querySelector('#fin_categoria').value
+    const amount = Number(document.querySelector('#fin_amount').value)
+    const entry_date = document.querySelector('#fin_date').value
+    const description = document.querySelector('#fin_desc').value.trim()
+    if(!category_id){ box.textContent='Elegí una categoría (o creá una nueva arriba primero).'; box.style.display='block'; return }
+    if(!amount || amount<=0){ box.textContent='Ingresá un monto válido.'; box.style.display='block'; return }
+    let attachment_url = null
+    if(comprobanteFinanzas){
+      const path = `${Date.now()}_${comprobanteFinanzas.name}`
+      const { error: upErr } = await supabase.storage.from('finance-attachments').upload(path, comprobanteFinanzas)
+      if(upErr){ box.textContent='No se pudo subir el comprobante: '+upErr.message; box.style.display='block'; return }
+      const { data: pub } = supabase.storage.from('finance-attachments').getPublicUrl(path)
+      attachment_url = pub.publicUrl
+    }
+    const { error } = await supabase.from('finance_entries').insert({ category_id, type: finTipoSel, amount, entry_date, description: description||null, attachment_url, created_by: session?.user?.id||null })
+    if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
+    render()
+  }
 }
 
 async function render(){
