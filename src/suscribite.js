@@ -16,7 +16,7 @@ const state = {
   step: 1,
   planes: [],
   cliente: { first_name:'', last_name:'', dni:'', phone:'', email:'', street:'', street_number:'', street_type:'calle', neighborhood:'', city:'', province:'', country:'Argentina', postal_code:'', zone:'', logistics_note:'' },
-  plan: { eggs: null, frequency: 'weekly', payment_method: 'cash', preferred_weekday: null },
+  plan: { carrito: {}, frequency: 'weekly', payment_method: 'cash', preferred_weekday: null },
   tieneReferencia: false,
   referencia: { full_name:'', phone:'', dni:'', relationship:'' },
   enviando: false,
@@ -171,16 +171,17 @@ function disponibilidadHtml(){
 }
 
 async function consultarDisponibilidad(){
-  if(!state.plan.eggs || !state.plan.frequency) return
+  const total = totalCarrito()
+  if(total<=0 || !state.plan.frequency) return
   state.disponibilidadLoading = true
   state.alternativas = null
   const box = document.querySelector('#disponibilidad_box')
   if(box) box.innerHTML = disponibilidadHtml()
-  const { data, error } = await supabase.rpc('check_availability', { p_egg_quantity: state.plan.eggs, p_frequency: state.plan.frequency, p_preferred_weekday: state.plan.preferred_weekday })
+  const { data, error } = await supabase.rpc('check_availability', { p_egg_quantity: total, p_frequency: state.plan.frequency, p_preferred_weekday: state.plan.preferred_weekday })
   state.disponibilidadLoading = false
   state.disponibilidad = (!error && data) ? data : null
   if(!state.disponibilidad?.available && state.plan.preferred_weekday !== null){
-    const { data: alt } = await supabase.rpc('available_days_summary', { p_egg_quantity: state.plan.eggs, p_frequency: state.plan.frequency })
+    const { data: alt } = await supabase.rpc('available_days_summary', { p_egg_quantity: total, p_frequency: state.plan.frequency })
     state.alternativas = (alt || []).filter(a=>a.weekday !== state.plan.preferred_weekday)
   }
   const box2 = document.querySelector('#disponibilidad_box')
@@ -188,15 +189,30 @@ async function consultarDisponibilidad(){
   document.querySelectorAll('[data-alt-dia]').forEach(b=> b.onclick = ()=>{ state.plan.preferred_weekday = Number(b.dataset.altDia); state.disponibilidad=null; render(); consultarDisponibilidad() })
 }
 
+function totalCarrito(){
+  return Object.entries(state.plan.carrito).reduce((sum,[eggQty,qty])=>sum + Number(eggQty)*qty, 0)
+}
+function precioCarrito(){
+  return Object.entries(state.plan.carrito).reduce((sum,[eggQty,qty])=>{
+    const plan = state.planes.find(p=>String(p.egg_quantity)===eggQty)
+    return sum + (plan?Number(plan.price):0)*qty
+  }, 0)
+}
+function carritoResumen(){
+  return Object.entries(state.plan.carrito).filter(([,q])=>q>0).map(([eggQty,qty])=>`${qty}×${eggQty}`).join(' + ')
+}
+
 function paso2(){
   const p = state.plan
+  const total = totalCarrito()
   return `
   <div class="card">
     <h2>2. Elegí tu plan</h2>
-    <div class="field"><label>Cantidad de huevos</label>
-      <div class="grid two">${state.planes.map(pl=>`<button class="btn ${p.eggs===pl.egg_quantity?'primary':'ghost'}" data-eggs="${pl.egg_quantity}">${pl.egg_quantity} huevos<br><small>$${Number(pl.price).toLocaleString('es-AR')}</small></button>`).join('')}</div>
+    <div class="field"><label>Elegí y combiná los tamaños que quieras (podés mezclar varios)</label>
+      ${state.planes.map(pl=>`<div class="row"><span>${pl.egg_quantity} huevos <small class="muted">($${Number(pl.price).toLocaleString('es-AR')} c/u)</small></span><span style="display:flex;align-items:center;gap:8px"><button type="button" class="btn ghost" data-carrito-menos="${pl.egg_quantity}" style="padding:6px 14px">−</button><b style="min-width:20px;text-align:center;display:inline-block">${p.carrito[pl.egg_quantity]||0}</b><button type="button" class="btn ghost" data-carrito-mas="${pl.egg_quantity}" style="padding:6px 14px">+</button></span></div>`).join('')}
     </div>
-    <div class="field"><label>Frecuencia de entrega</label>
+    <div class="alert info"><b>Total: ${total} huevos</b> ${carritoResumen()?`(${carritoResumen()})`:''} · $${precioCarrito().toLocaleString('es-AR')}</div>
+    <div class="field" style="margin-top:10px"><label>Frecuencia de entrega</label>
       <div class="grid three">${FRECUENCIAS.map(fr=>`<button class="btn ${p.frequency===fr.value?'primary':'ghost'}" data-freq="${fr.value}">${fr.label}</button>`).join('')}</div>
     </div>
     <div class="field"><label>¿Cómo preferís pagar?</label>
@@ -243,7 +259,7 @@ function paso4(){
   const c = state.cliente, p = state.plan, r = state.referencia
   const freqLabel = FRECUENCIAS.find(f=>f.value===p.frequency)?.label || p.frequency
   const payLabel = METODOS_PAGO.find(m=>m.value===p.payment_method)?.label || p.payment_method
-  const planInfo = state.planes.find(pl=>pl.egg_quantity===p.eggs)
+  const total = totalCarrito()
   const tipoViaLabel = TIPOS_VIA.find(t=>t.value===c.street_type)?.label || 'Calle'
   return `
   <div class="card">
@@ -252,8 +268,8 @@ function paso4(){
     <div class="row"><span>Dirección</span><span>${tipoViaLabel} ${c.street} ${c.street_number}</span></div>
     <div class="row"><span>Barrio</span><span>${c.neighborhood} (Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'})</span></div>
     <div class="row"><span>Localidad</span><span>${c.city}, ${c.province}, Argentina</span></div>
-    <div class="row"><span>Plan</span><span><b>${p.eggs} huevos</b> · ${freqLabel}</span></div>
-    <div class="row"><span>Precio</span><span><b>$${planInfo?Number(planInfo.price).toLocaleString('es-AR'):'-'}</b></span></div>
+    <div class="row"><span>Plan</span><span><b>${total} huevos</b> (${carritoResumen()}) · ${freqLabel}</span></div>
+    <div class="row"><span>Precio</span><span><b>$${precioCarrito().toLocaleString('es-AR')}</b></span></div>
     <div class="row"><span>Forma de pago</span><span>${payLabel}</span></div>
     <div class="row"><span>Persona de referencia</span><span>${state.tieneReferencia? (r.full_name+' ('+r.relationship+')') : 'No agregada'}</span></div>
     ${state.error?`<div class="alert danger">${state.error}</div>`:''}
@@ -267,11 +283,12 @@ function paso4(){
 
 function exito(){
   const d = state.exitoData
+  const total = totalCarrito()
   if(d && d.status === 'waitlist'){
-    return `<div class="card"><h2>🔥 ¡Anotado en la lista!</h2><p>Sos muy pedido — por ahora no queda lugar para tu plan de <b>${state.plan.eggs} huevos</b> (${FRECUENCIAS.find(f=>f.value===state.plan.frequency)?.label.toLowerCase()}), pero ya quedaste anotado en <b>lista de espera</b>, en orden de llegada.</p><p>Apenas se libere un cupo te contactamos, y tu <b>primera entrega va con 50% de descuento</b> como agradecimiento por tu paciencia.</p></div>`
+    return `<div class="card"><h2>🔥 ¡Anotado en la lista!</h2><p>Sos muy pedido — por ahora no queda lugar para tu plan de <b>${total} huevos</b> (${FRECUENCIAS.find(f=>f.value===state.plan.frequency)?.label.toLowerCase()}), pero ya quedaste anotado en <b>lista de espera</b>, en orden de llegada.</p><p>Apenas se libere un cupo te contactamos, y tu <b>primera entrega va con 50% de descuento</b> como agradecimiento por tu paciencia.</p></div>`
   }
   const fecha = d?.next_delivery_date ? new Date(d.next_delivery_date+'T00:00:00').toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long'}) : ''
-  return `<div class="card"><h2>✅ ¡Listo!</h2><p>Registramos tu suscripción a <b>${state.plan.eggs} huevos</b> con entrega <b>${FRECUENCIAS.find(f=>f.value===state.plan.frequency)?.label.toLowerCase()}</b>.</p>${fecha?`<p>Tu primera entrega sería el <b>${fecha}</b>.</p>`:''}<p class="muted">Nos vamos a contactar por WhatsApp o email para coordinar el pago y confirmar la primera entrega.</p></div>`
+  return `<div class="card"><h2>✅ ¡Listo!</h2><p>Registramos tu suscripción a <b>${total} huevos</b> (${carritoResumen()}) con entrega <b>${FRECUENCIAS.find(f=>f.value===state.plan.frequency)?.label.toLowerCase()}</b>.</p>${fecha?`<p>Tu primera entrega sería el <b>${fecha}</b>.</p>`:''}<p class="muted">Nos vamos a contactar por WhatsApp o email para coordinar el pago y confirmar la primera entrega.</p></div>`
 }
 
 function render(){
@@ -309,15 +326,16 @@ function bind(){
     }
   }
   if(state.step===2){
-    if(!state.disponibilidad && !state.disponibilidadLoading) consultarDisponibilidad()
-    document.querySelectorAll('[data-eggs]').forEach(b=> b.onclick = ()=>{ state.plan.eggs = Number(b.dataset.eggs); state.disponibilidad=null; render(); consultarDisponibilidad() })
-    document.querySelectorAll('[data-freq]').forEach(b=> b.onclick = ()=>{ state.plan.frequency = b.dataset.freq; state.disponibilidad=null; render(); consultarDisponibilidad() })
+    if(!state.disponibilidad && !state.disponibilidadLoading && totalCarrito()>0) consultarDisponibilidad()
+    document.querySelectorAll('[data-carrito-mas]').forEach(b=> b.onclick = ()=>{ const k=b.dataset.carritoMas; state.plan.carrito[k]=(state.plan.carrito[k]||0)+1; state.disponibilidad=null; render(); consultarDisponibilidad() })
+    document.querySelectorAll('[data-carrito-menos]').forEach(b=> b.onclick = ()=>{ const k=b.dataset.carritoMenos; if(state.plan.carrito[k]>0) state.plan.carrito[k]--; state.disponibilidad=null; render(); consultarDisponibilidad() })
+    document.querySelectorAll('[data-freq]').forEach(b=> b.onclick = ()=>{ state.plan.frequency = b.dataset.freq; render() })
     document.querySelectorAll('[data-pay]').forEach(b=> b.onclick = ()=>{ state.plan.payment_method = b.dataset.pay; render() })
     document.querySelectorAll('[data-dia]').forEach(b=> b.onclick = ()=>{ state.plan.preferred_weekday = b.dataset.dia ? Number(b.dataset.dia) : null; state.disponibilidad=null; render(); consultarDisponibilidad() })
     document.querySelector('#back2').onclick = ()=>{ state.step=1; render() }
     document.querySelector('#next2').onclick = ()=>{
       const box = document.querySelector('#err2')
-      if(!state.plan.eggs){ box.textContent='Elegí una cantidad de huevos.'; box.style.display='block'; return }
+      if(totalCarrito()<=0){ box.textContent='Elegí al menos un maple.'; box.style.display='block'; return }
       state.step=3; render()
     }
   }
@@ -362,7 +380,9 @@ async function enviar(){
       const r = state.referencia
       receiverPayload = { full_name: r.full_name.trim(), dni: r.dni.trim(), phone: r.phone.trim() || '', relationship: r.relationship.trim() || '' }
     }
-    const subscriptionPayload = { frequency: state.plan.frequency, egg_quantity: state.plan.eggs, payment_method: state.plan.payment_method, preferred_weekday: state.plan.preferred_weekday }
+    const total = totalCarrito()
+    const breakdown = Object.entries(state.plan.carrito).filter(([,q])=>q>0).map(([size,qty])=>({size:Number(size),qty}))
+    const subscriptionPayload = { frequency: state.plan.frequency, egg_quantity: total, payment_method: state.plan.payment_method, preferred_weekday: state.plan.preferred_weekday, plan_breakdown: breakdown, price: precioCarrito() }
 
     const { data, error } = await supabase.rpc('public_signup', {
       p_customer: customerPayload, p_receiver: receiverPayload, p_subscription: subscriptionPayload
@@ -381,7 +401,6 @@ async function enviar(){
 async function init(){
   const { data, error } = await supabase.from('plan_prices').select('egg_quantity,price').eq('active', true).order('egg_quantity')
   state.planes = (!error && data && data.length) ? data : [{egg_quantity:15,price:7000},{egg_quantity:30,price:12000}]
-  state.plan.eggs = state.planes[0]?.egg_quantity || null
   render()
 }
 init()
