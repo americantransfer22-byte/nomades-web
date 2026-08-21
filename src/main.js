@@ -5,11 +5,12 @@ let current = 'inicio'
 let session = null
 let myRole = null // 'admin' | 'campo' | 'repartidor'
 let cuenta = null // datos del cliente logueado por DNI
+let staffProfile = null // datos del perfil del trabajador logueado
 
 function navStaffFor(role){
-  if(role==='admin') return [['clientes','Clientes'],['pedidos','Pedidos'],['repartidor','Repartidor'],['campo','Campo'],['admin','Administración']]
-  if(role==='campo') return [['campo','Campo']]
-  if(role==='repartidor') return [['repartidor','Repartidor']]
+  if(role==='admin') return [['clientes','Clientes'],['pedidos','Pedidos'],['repartidor','Repartidor'],['campo','Campo'],['admin','Administración'],['perfil','Mi perfil']]
+  if(role==='campo') return [['campo','Campo'],['perfil','Mi perfil']]
+  if(role==='repartidor') return [['repartidor','Repartidor'],['perfil','Mi perfil']]
   return []
 }
 
@@ -18,7 +19,7 @@ function logoSVG(size){
 }
 
 function layout(content){
-  const nav = session ? [['inicio','Inicio'],...navStaffFor(myRole),['logout','Salir']] : [['inicio','Inicio'],['cuenta','Mi cuenta']]
+  const nav = session ? (current==='staff-profile-setup' ? [['logout','Salir']] : [['inicio','Inicio'],...navStaffFor(myRole),['logout','Salir']]) : [['inicio','Inicio'],['cuenta','Mi cuenta']]
   app.innerHTML = `<div class="shell"><div class="top"><div class="brand" style="display:flex;align-items:center;gap:8px">NÓMADES <span class="muted" style="font-size:12px">Huevos de libre pastoreo</span></div><div class="nav">${nav.map(([k,l])=>`<button class="btn ${current===k?'primary':'ghost'}" data-nav="${k}">${l}</button>`).join('')}</div></div>${content}${!session?`<div style="text-align:center;margin-top:24px"><a href="#" id="staff_link" class="muted" style="font-size:12px">Acceso del equipo</a></div>`:''}</div>`
   document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=async ()=>{
     if(b.dataset.nav==='logout'){ await supabase.auth.signOut(); session=null; myRole=null; current='inicio'; return render() }
@@ -111,7 +112,7 @@ function cuentaPanel(){
   layout(`<h2>👤 Hola, ${c.first_name}</h2>
   <div class="card"><h3>Tu próximo pedido</h3>${next?`<div class="row"><span>${next.delivery_date}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div><p>${next.quantity_maples||''} maple(s)</p>`:'<p class="muted">No tenés entregas próximas.</p>'}</div>
   <div class="card"><h3>Tus suscripciones</h3>${cuenta.subscriptions.length?cuenta.subscriptions.map(s=>`<div class="row"><span>${s.egg_quantity} huevos · ${FRECUENCIAS[s.frequency]||s.frequency}</span><span class="badge">${s.payment_status==='paid'?'✅ Pago al día':'🟡 Pago pendiente'}</span></div>`).join(''):'<p class="muted">No tenés suscripciones activas.</p>'}</div>
-  <div class="card" id="card_datos"><h3>Tus datos</h3><p>🏠 ${tipoVia} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'}</p><p>📍 Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'}</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
+  <div class="card" id="card_datos"><h3>Tus datos</h3><p>🏠 ${tipoVia} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'} (CP ${c.postal_code||'-'})</p><p>📍 Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'}</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
   <button class="btn ghost" id="btn_logout_cuenta">Cerrar sesión</button>`)
   document.querySelector('#btn_logout_cuenta').onclick = ()=>{ cuenta=null; current='inicio'; render() }
   document.querySelector('#btn_editar_datos').onclick = ()=>editarDatosForm(c)
@@ -167,6 +168,7 @@ function editarDatosForm(c){
     <div class="field"><label>Nombre de la calle</label><input id="ed_street" value="${c.street||''}"/></div>
     <div class="field"><label>Número</label><input id="ed_street_number" value="${c.street_number||''}"/></div>
     <div class="field"><label>Barrio</label><input id="ed_neighborhood" value="${c.neighborhood||''}"/></div>
+    <div class="field"><label>Código postal</label><input id="ed_postal_code" value="${c.postal_code||''}"/></div>
     <div class="field"><label>Provincia</label><select id="ed_province">
       <option value="">Seleccioná tu provincia</option>
       ${PROVINCIAS.map(p=>`<option value="${p}" ${c.province===p?'selected':''}>${p}</option>`).join('')}
@@ -206,29 +208,156 @@ function editarDatosForm(c){
       p_street_type: viaSel,
       p_city: citySelValue || c.city || '',
       p_province: document.querySelector('#ed_province').value,
-      p_country: 'Argentina'
+      p_country: 'Argentina',
+      p_postal_code: document.querySelector('#ed_postal_code').value.trim()
     }
     const { data, error } = await supabase.rpc('customer_update', payload)
     if(error || !data?.ok){ errBox.textContent='No pudimos guardar los cambios. Probá de nuevo.'; errBox.style.display='block'; return }
-    Object.assign(c, { phone: payload.p_phone||c.phone, email: payload.p_email||c.email, street: payload.p_street||c.street, street_number: payload.p_street_number||c.street_number, neighborhood: payload.p_neighborhood||c.neighborhood, zone: payload.p_zone||c.zone, street_type: payload.p_street_type||c.street_type, city: payload.p_city||c.city, province: payload.p_province||c.province, country: payload.p_country||c.country })
+    Object.assign(c, { phone: payload.p_phone||c.phone, email: payload.p_email||c.email, street: payload.p_street||c.street, street_number: payload.p_street_number||c.street_number, neighborhood: payload.p_neighborhood||c.neighborhood, zone: payload.p_zone||c.zone, street_type: payload.p_street_type||c.street_type, city: payload.p_city||c.city, province: payload.p_province||c.province, country: payload.p_country||c.country, postal_code: payload.p_postal_code||c.postal_code })
     cuentaPanel()
   }
 }
 
+const ROLES_STAFF = [
+  { value: 'admin', label: 'Administrador' },
+  { value: 'campo', label: 'Personal de campo' },
+  { value: 'repartidor', label: 'Repartidor' }
+]
+
 function staffLogin(){
-  layout(`<h2>Acceso del equipo</h2><div class="card"><div class="field"><label>Código de acceso</label><input id="staff_code" autocomplete="off" placeholder="Ej: A3K9T2XZ" style="text-transform:uppercase"/></div><div id="err_staff" class="alert danger" style="display:none"></div><button class="btn primary" id="btn_staff_login">Ingresar</button></div>`)
+  let rolSel = ''
+  layout(`<h2>Acceso del equipo</h2><div class="card">
+    <div class="field"><label>¿Cuál es tu rol?</label>
+      <div class="grid three" id="staff_role_group">${ROLES_STAFF.map(r=>`<button type="button" class="btn ghost" data-role="${r.value}">${r.label}</button>`).join('')}</div>
+    </div>
+    <div class="field"><label>Código de acceso</label><input id="staff_code" autocomplete="off" placeholder="Ej: A3K9T2XZ" style="text-transform:uppercase"/></div>
+    <div id="err_staff" class="alert danger" style="display:none"></div>
+    <button class="btn primary" id="btn_staff_login">Ingresar</button>
+  </div>`)
+  document.querySelectorAll('#staff_role_group [data-role]').forEach(b=> b.onclick = ()=>{
+    rolSel = b.dataset.role
+    document.querySelectorAll('#staff_role_group [data-role]').forEach(x=> x.className = 'btn ' + (x.dataset.role===rolSel?'primary':'ghost'))
+  })
   document.querySelector('#btn_staff_login').onclick = async ()=>{
     const code = document.querySelector('#staff_code').value.trim().toUpperCase()
     const box = document.querySelector('#err_staff')
+    if(!rolSel){ box.textContent='Elegí tu rol.'; box.style.display='block'; return }
     if(!code){ box.textContent='Ingresá tu código de acceso.'; box.style.display='block'; return }
     const email = `staff-${code.toLowerCase()}@nomades.internal`
     const { data, error } = await supabase.auth.signInWithPassword({ email, password: code })
     if(error){ box.textContent='Código incorrecto o vencido.'; box.style.display='block'; return }
+    const { data: roleRow } = await supabase.from('staff_roles').select('*').eq('user_id', data.user.id).single()
+    if(!roleRow){ box.textContent='Este código no tiene un rol asignado.'; box.style.display='block'; await supabase.auth.signOut(); return }
+    if(roleRow.role !== rolSel){ box.textContent='Ese código no corresponde al rol seleccionado.'; box.style.display='block'; await supabase.auth.signOut(); return }
     session = data.session
-    const { data: roleRow } = await supabase.from('staff_roles').select('role').eq('user_id', data.user.id).single()
-    if(!roleRow){ box.textContent='Este código no tiene un rol asignado.'; box.style.display='block'; await supabase.auth.signOut(); session=null; return }
     myRole = roleRow.role
-    current = myRole==='campo' ? 'campo' : myRole==='repartidor' ? 'repartidor' : 'admin'
+    staffProfile = roleRow
+    current = roleRow.profile_completed ? (myRole==='campo' ? 'campo' : myRole==='repartidor' ? 'repartidor' : 'admin') : 'staff-profile-setup'
+    render()
+  }
+}
+
+const PROVINCIAS_STAFF = [
+  'Buenos Aires','Catamarca','Chaco','Chubut','Ciudad Autónoma de Buenos Aires','Córdoba','Corrientes',
+  'Entre Ríos','Formosa','Jujuy','La Pampa','La Rioja','Mendoza','Misiones','Neuquén','Río Negro','Salta',
+  'San Juan','San Luis','Santa Cruz','Santa Fe','Santiago del Estero','Tierra del Fuego, Antártida e Islas del Atlántico Sur','Tucumán'
+]
+let staffCitySelValue = ''
+
+async function cargarLocalidadesStaff(provincia, citySel){
+  const grp = document.querySelector('#sf_city_wrap')
+  if(!grp) return
+  grp.innerHTML = `<label>Localidad *</label><select id="sf_city" disabled><option>Cargando localidades…</option></select>`
+  try{
+    const url = `https://apis.datos.gob.ar/georef/api/localidades?provincia=${encodeURIComponent(provincia)}&campos=nombre&max=5000`
+    const res = await fetch(url)
+    const data = await res.json()
+    const nombres = [...new Set((data.localidades||[]).map(l=>l.nombre))].sort((a,b)=>a.localeCompare(b,'es'))
+    grp.innerHTML = `<label>Localidad *</label><select id="sf_city">
+      <option value="">Seleccioná tu localidad</option>
+      ${nombres.map(n=>`<option value="${n}" ${citySel===n?'selected':''}>${n}</option>`).join('')}
+    </select>`
+    document.querySelector('#sf_city').onchange = (e)=>{ staffCitySelValue = e.target.value }
+  }catch(e){
+    grp.innerHTML = `<label>Localidad *</label><select id="sf_city"><option value="">No se pudo cargar</option></select>`
+  }
+}
+
+function staffProfileForm(isSetup){
+  const p = staffProfile || {}
+  staffCitySelValue = p.city || ''
+  const titulo = isSetup ? '👋 Completá tus datos' : '👤 Mi perfil'
+  const intro = isSetup ? '<p class="muted">Antes de empezar, completá tus datos de contacto y subí una foto.</p>' : ''
+  layout(`<h2>${titulo}</h2><div class="card">
+    ${intro}
+    <div style="text-align:center;margin-bottom:14px">
+      <img id="sf_photo_preview" src="${p.photo_url||''}" style="width:96px;height:96px;border-radius:50%;object-fit:cover;background:#eee;display:${p.photo_url?'inline-block':'none'}"/>
+      <div class="field"><label>Foto de perfil</label><input type="file" id="sf_photo" accept="image/*"/></div>
+    </div>
+    <div class="field"><label>Nombre completo *</label><input id="sf_full_name" value="${p.full_name||''}"/></div>
+    <div class="field"><label>Teléfono *</label><input id="sf_phone" inputmode="tel" value="${p.phone||''}"/></div>
+    <div class="field"><label>Teléfono secundario (familiar)</label><input id="sf_secondary_phone" inputmode="tel" value="${p.secondary_phone||''}"/></div>
+    <div class="field"><label>Email</label><input id="sf_email" type="email" value="${p.email||''}"/></div>
+    <div class="field"><label>Calle</label><input id="sf_street" value="${p.street||''}"/></div>
+    <div class="field"><label>Número</label><input id="sf_street_number" value="${p.street_number||''}"/></div>
+    <div class="field"><label>Provincia *</label><select id="sf_province">
+      <option value="">Seleccioná tu provincia</option>
+      ${PROVINCIAS_STAFF.map(pr=>`<option value="${pr}" ${p.province===pr?'selected':''}>${pr}</option>`).join('')}
+    </select></div>
+    <div class="field" id="sf_city_wrap"><label>Localidad *</label><select id="sf_city" ${!p.province?'disabled':''}>
+      <option value="">${p.province?'Elegí la provincia de nuevo para cargar localidades':'Elegí primero la provincia'}</option>
+    </select></div>
+    <div class="field"><label>Código postal</label><input id="sf_postal_code" value="${p.postal_code||''}"/></div>
+    <div id="err_sf" class="alert danger" style="display:none"></div>
+    <button class="btn primary" id="btn_guardar_perfil">Guardar</button>
+    ${!isSetup?`<button class="btn ghost" id="btn_cancelar_perfil" style="margin-left:8px">Cancelar</button>`:''}
+  </div>`)
+  if(p.province) cargarLocalidadesStaff(p.province, p.city||'')
+  document.querySelector('#sf_province').onchange = (e)=>{
+    staffCitySelValue=''
+    if(e.target.value) cargarLocalidadesStaff(e.target.value,'')
+  }
+  let photoFile = null
+  document.querySelector('#sf_photo').onchange = (e)=>{
+    photoFile = e.target.files[0] || null
+    if(photoFile){
+      const reader = new FileReader()
+      reader.onload = ()=>{ const img=document.querySelector('#sf_photo_preview'); img.src=reader.result; img.style.display='inline-block' }
+      reader.readAsDataURL(photoFile)
+    }
+  }
+  if(!isSetup) document.querySelector('#btn_cancelar_perfil').onclick = ()=>{ current = myRole==='campo'?'campo':myRole==='repartidor'?'repartidor':'admin'; render() }
+  document.querySelector('#btn_guardar_perfil').onclick = async ()=>{
+    const errBox = document.querySelector('#err_sf')
+    const full_name = document.querySelector('#sf_full_name').value.trim()
+    const phone = document.querySelector('#sf_phone').value.trim()
+    if(!full_name || !phone || !document.querySelector('#sf_province').value || !staffCitySelValue){
+      errBox.textContent = 'Completá al menos nombre, teléfono, provincia y localidad.'; errBox.style.display='block'; return
+    }
+    let photo_url = p.photo_url || ''
+    if(photoFile){
+      const path = `${session.user.id}/photo_${Date.now()}.${(photoFile.name.split('.').pop()||'jpg')}`
+      const { error: upErr } = await supabase.storage.from('staff-photos').upload(path, photoFile, { upsert:true })
+      if(upErr){ errBox.textContent = 'No se pudo subir la foto: '+upErr.message; errBox.style.display='block'; return }
+      const { data: pub } = supabase.storage.from('staff-photos').getPublicUrl(path)
+      photo_url = pub.publicUrl
+    }
+    const payload = {
+      p_full_name: full_name,
+      p_phone: phone,
+      p_secondary_phone: document.querySelector('#sf_secondary_phone').value.trim(),
+      p_email: document.querySelector('#sf_email').value.trim(),
+      p_street: document.querySelector('#sf_street').value.trim(),
+      p_street_number: document.querySelector('#sf_street_number').value.trim(),
+      p_city: staffCitySelValue,
+      p_province: document.querySelector('#sf_province').value,
+      p_postal_code: document.querySelector('#sf_postal_code').value.trim(),
+      p_photo_url: photo_url
+    }
+    const { data, error } = await supabase.rpc('staff_update_profile', payload)
+    if(error || !data?.ok){ errBox.textContent='No pudimos guardar. Probá de nuevo.'; errBox.style.display='block'; return }
+    staffProfile = { ...p, full_name: payload.p_full_name, phone: payload.p_phone, secondary_phone: payload.p_secondary_phone, email: payload.p_email, street: payload.p_street, street_number: payload.p_street_number, city: payload.p_city, province: payload.p_province, postal_code: payload.p_postal_code, photo_url, profile_completed:true }
+    current = myRole==='campo'?'campo':myRole==='repartidor'?'repartidor':'admin'
     render()
   }
 }
@@ -236,6 +365,8 @@ function staffLogin(){
 async function campo(){
   const today = new Date().toISOString().slice(0,10)
   const recientes = await q('production','id,production_date,eggs_count,maples_count,losses_count,notes')
+  const { data: productosRaw } = await supabase.from('products').select('id,name,unit_label,current_qty,active').eq('active',true).order('name')
+  const productos = productosRaw || []
   layout(`<h2>🥚 Personal de campo</h2>
   <div class="card"><h3>Registrar recolección de hoy</h3>
     <div class="field"><label>Fecha</label><input id="p_date" type="date" value="${today}"/></div>
@@ -247,7 +378,10 @@ async function campo(){
     <div id="err_campo" class="alert danger" style="display:none"></div>
     <button class="btn primary" id="btn_guardar_produccion">Guardar</button>
   </div>
-  <div class="card"><h3>Últimos registros</h3>${recientes.length?recientes.slice(-10).reverse().map(r=>`<div class="row"><span>${r.production_date}</span><span>${r.eggs_count} huevos · ${r.losses_count||0} roturas</span></div>`).join(''):'<p class="muted">Todavía no hay registros.</p>'}</div>`)
+  <div class="card"><h3>Últimos registros</h3>${recientes.length?recientes.slice(-10).reverse().map(r=>`<div class="row"><span>${r.production_date}</span><span>${r.eggs_count} huevos · ${r.losses_count||0} roturas</span></div>`).join(''):'<p class="muted">Todavía no hay registros.</p>'}</div>
+  <div class="card"><h3>🧺 Insumos disponibles</h3>
+    ${productos.length? productos.map(p=>`<div class="row"><span><b>${p.current_qty}</b> × ${p.unit_label}<br><small>${p.name}</small></span><span style="display:flex;gap:6px;align-items:center"><input type="number" min="0.01" step="0.5" value="1" id="uso_qty_${p.id}" style="width:60px"/><button class="btn ghost" data-usar="${p.id}">Usar</button></span></div>`).join('') : '<p class="muted">Todavía no hay insumos cargados.</p>'}
+  </div>`)
   document.querySelector('#btn_guardar_produccion').onclick = async ()=>{
     const eggs = Number(document.querySelector('#p_eggs').value)
     const losses = Number(document.querySelector('#p_losses').value)||0
@@ -260,6 +394,14 @@ async function campo(){
     if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
     alert('Registro guardado ✅'); render()
   }
+  document.querySelectorAll('[data-usar]').forEach(b=>b.onclick=async()=>{
+    const id=b.dataset.usar
+    const qty=Number(document.querySelector(`#uso_qty_${id}`).value)
+    if(!qty||qty<=0){ alert('Ingresá una cantidad válida.'); return }
+    const { error } = await supabase.from('stock_movements').insert({ product_id:id, type:'consumo', quantity:qty, created_by: session.user.id })
+    if(error){ alert('No se pudo registrar: '+error.message); return }
+    alert('Uso registrado ✅'); render()
+  })
 }
 
 async function clientes(){
@@ -314,6 +456,13 @@ async function openDelivery(id){
 
 async function admin(){
   const [orders,customers,subs,staff]=await Promise.all([q('orders','id,status'),q('customers','id'),q('subscriptions','id,payment_status,created_at,customers(first_name,last_name)'),q('staff_roles','user_id,role,full_name,created_at')])
+  const productos = await q('products','id,name,unit_label,category,current_qty,active')
+  const { data: movimientosRaw } = await supabase.from('stock_movements').select('id,product_id,type,quantity,note,created_by,created_at').order('created_at',{ascending:false}).limit(20)
+  const movimientos = movimientosRaw || []
+  const staffMap = Object.fromEntries(staff.map(s=>[s.user_id, s.full_name||'(sin nombre)']))
+  const productMap = Object.fromEntries(productos.map(p=>[p.id, p]))
+  const CATEGORIAS = [{value:'alimento',label:'Alimento'},{value:'sanidad',label:'Sanidad'},{value:'limpieza',label:'Limpieza'},{value:'otro',label:'Otro'}]
+  const CATLABEL = {alimento:'Alimento',sanidad:'Sanidad',limpieza:'Limpieza',otro:'Otro'}
   const count=s=>orders.filter(x=>x.status===s).length
   const pendientesDePago = subs.filter(s=>s.payment_status==='pending')
   const rolLabel = {admin:'Administrador',campo:'Personal de campo',repartidor:'Repartidor'}
@@ -327,7 +476,31 @@ async function admin(){
     <div class="field"><label>Código de acceso (opcional — si lo dejás vacío, se genera uno automático)</label><input id="staff_new_code" placeholder="Ej: 123 (mín. 3 caracteres, letras o números)"/></div>
     <button class="btn primary" id="btn_crear_staff">➕ Generar código de acceso</button>
     <div id="codigo_generado" style="margin-top:10px"></div>
-    <div style="margin-top:16px">${staff.length?staff.map(s=>`<div class="row"><span>${s.full_name||'(sin nombre)'} <span class="badge">${rolLabel[s.role]||s.role}</span></span><span><button class="btn ghost" data-reset="${s.user_id}">🔄 Nuevo código</button> <button class="btn ghost" data-revoke="${s.user_id}">❌ Revocar</button></span></div>`).join(''):'<p class="muted">Todavía no agregaste personal.</p>'}</div>
+    <div style="margin-top:16px">${staff.length?staff.map(s=>{
+      const esVos = session && s.user_id === session.user.id
+      return `<div class="row"><span>${s.full_name||'(sin nombre)'} <span class="badge">${rolLabel[s.role]||s.role}</span>${esVos?' <span class="badge" style="background:var(--accent)">Vos</span>':''}</span><span>${esVos?'<span class="muted" style="font-size:12px">Para cambiar tu propio código, cerrá sesión y usá "Acceso del equipo" con tu código actual</span>':`<button class="btn ghost" data-reset="${s.user_id}">🔄 Nuevo código</button> <button class="btn ghost" data-revoke="${s.user_id}">❌ Revocar</button>`}</span></div>`
+    }).join(''):'<p class="muted">Todavía no agregaste personal.</p>'}</div>
+  </div>
+  <div class="card"><h3>🧺 Compras e insumos</h3>
+    <div class="grid two">
+      <div class="field"><label>Producto</label><input id="prod_new_name" placeholder="Ej: Maíz"/></div>
+      <div class="field"><label>Unidad de compra</label><input id="prod_new_unit" placeholder="Ej: saco de 25kg"/></div>
+    </div>
+    <div class="field"><label>Categoría</label><select id="prod_new_cat">${CATEGORIAS.map(c=>`<option value="${c.value}">${c.label}</option>`).join('')}</select></div>
+    <button class="btn primary" id="btn_crear_producto">➕ Agregar producto</button>
+    <div id="err_producto" class="alert danger" style="display:none"></div>
+    <div style="margin-top:16px">
+      ${productos.length? productos.map(p=>`<div class="row"><span><b>${p.name}</b> <span class="badge">${CATLABEL[p.category]||p.category}</span><br><small>${p.current_qty} × ${p.unit_label}${!p.active?' · inactivo':''}</small></span><span style="display:flex;gap:6px;align-items:center"><input type="number" min="0" step="1" placeholder="Cant." id="compra_qty_${p.id}" style="width:70px"/><button class="btn ghost" data-comprar="${p.id}">+ Compra</button></span></div>`).join('') : '<p class="muted">Todavía no cargaste productos.</p>'}
+    </div>
+    <div style="margin-top:16px"><h3 style="font-size:15px">Últimos movimientos</h3>
+      ${movimientos.length? movimientos.map(m=>{
+        const prod = productMap[m.product_id]
+        const quien = m.created_by ? (staffMap[m.created_by]||'Equipo') : 'Admin'
+        const tipoLabel = m.type==='compra'?'🟢 Compra':m.type==='consumo'?'🔴 Consumo':'🔵 Ajuste'
+        const fecha = new Date(m.created_at).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})
+        return `<div class="row"><span>${tipoLabel} · ${prod?prod.name:'(producto eliminado)'}<br><small>${quien} · ${fecha}${m.note?' · '+m.note:''}</small></span><span>${m.quantity} ${prod?prod.unit_label:''}</span></div>`
+      }).join('') : '<p class="muted">Sin movimientos todavía.</p>'}
+    </div>
   </div>`)
 
   document.querySelector('#btn_crear_staff').onclick = async ()=>{
@@ -353,12 +526,33 @@ async function admin(){
     if(error){ alert('Error: '+error.message); return }
     alert('Nuevo código: '+data.code+'\n\nCopialo ahora, no se vuelve a mostrar.')
   })
+  document.querySelector('#btn_crear_producto').onclick = async ()=>{
+    const name = document.querySelector('#prod_new_name').value.trim()
+    const unit_label = document.querySelector('#prod_new_unit').value.trim()
+    const category = document.querySelector('#prod_new_cat').value
+    const box = document.querySelector('#err_producto')
+    if(!name || !unit_label){ box.textContent='Completá nombre y unidad de compra.'; box.style.display='block'; return }
+    const { error } = await supabase.from('products').insert({ name, unit_label, category })
+    if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
+    render()
+  }
+  document.querySelectorAll('[data-comprar]').forEach(b=>b.onclick=async()=>{
+    const id = b.dataset.comprar
+    const qtyInput = document.querySelector(`#compra_qty_${id}`)
+    const qty = Number(qtyInput.value)
+    if(!qty || qty<=0){ alert('Ingresá una cantidad válida.'); return }
+    const { error } = await supabase.from('stock_movements').insert({ product_id:id, type:'compra', quantity:qty, created_by: session?.user?.id || null })
+    if(error){ alert('Error: '+error.message); return }
+    render()
+  })
 }
 
 async function render(){
   if(current==='inicio')return inicio();
   if(current==='cuenta')return cuenta? cuentaPanel() : cuentaLogin();
   if(current==='staff-login')return staffLogin();
+  if(current==='staff-profile-setup')return staffProfileForm(true);
+  if(current==='perfil')return staffProfileForm(false);
   if(current==='clientes')return clientes();
   if(current==='pedidos')return pedidos();
   if(current==='repartidor')return repartidor();
@@ -370,9 +564,11 @@ async function init(){
   const { data } = await supabase.auth.getSession()
   session = data.session
   if(session){
-    const { data: roleRow } = await supabase.from('staff_roles').select('role').eq('user_id', session.user.id).single()
+    const { data: roleRow } = await supabase.from('staff_roles').select('*').eq('user_id', session.user.id).single()
     myRole = roleRow?.role || null
+    staffProfile = roleRow || null
     if(!myRole){ session=null }
+    else if(!roleRow.profile_completed){ current = 'staff-profile-setup' }
   }
   render()
 }
