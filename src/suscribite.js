@@ -22,8 +22,11 @@ const state = {
   enviando: false,
   error: '',
   exito: false,
+  exitoData: null,
   localidades: [],
-  localidadesLoading: false
+  localidadesLoading: false,
+  disponibilidad: null,
+  disponibilidadLoading: false
 }
 
 function header(){
@@ -132,6 +135,28 @@ function paso1(){
   </div>`
 }
 
+function disponibilidadHtml(){
+  if(state.disponibilidadLoading) return `<div class="alert info">Consultando disponibilidad…</div>`
+  if(!state.disponibilidad) return ''
+  if(state.disponibilidad.available){
+    const fecha = new Date(state.disponibilidad.next_date+'T00:00:00').toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long'})
+    return `<div class="alert info">✅ ¡Hay lugar! Tu primera entrega sería el <b>${fecha}</b>.</div>`
+  }
+  return `<div class="alert info">🔥 <b>¡Somos muy pedidos esta semana!</b> Ya no quedan lugares para este plan, pero podés anotarte ahora mismo en la lista de espera y asegurarte tu lugar en orden de llegada. Como agradecimiento por tu paciencia, tu <b>primera entrega tiene 50% de descuento</b> apenas se libere un cupo. ¡No te quedes afuera, completá el formulario!</div>`
+}
+
+async function consultarDisponibilidad(){
+  if(!state.plan.eggs || !state.plan.frequency) return
+  state.disponibilidadLoading = true
+  const box = document.querySelector('#disponibilidad_box')
+  if(box) box.innerHTML = disponibilidadHtml()
+  const { data, error } = await supabase.rpc('check_availability', { p_egg_quantity: state.plan.eggs, p_frequency: state.plan.frequency })
+  state.disponibilidadLoading = false
+  state.disponibilidad = (!error && data) ? data : null
+  const box2 = document.querySelector('#disponibilidad_box')
+  if(box2) box2.innerHTML = disponibilidadHtml()
+}
+
 function paso2(){
   const p = state.plan
   return `
@@ -146,6 +171,7 @@ function paso2(){
     <div class="field"><label>¿Cómo preferís pagar?</label>
       <div class="grid three">${METODOS_PAGO.map(m=>`<button class="btn ${p.payment_method===m.value?'primary':'ghost'}" data-pay="${m.value}">${m.label}</button>`).join('')}</div>
     </div>
+    <div id="disponibilidad_box">${disponibilidadHtml()}</div>
     <div id="err2" class="alert danger" style="display:none"></div>
     <div class="row" style="border:0">
       <button class="btn ghost" id="back2">← Atrás</button>
@@ -203,7 +229,12 @@ function paso4(){
 }
 
 function exito(){
-  return `<div class="card"><h2>✅ ¡Listo!</h2><p>Registramos tu suscripción a <b>${state.plan.eggs} huevos</b> con entrega <b>${FRECUENCIAS.find(f=>f.value===state.plan.frequency)?.label.toLowerCase()}</b>.</p><p class="muted">Nos vamos a contactar por WhatsApp o email para coordinar el pago y confirmar la primera entrega.</p></div>`
+  const d = state.exitoData
+  if(d && d.status === 'waitlist'){
+    return `<div class="card"><h2>🔥 ¡Anotado en la lista!</h2><p>Sos muy pedido — por ahora no queda lugar para tu plan de <b>${state.plan.eggs} huevos</b> (${FRECUENCIAS.find(f=>f.value===state.plan.frequency)?.label.toLowerCase()}), pero ya quedaste anotado en <b>lista de espera</b>, en orden de llegada.</p><p>Apenas se libere un cupo te contactamos, y tu <b>primera entrega va con 50% de descuento</b> como agradecimiento por tu paciencia.</p></div>`
+  }
+  const fecha = d?.next_delivery_date ? new Date(d.next_delivery_date+'T00:00:00').toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long'}) : ''
+  return `<div class="card"><h2>✅ ¡Listo!</h2><p>Registramos tu suscripción a <b>${state.plan.eggs} huevos</b> con entrega <b>${FRECUENCIAS.find(f=>f.value===state.plan.frequency)?.label.toLowerCase()}</b>.</p>${fecha?`<p>Tu primera entrega sería el <b>${fecha}</b>.</p>`:''}<p class="muted">Nos vamos a contactar por WhatsApp o email para coordinar el pago y confirmar la primera entrega.</p></div>`
 }
 
 function render(){
@@ -241,8 +272,9 @@ function bind(){
     }
   }
   if(state.step===2){
-    document.querySelectorAll('[data-eggs]').forEach(b=> b.onclick = ()=>{ state.plan.eggs = Number(b.dataset.eggs); render() })
-    document.querySelectorAll('[data-freq]').forEach(b=> b.onclick = ()=>{ state.plan.frequency = b.dataset.freq; render() })
+    if(!state.disponibilidad && !state.disponibilidadLoading) consultarDisponibilidad()
+    document.querySelectorAll('[data-eggs]').forEach(b=> b.onclick = ()=>{ state.plan.eggs = Number(b.dataset.eggs); state.disponibilidad=null; render(); consultarDisponibilidad() })
+    document.querySelectorAll('[data-freq]').forEach(b=> b.onclick = ()=>{ state.plan.frequency = b.dataset.freq; state.disponibilidad=null; render(); consultarDisponibilidad() })
     document.querySelectorAll('[data-pay]').forEach(b=> b.onclick = ()=>{ state.plan.payment_method = b.dataset.pay; render() })
     document.querySelector('#back2').onclick = ()=>{ state.step=1; render() }
     document.querySelector('#next2').onclick = ()=>{
@@ -294,11 +326,12 @@ async function enviar(){
     }
     const subscriptionPayload = { frequency: state.plan.frequency, egg_quantity: state.plan.eggs, payment_method: state.plan.payment_method }
 
-    const { error } = await supabase.rpc('public_signup', {
+    const { data, error } = await supabase.rpc('public_signup', {
       p_customer: customerPayload, p_receiver: receiverPayload, p_subscription: subscriptionPayload
     })
     if(error) throw error
 
+    state.exitoData = data
     state.exito = true; state.enviando = false; render()
   }catch(e){
     state.enviando = false
