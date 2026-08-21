@@ -566,7 +566,7 @@ async function openDelivery(id){
   const { data: detalle, error: errDet } = await supabase.rpc('delivery_detail', { p_order_id: id })
   if(errDet || !detalle || detalle.error) return alert('No se pudo cargar el pedido')
   const r = detalle.order, c = detalle.customer, sub = detalle.subscription || {}
-  const { data: settingsRaw } = await supabase.from('farm_settings').select('key,value').in('key',['transfer_cbu','transfer_alias','mp_alias'])
+  const { data: settingsRaw } = await supabase.from('farm_settings').select('key,value').in('key',['transfer_cbu','transfer_alias','transfer_bank_name','transfer_holder_name','transfer_holder_doc','mp_alias','mp_wallet_name','mp_cbu','mp_holder_name','mp_holder_doc'])
   const cfg = Object.fromEntries((settingsRaw||[]).map(s=>[s.key,s.value]))
   const montoDefault = sub.price_at_signup || 0
   layout(`<h2>Detalle de entrega</h2>${r.important_note?`<div class="alert warning"><b>⚠️ OBSERVACIÓN IMPORTANTE</b><br>${r.important_note}</div>`:''}
@@ -607,11 +607,18 @@ async function openDelivery(id){
   const renderDatosTransferencia = ()=>{
     const box = document.querySelector('#datos_transferencia')
     if(metodoSel === 'cash'){ box.innerHTML=''; return }
-    const cbu = cfg.transfer_cbu||'', alias = cfg.transfer_alias||'', mpAlias = cfg.mp_alias||''
+    const campos = metodoSel==='transfer'
+      ? [['Banco', cfg.transfer_bank_name],['Alias','txt_alias',cfg.transfer_alias],['CBU','txt_cbu',cfg.transfer_cbu],['Titular', cfg.transfer_holder_name],['DNI/CUIT titular', cfg.transfer_holder_doc]]
+      : [['Billetera', cfg.mp_wallet_name],['Alias','txt_alias',cfg.mp_alias],['CBU','txt_cbu',cfg.mp_cbu],['Titular', cfg.mp_holder_name],['DNI/CUIT titular', cfg.mp_holder_doc]]
     box.innerHTML = `<div class="alert info">
-      ${metodoSel==='transfer'?`<p style="margin:0 0 6px">CBU: <b id="txt_cbu">${cbu||'(no cargado)'}</b> ${cbu?'<button type=\"button\" class=\"btn ghost\" data-copiar=\"txt_cbu\" style=\"padding:2px 8px;font-size:11px\">Copiar</button>':''}</p>
-      <p style="margin:0">Alias: <b id="txt_alias">${alias||'(no cargado)'}</b> ${alias?'<button type=\"button\" class=\"btn ghost\" data-copiar=\"txt_alias\" style=\"padding:2px 8px;font-size:11px\">Copiar</button>':''}</p>`:
-      `<p style="margin:0">Alias MP: <b id="txt_mp">${mpAlias||'(no cargado)'}</b> ${mpAlias?'<button type=\"button\" class=\"btn ghost\" data-copiar=\"txt_mp\" style=\"padding:2px 8px;font-size:11px\">Copiar</button>':''}</p>`}
+      ${campos.map(c=>{
+        if(c.length===3){
+          const [label, id, val] = c
+          return `<p style="margin:0 0 6px">${label}: <b id="${id}">${val||'(no cargado)'}</b> ${val?`<button type="button" class="btn ghost" data-copiar="${id}" style="padding:2px 8px;font-size:11px">Copiar</button>`:''}</p>`
+        }
+        const [label, val] = c
+        return `<p style="margin:0 0 6px">${label}: <b>${val||'(no cargado)'}</b></p>`
+      }).join('')}
     </div>
     <div class="field"><label>Foto del comprobante *</label><input type="file" id="comprobante_input" accept="image/*"/></div>`
     const inputFile = document.querySelector('#comprobante_input')
@@ -672,7 +679,7 @@ async function admin(){
   const movimientos = movimientosRaw || []
   const { data: waitlistRaw } = await supabase.from('waitlist').select('id,customer_id,egg_quantity,frequency,position,created_at,customers(first_name,last_name,phone)').order('position')
   const waitlist = waitlistRaw || []
-  const { data: settingsAllRaw } = await supabase.from('farm_settings').select('key,value').in('key',['default_daily_capacity_maples','transfer_cbu','transfer_alias','mp_alias'])
+  const { data: settingsAllRaw } = await supabase.from('farm_settings').select('key,value').in('key',['default_daily_capacity_maples','transfer_cbu','transfer_alias','transfer_bank_name','transfer_holder_name','transfer_holder_doc','mp_alias','mp_wallet_name','mp_cbu','mp_holder_name','mp_holder_doc'])
   const settingsMap = Object.fromEntries((settingsAllRaw||[]).map(s=>[s.key,s.value]))
   const capacidadBase = settingsMap.default_daily_capacity_maples || '300'
   const { data: pagosRaw } = await supabase.from('payments').select('id,amount,expected_method,method,reconciled,created_at,customers(first_name,last_name)').order('created_at',{ascending:false}).limit(30)
@@ -744,11 +751,22 @@ async function admin(){
       }).join('') : '<p class="muted">Nadie en lista de espera por ahora 🎉</p>'}
     </div>
   </div>
-  <div class="card"><h3>💳 Datos para transferencia / billetera virtual</h3>
-    <p class="muted">Esto se le muestra al repartidor cuando un cliente paga digital, para que pueda copiarlo y compartirlo.</p>
-    <div class="field"><label>CBU</label><input id="cfg_cbu" value="${settingsMap.transfer_cbu||''}"/></div>
-    <div class="field"><label>Alias (transferencia)</label><input id="cfg_alias" value="${settingsMap.transfer_alias||''}"/></div>
-    <div class="field"><label>Alias Mercado Pago</label><input id="cfg_mp" value="${settingsMap.mp_alias||''}"/></div>
+  <div class="card"><h3>💳 Datos para cobros digitales</h3>
+    <p class="muted">Esto se le muestra al repartidor cuando un cliente paga digital, para que pueda copiarlo y compartirlo. Editalo cuando quieras (cambio de banco, de cuenta, etc.).</p>
+    <div class="group"><h3 style="font-size:15px">🏦 Transferencia bancaria</h3>
+      <div class="field"><label>Nombre del banco</label><input id="cfg_bank_name" value="${settingsMap.transfer_bank_name||''}"/></div>
+      <div class="field"><label>Alias</label><input id="cfg_alias" value="${settingsMap.transfer_alias||''}"/></div>
+      <div class="field"><label>CBU</label><input id="cfg_cbu" value="${settingsMap.transfer_cbu||''}"/></div>
+      <div class="field"><label>Nombre del titular</label><input id="cfg_holder_name" value="${settingsMap.transfer_holder_name||''}"/></div>
+      <div class="field"><label>DNI/CUIT del titular</label><input id="cfg_holder_doc" value="${settingsMap.transfer_holder_doc||''}"/></div>
+    </div>
+    <div class="group"><h3 style="font-size:15px">📱 Billetera virtual</h3>
+      <div class="field"><label>Nombre de la billetera</label><input id="cfg_mp_name" value="${settingsMap.mp_wallet_name||''}" placeholder="Ej: Mercado Pago"/></div>
+      <div class="field"><label>Alias</label><input id="cfg_mp" value="${settingsMap.mp_alias||''}"/></div>
+      <div class="field"><label>CBU</label><input id="cfg_mp_cbu" value="${settingsMap.mp_cbu||''}"/></div>
+      <div class="field"><label>Nombre del titular</label><input id="cfg_mp_holder_name" value="${settingsMap.mp_holder_name||''}"/></div>
+      <div class="field"><label>DNI/CUIT del titular</label><input id="cfg_mp_holder_doc" value="${settingsMap.mp_holder_doc||''}"/></div>
+    </div>
     <button class="btn ghost" id="btn_guardar_pago_config">Guardar datos de cobro</button>
   </div>
   <div class="card"><h3>🧾 Rendición y conciliación</h3>
@@ -850,12 +868,21 @@ async function admin(){
     render()
   }
   document.querySelector('#btn_guardar_pago_config').onclick = async ()=>{
-    const cbu = document.querySelector('#cfg_cbu').value.trim()
-    const alias = document.querySelector('#cfg_alias').value.trim()
-    const mp = document.querySelector('#cfg_mp').value.trim()
-    await supabase.from('farm_settings').update({ value: cbu }).eq('key','transfer_cbu')
-    await supabase.from('farm_settings').update({ value: alias }).eq('key','transfer_alias')
-    await supabase.from('farm_settings').update({ value: mp }).eq('key','mp_alias')
+    const valores = {
+      transfer_bank_name: document.querySelector('#cfg_bank_name').value.trim(),
+      transfer_alias: document.querySelector('#cfg_alias').value.trim(),
+      transfer_cbu: document.querySelector('#cfg_cbu').value.trim(),
+      transfer_holder_name: document.querySelector('#cfg_holder_name').value.trim(),
+      transfer_holder_doc: document.querySelector('#cfg_holder_doc').value.trim(),
+      mp_wallet_name: document.querySelector('#cfg_mp_name').value.trim(),
+      mp_alias: document.querySelector('#cfg_mp').value.trim(),
+      mp_cbu: document.querySelector('#cfg_mp_cbu').value.trim(),
+      mp_holder_name: document.querySelector('#cfg_mp_holder_name').value.trim(),
+      mp_holder_doc: document.querySelector('#cfg_mp_holder_doc').value.trim()
+    }
+    for(const [key, value] of Object.entries(valores)){
+      await supabase.from('farm_settings').update({ value }).eq('key', key)
+    }
     alert('Datos de cobro guardados ✅')
   }
   document.querySelectorAll('[data-conciliar]').forEach(chk=>chk.onchange=async()=>{
