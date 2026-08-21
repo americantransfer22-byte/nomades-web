@@ -132,6 +132,19 @@ function cuentaPanel(){
 
 let planesDisponibles = []
 
+function totalCarrito(carrito){
+  return Object.entries(carrito).reduce((sum,[eggQty,qty])=>sum + Number(eggQty)*qty, 0)
+}
+function precioCarrito(carrito){
+  return Object.entries(carrito).reduce((sum,[eggQty,qty])=>{
+    const plan = planesDisponibles.find(p=>String(p.egg_quantity)===eggQty)
+    return sum + (plan?Number(plan.price):0)*qty
+  }, 0)
+}
+function carritoResumen(carrito){
+  return Object.entries(carrito).filter(([,q])=>q>0).map(([eggQty,qty])=>`${qty}×${eggQty}`).join(' + ')
+}
+
 async function cambiarPlanForm(sub){
   const box = document.querySelector('#card_subs')
   box.innerHTML = `<h3>Cambiar plan</h3><p class="muted">Cargando opciones…</p>`
@@ -139,13 +152,20 @@ async function cambiarPlanForm(sub){
     const { data } = await supabase.from('plan_prices').select('egg_quantity,price').eq('active', true).order('egg_quantity')
     planesDisponibles = data || [{egg_quantity:15,price:7000},{egg_quantity:30,price:12000}]
   }
-  let eggsSel = sub.egg_quantity
+  const carrito = {}
+  planesDisponibles.forEach(p=>{ carrito[p.egg_quantity] = 0 })
+  if(sub.plan_breakdown && Array.isArray(sub.plan_breakdown)){
+    sub.plan_breakdown.forEach(it=>{ if(carrito[it.size]!==undefined) carrito[it.size]=it.qty })
+  } else if(carrito[sub.egg_quantity]!==undefined){
+    carrito[sub.egg_quantity] = 1
+  }
   let freqSel = sub.frequency
   let diaSel = null
   let disponibilidad = null
   let alternativas = null
   const DIAS_LOCAL = [[1,'Lunes'],[2,'Martes'],[3,'Miércoles'],[4,'Jueves'],[5,'Viernes']]
   const render2 = ()=>{
+    const total = totalCarrito(carrito)
     let dispHtml = ''
     if(disponibilidad!==null){
       if(disponibilidad.available){
@@ -163,10 +183,11 @@ async function cambiarPlanForm(sub){
       }
     }
     box.innerHTML = `<h3>Cambiar plan</h3>
-      <div class="field"><label>Cantidad de huevos</label>
-        <div class="grid two">${planesDisponibles.map(pl=>`<button type="button" class="btn ${eggsSel===pl.egg_quantity?'primary':'ghost'}" data-eggs="${pl.egg_quantity}">${pl.egg_quantity} huevos<br><small>$${Number(pl.price).toLocaleString('es-AR')}</small></button>`).join('')}</div>
+      <div class="field"><label>Elegí y combiná los tamaños que quieras</label>
+        ${planesDisponibles.map(p=>`<div class="row"><span>${p.egg_quantity} huevos <small class="muted">($${Number(p.price).toLocaleString('es-AR')} c/u)</small></span><span style="display:flex;align-items:center;gap:8px"><button type="button" class="btn ghost" data-carrito-menos="${p.egg_quantity}" style="padding:6px 14px">−</button><b style="min-width:20px;text-align:center;display:inline-block">${carrito[p.egg_quantity]||0}</b><button type="button" class="btn ghost" data-carrito-mas="${p.egg_quantity}" style="padding:6px 14px">+</button></span></div>`).join('')}
       </div>
-      <div class="field"><label>Frecuencia</label>
+      <div class="alert info" style="margin-top:8px"><b>Total: ${total} huevos</b> ${carritoResumen(carrito)?`(${carritoResumen(carrito)})`:''} · $${precioCarrito(carrito).toLocaleString('es-AR')}</div>
+      <div class="field" style="margin-top:10px"><label>Frecuencia</label>
         <div class="grid three">${Object.entries(FRECUENCIAS).map(([v,l])=>`<button type="button" class="btn ${freqSel===v?'primary':'ghost'}" data-freq="${v}">${l}</button>`).join('')}</div>
       </div>
       <div class="field"><label>¿Día preferido? (opcional)</label>
@@ -179,16 +200,21 @@ async function cambiarPlanForm(sub){
       <div id="err_cambio" class="alert danger" style="display:none"></div>
       <button class="btn primary" id="btn_confirmar_cambio">Confirmar cambio</button>
       <button class="btn ghost" id="btn_cancelar_cambio" style="margin-left:8px">Cancelar</button>`
-    document.querySelectorAll('[data-eggs]').forEach(b=>b.onclick=async()=>{ eggsSel=Number(b.dataset.eggs); disponibilidad=null; render2(); await consultar() })
+    document.querySelectorAll('[data-carrito-mas]').forEach(b=>b.onclick=async()=>{ carrito[b.dataset.carritoMas]++; disponibilidad=null; render2(); await consultar() })
+    document.querySelectorAll('[data-carrito-menos]').forEach(b=>b.onclick=async()=>{ if(carrito[b.dataset.carritoMenos]>0) carrito[b.dataset.carritoMenos]--; disponibilidad=null; render2(); await consultar() })
     document.querySelectorAll('[data-freq]').forEach(b=>b.onclick=async()=>{ freqSel=b.dataset.freq; disponibilidad=null; render2(); await consultar() })
     document.querySelectorAll('[data-dia]').forEach(b=>b.onclick=async()=>{ diaSel=b.dataset.dia?Number(b.dataset.dia):null; disponibilidad=null; render2(); await consultar() })
     document.querySelectorAll('[data-alt-dia]').forEach(b=>b.onclick=async()=>{ diaSel=Number(b.dataset.altDia); disponibilidad=null; render2(); await consultar() })
     document.querySelector('#btn_cancelar_cambio').onclick = ()=>cuentaPanel()
     document.querySelector('#btn_confirmar_cambio').onclick = async ()=>{
       const errBox = document.querySelector('#err_cambio')
+      const total2 = totalCarrito(carrito)
+      if(total2<=0){ errBox.textContent='Elegí al menos un maple.'; errBox.style.display='block'; return }
+      const breakdown = Object.entries(carrito).filter(([,q])=>q>0).map(([size,qty])=>({size:Number(size),qty}))
       const { data, error } = await supabase.rpc('customer_update_subscription', {
         p_dni: cuenta.customer.dni, p_customer_id: cuenta.customer.id, p_subscription_id: sub.id,
-        p_egg_quantity: eggsSel, p_frequency: freqSel, p_preferred_weekday: diaSel
+        p_egg_quantity: total2, p_frequency: freqSel, p_preferred_weekday: diaSel,
+        p_plan_breakdown: breakdown, p_price: precioCarrito(carrito)
       })
       if(error || !data?.ok){ errBox.textContent='No pudimos hacer el cambio. Probá de nuevo.'; errBox.style.display='block'; return }
       const { data: fresh } = await supabase.rpc('customer_login', { p_dni: cuenta.customer.dni })
@@ -198,11 +224,13 @@ async function cambiarPlanForm(sub){
     }
   }
   const consultar = async ()=>{
-    const { data, error } = await supabase.rpc('check_availability', { p_egg_quantity: eggsSel, p_frequency: freqSel, p_preferred_weekday: diaSel })
+    const total = totalCarrito(carrito)
+    if(total<=0){ disponibilidad=null; render2(); return }
+    const { data, error } = await supabase.rpc('check_availability', { p_egg_quantity: total, p_frequency: freqSel, p_preferred_weekday: diaSel })
     disponibilidad = (!error && data) ? data : null
     alternativas = null
     if(!disponibilidad?.available && diaSel !== null){
-      const { data: alt } = await supabase.rpc('available_days_summary', { p_egg_quantity: eggsSel, p_frequency: freqSel })
+      const { data: alt } = await supabase.rpc('available_days_summary', { p_egg_quantity: total, p_frequency: freqSel })
       alternativas = (alt||[]).filter(a=>a.weekday !== diaSel)
     }
     render2()
@@ -560,6 +588,8 @@ async function admin(){
   const productMap = Object.fromEntries(productos.map(p=>[p.id, p]))
   const CATEGORIAS = [{value:'alimento',label:'Alimento'},{value:'sanidad',label:'Sanidad'},{value:'limpieza',label:'Limpieza'},{value:'otro',label:'Otro'}]
   const CATLABEL = {alimento:'Alimento',sanidad:'Sanidad',limpieza:'Limpieza',otro:'Otro'}
+  const { data: planPricesRaw } = await supabase.from('plan_prices').select('id,egg_quantity,price,active').order('egg_quantity')
+  const planPrices = planPricesRaw || []
   const count=s=>orders.filter(x=>x.status===s).length
   const pendientesDePago = subs.filter(s=>s.payment_status==='pending')
   const rolLabel = {admin:'Administrador',campo:'Personal de campo',repartidor:'Repartidor'}
@@ -599,8 +629,18 @@ async function admin(){
       }).join('') : '<p class="muted">Sin movimientos todavía.</p>'}
     </div>
   </div>
+  <div class="card"><h3>🥚 Tamaños de maple que ofrecés</h3>
+    <p class="muted">Estos son los tamaños que el cliente puede combinar en su plan. Agregá, editá el precio o desactivá los que no quieras ofrecer, sin tocar código.</p>
+    ${planPrices.length? planPrices.map(pp=>`<div class="row"><span><b>${pp.egg_quantity} huevos</b>${!pp.active?' · <span class="badge">Inactivo</span>':''}</span><span style="display:flex;gap:6px;align-items:center"><input type="number" min="0" step="1" value="${pp.price}" id="pp_price_${pp.id}" style="width:90px"/><button class="btn ghost" data-pp-save="${pp.id}">💾</button><button class="btn ghost" data-pp-toggle="${pp.id}" data-pp-active="${pp.active}">${pp.active?'Desactivar':'Activar'}</button></span></div>`).join('') : '<p class="muted">Todavía no cargaste tamaños.</p>'}
+    <div class="grid two" style="margin-top:10px">
+      <div class="field"><label>Nuevo tamaño (huevos)</label><input id="pp_new_qty" type="number" min="1" placeholder="Ej: 12"/></div>
+      <div class="field"><label>Precio</label><input id="pp_new_price" type="number" min="0" placeholder="Ej: 5000"/></div>
+    </div>
+    <button class="btn primary" id="btn_agregar_tamano">➕ Agregar tamaño</button>
+    <div id="err_tamano" class="alert danger" style="display:none;margin-top:8px"></div>
+  </div>
   <div class="card"><h3>📅 Capacidad y lista de espera</h3>
-    <div class="field"><label>Capacidad base diaria (maples), por si todavía no hay producción cargada para estimar</label><input id="cap_base" type="number" min="0" value="${capacidadBase}"/></div>
+    <div class="field"><label>Capacidad base diaria (en huevos), por si todavía no hay producción cargada para estimar</label><input id="cap_base" type="number" min="0" value="${capacidadBase}"/></div>
     <button class="btn ghost" id="btn_guardar_capacidad">Guardar capacidad base</button>
     <div id="err_capacidad" class="alert danger" style="display:none;margin-top:8px"></div>
     <div style="margin-top:16px"><h3 style="font-size:15px">Lista de espera (${waitlist.length})</h3>
@@ -669,6 +709,30 @@ async function admin(){
     alert('Activado ✅ Próxima entrega: '+data.next_delivery_date)
     render()
   })
+  document.querySelectorAll('[data-pp-save]').forEach(b=>b.onclick=async()=>{
+    const id = b.dataset.ppSave
+    const price = Number(document.querySelector(`#pp_price_${id}`).value)
+    if(!price || price<=0){ alert('Ingresá un precio válido.'); return }
+    const { error } = await supabase.from('plan_prices').update({ price }).eq('id', id)
+    if(error){ alert('Error: '+error.message); return }
+    render()
+  })
+  document.querySelectorAll('[data-pp-toggle]').forEach(b=>b.onclick=async()=>{
+    const id = b.dataset.ppToggle
+    const activeNow = b.dataset.ppActive === 'true'
+    const { error } = await supabase.from('plan_prices').update({ active: !activeNow }).eq('id', id)
+    if(error){ alert('Error: '+error.message); return }
+    render()
+  })
+  document.querySelector('#btn_agregar_tamano').onclick = async ()=>{
+    const qty = Number(document.querySelector('#pp_new_qty').value)
+    const price = Number(document.querySelector('#pp_new_price').value)
+    const box = document.querySelector('#err_tamano')
+    if(!qty || qty<=0 || !price || price<=0){ box.textContent='Completá cantidad de huevos y precio, ambos mayores a 0.'; box.style.display='block'; return }
+    const { error } = await supabase.from('plan_prices').insert({ egg_quantity: qty, price, active: true })
+    if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
+    render()
+  }
 }
 
 async function render(){
