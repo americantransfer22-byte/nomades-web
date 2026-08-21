@@ -1,4 +1,3 @@
-
 import { supabase } from './services/supabase.js'
 
 const app = document.querySelector('#app')
@@ -84,7 +83,8 @@ async function cargarPreciosHome(){
   if(!cont) return
   const { data, error } = await supabase.from('plan_prices').select('egg_quantity,price').eq('active', true).order('egg_quantity')
   const planes = (!error && data && data.length) ? data : [{egg_quantity:15,price:7000},{egg_quantity:30,price:12000}]
-  cont.innerHTML = planes.map(p => `<div><img src="./img/maple${p.egg_quantity}.jpg" alt="Maple de ${p.egg_quantity} huevos" style="width:100%;border-radius:12px 12px 0 0;display:block"/><div class="card" style="border-radius:0 0 12px 12px;text-align:center"><b>${p.egg_quantity} huevos</b><br>$${Number(p.price).toLocaleString('es-AR')}</div></div>`).join('')}
+  cont.innerHTML = planes.map(p => `<div><img src="./img/maple${p.egg_quantity}.jpg" alt="Maple de ${p.egg_quantity} huevos" style="width:100%;border-radius:12px 12px 0 0;display:block"/><div class="card" style="border-radius:0 0 12px 12px;text-align:center"><b>${p.egg_quantity} huevos</b><br>$${Number(p.price).toLocaleString('es-AR')}</div></div>`).join('')
+}
 
 const ESTADOS = { pending:'🟡 Pendiente', assigned:'🔵 Asignado', out_for_delivery:'🚚 En reparto', delivered:'🟢 Entregado', incident:'🔴 Incidencia', rescheduled:'🟠 Reprogramado', cancelled:'⚫ Cancelado' }
 
@@ -100,15 +100,62 @@ function cuentaLogin(){
   }
 }
 
+const FRECUENCIAS = { weekly:'Semanal', biweekly:'Quincenal', monthly:'Mensual' }
+
 function cuentaPanel(){
   const c = cuenta.customer
   const next = cuenta.next_order
   layout(`<h2>👤 Hola, ${c.first_name}</h2>
   <div class="card"><h3>Tu próximo pedido</h3>${next?`<div class="row"><span>${next.delivery_date}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div><p>${next.quantity_maples||''} maple(s)</p>`:'<p class="muted">No tenés entregas próximas.</p>'}</div>
-  <div class="card"><h3>Tus suscripciones</h3>${cuenta.subscriptions.length?cuenta.subscriptions.map(s=>`<div class="row"><span>${s.egg_quantity} huevos · ${s.frequency}</span><span class="badge">${s.payment_status==='paid'?'✅ Pago al día':'🟡 Pago pendiente'}</span></div>`).join(''):'<p class="muted">No tenés suscripciones activas.</p>'}</div>
-  <div class="card"><h3>Tus datos</h3><p>${c.street||''} ${c.street_number||''}, ${c.neighborhood||''}</p><p>📞 ${c.phone||'-'}</p></div>
+  <div class="card"><h3>Tus suscripciones</h3>${cuenta.subscriptions.length?cuenta.subscriptions.map(s=>`<div class="row"><span>${s.egg_quantity} huevos · ${FRECUENCIAS[s.frequency]||s.frequency}</span><span class="badge">${s.payment_status==='paid'?'✅ Pago al día':'🟡 Pago pendiente'}</span></div>`).join(''):'<p class="muted">No tenés suscripciones activas.</p>'}</div>
+  <div class="card" id="card_datos"><h3>Tus datos</h3><p>${c.street||''} ${c.street_number||''}, ${c.neighborhood||''}</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><p>📍 Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
   <button class="btn ghost" id="btn_logout_cuenta">Cerrar sesión</button>`)
   document.querySelector('#btn_logout_cuenta').onclick = ()=>{ cuenta=null; current='inicio'; render() }
+  document.querySelector('#btn_editar_datos').onclick = ()=>editarDatosForm(c)
+}
+
+const ZONAS = [
+  { value: 'norte', label: 'Norte' },
+  { value: 'sur', label: 'Sur' },
+  { value: 'este', label: 'Este' },
+  { value: 'oeste', label: 'Oeste' }
+]
+
+function editarDatosForm(c){
+  let zonaSel = c.zone || ''
+  const box = document.querySelector('#card_datos')
+  box.innerHTML = `<h3>Editar mis datos</h3>
+    <div class="field"><label>Teléfono</label><input id="ed_phone" value="${c.phone||''}"/></div>
+    <div class="field"><label>Email</label><input id="ed_email" value="${c.email||''}"/></div>
+    <div class="field"><label>Calle</label><input id="ed_street" value="${c.street||''}"/></div>
+    <div class="field"><label>Número</label><input id="ed_street_number" value="${c.street_number||''}"/></div>
+    <div class="field"><label>Barrio</label><input id="ed_neighborhood" value="${c.neighborhood||''}"/></div>
+    <div class="field"><label>Zona</label><div class="grid two" id="ed_zone_group">${ZONAS.map(z=>`<button type="button" class="btn ${zonaSel===z.value?'primary':'ghost'}" data-zone="${z.value}">${z.label}</button>`).join('')}</div></div>
+    <div id="err_edit" class="alert danger" style="display:none"></div>
+    <button class="btn primary" id="btn_guardar_datos">Guardar cambios</button>
+    <button class="btn ghost" id="btn_cancelar_edit" style="margin-left:8px">Cancelar</button>`
+  document.querySelectorAll('#ed_zone_group [data-zone]').forEach(b=> b.onclick = ()=>{
+    zonaSel = b.dataset.zone
+    document.querySelectorAll('#ed_zone_group [data-zone]').forEach(x=> x.className = 'btn ' + (x.dataset.zone===zonaSel?'primary':'ghost'))
+  })
+  document.querySelector('#btn_cancelar_edit').onclick = ()=>cuentaPanel()
+  document.querySelector('#btn_guardar_datos').onclick = async ()=>{
+    const errBox = document.querySelector('#err_edit')
+    const payload = {
+      p_dni: c.dni,
+      p_customer_id: c.id,
+      p_phone: document.querySelector('#ed_phone').value.trim(),
+      p_email: document.querySelector('#ed_email').value.trim(),
+      p_street: document.querySelector('#ed_street').value.trim(),
+      p_street_number: document.querySelector('#ed_street_number').value.trim(),
+      p_neighborhood: document.querySelector('#ed_neighborhood').value.trim(),
+      p_zone: zonaSel
+    }
+    const { data, error } = await supabase.rpc('customer_update', payload)
+    if(error || !data?.ok){ errBox.textContent='No pudimos guardar los cambios. Probá de nuevo.'; errBox.style.display='block'; return }
+    Object.assign(c, { phone: payload.p_phone||c.phone, email: payload.p_email||c.email, street: payload.p_street||c.street, street_number: payload.p_street_number||c.street_number, neighborhood: payload.p_neighborhood||c.neighborhood, zone: payload.p_zone||c.zone })
+    cuentaPanel()
+  }
 }
 
 function staffLogin(){
