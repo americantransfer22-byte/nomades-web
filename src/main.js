@@ -172,6 +172,7 @@ function cuentaPanel(){
   layout(`<h2>👤 Hola, ${c.first_name}</h2>
   <div id="card_hoy_banner"></div>
   <div class="card"><h3>Tu próximo pedido</h3>${next?`<div class="row"><span>${formatearFecha(next.delivery_date)}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div><p>${next.quantity_maples||''} maple(s)</p>${next.payment_method?`<div class="alert info">💡 Recordá: el pago es en <b>${METODOS_PAGO_LABEL[next.payment_method]||next.payment_method}</b>.</div>`:''}`:'<p class="muted">No tenés entregas próximas.</p>'}</div>
+  ${next && (next.customer_stage || next.status==='out_for_delivery') ? barraEstadoPedido(next.customer_stage, next.status, next.out_for_delivery_at, next.en_route_at) : ''}
   ${fechasMes.length?`<div class="card"><h3>📅 Tus entregas este mes</h3>${fechasMes.map((f,i)=>`<div class="row"><span>${formatearFecha(f)}</span>${i===0?'<span class="badge">Confirmada</span>':'<span class="muted" style="font-size:12px">Estimada</span>'}</div>`).join('')}<p class="muted" style="font-size:12px;margin-top:8px">Solo la primera fecha está confirmada como pedido. Las demás son estimadas según tu frecuencia y pueden moverse un poco.</p></div>`:''}
   <div class="card" id="card_subs"><h3>Tus suscripciones</h3>${cuenta.subscriptions.length?cuenta.subscriptions.map(s=>`<div class="row"><span>${s.egg_quantity} huevos · ${FRECUENCIAS[s.frequency]||s.frequency}${s.status==='waitlist'?' · <span class="badge" style="background:#b3841f">🕒 Lista de espera</span>':''}</span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="badge">${s.payment_status==='paid'?'✅ Pago al día':'🟡 Pago pendiente'}</span><button class="btn ghost" data-cambiar-plan="${s.id}" style="font-size:12px;padding:6px 12px">✏️ Cambiar plan</button></span></div>`).join(''):'<p class="muted">No tenés suscripciones activas.</p>'}</div>
   <div class="card" id="card_pagos"><h3>💳 Historial de pagos</h3><p class="muted">Cargando…</p></div>
@@ -475,6 +476,33 @@ function pBtn(icon, label, attrs, variant){
   return `<button ${attrs} style="flex:1;${styles[variant||'ghost']};border-radius:10px;padding:9px 4px;font-size:11px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:0">${icon}<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</span></button>`
 }
 function pBtnRow(buttons){ return `<div style="display:flex;gap:8px;margin-top:10px">${buttons.join('')}</div>` }
+function horaAR(iso){
+  if(!iso) return ''
+  return new Date(iso).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})
+}
+
+function barraEstadoPedido(stage, orderStatus, outForDeliveryAt, enRouteAt){
+  const enReparto = orderStatus==='out_for_delivery' || stage==='en_route'
+  const etapas = [
+    { icono:'🥚', label:'Preparando', activo: stage==='preparing' || enReparto },
+    { icono:'📦', label:'En reparto', activo: enReparto },
+    { icono:'<span style="display:inline-block;transform:scaleX(-1)">🛵</span>', label:'Hacia tu casa', activo: stage==='en_route' },
+    { icono:'🏠', label:'Entregado', activo: false }
+  ]
+  return `<div style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;padding:14px 16px;margin-bottom:10px">
+    <div style="font-size:13px;font-weight:700;color:#2F4D2A;margin-bottom:12px">Estado de tu pedido</div>
+    <div style="display:flex;align-items:flex-start">
+      ${etapas.map((e,i)=>`<div style="flex:1;text-align:center;position:relative">
+        ${i>0?`<div style="position:absolute;top:16px;left:-50%;width:100%;height:2px;background:${e.activo?'#8FAE6B':'#E3DCC8'}"></div>`:''}
+        <div style="width:32px;height:32px;border-radius:50%;margin:0 auto 6px;position:relative;z-index:1;background:${e.activo?'#2F4D2A':'#F1EFE8'};display:flex;align-items:center;justify-content:center;font-size:14px">${e.icono}</div>
+        <span style="font-size:10.5px;color:${e.activo?'#2F4D2A':'#8A8570'}">${e.label}</span>
+      </div>`).join('')}
+    </div>
+    ${stage==='en_route'?`<div style="margin-top:12px;background:#F5EFE0;border-radius:10px;padding:10px 12px;font-size:12px;color:#5F5E5A">💬 Tu repartidor ya está yendo hacia tu casa${enRouteAt?` (desde las ${horaAR(enRouteAt)} hs)`:''}, llega en los próximos minutos.</div>`:''}
+    ${stage!=='en_route' && enReparto?`<div style="margin-top:12px;background:#F5EFE0;border-radius:10px;padding:10px 12px;font-size:12px;color:#5F5E5A">💬 Tu repartidor salió a repartir${outForDeliveryAt?` a las ${horaAR(outForDeliveryAt)} hs`:''}, tu entrega está en camino.</div>`:''}
+    ${stage==='preparing' && !enReparto?`<div style="margin-top:12px;background:#F5EFE0;border-radius:10px;padding:10px 12px;font-size:12px;color:#5F5E5A">💬 Estamos preparando tu pedido con huevos recién recolectados.</div>`:''}
+  </div>`
+}
 
 const TIPOS_VIA_OPCIONES = [
   { value: 'calle', label: 'Calle' },
@@ -907,16 +935,74 @@ async function pedidos(){
 }
 
 async function repartidor(){
-  const rows=await q('orders','id,status,delivery_date,time_window_start,time_window_end,important_note,assigned_driver,customers(id,first_name,last_name,phone,neighborhood,street,street_number)')
+  const rows=await q('orders','id,status,delivery_date,time_window_start,time_window_end,important_note,assigned_driver,customer_stage,customers(id,first_name,last_name,phone,neighborhood,street,street_number,zone)')
   const grouped={}
   rows.filter(r=>['pending','assigned','out_for_delivery','rescheduled'].includes(r.status) && (myRole==='admin' || r.assigned_driver===session?.user?.id)).forEach(r=>{
     const c=r.customers||{}; const b=c.neighborhood||'Sin barrio'; const s=c.street||'Sin calle';
     grouped[b]??={}; grouped[b][s]??=[]; grouped[b][s].push(r)
   })
-  const html=Object.entries(grouped).map(([b,streets])=>`<div class="card group"><h3>📍 ${b}</h3>${Object.entries(streets).sort((a,b)=>b[1].length-a[1].length).map(([s,rs])=>`<div class="group"><div class="row"><b>${s}</b><span class="badge">${rs.length} entrega(s)</span></div>${rs.map(r=>{const c=r.customers||{};return `<div class="row"><span><b>${c.street_number||''}</b> · ${c.first_name||''} ${c.last_name||''}<br><small>${c.phone||''}</small>${r.important_note?`<div class="alert warning">⚠️ ${r.important_note}</div>`:''}</span><button class="btn primary" data-delivery="${r.id}">Abrir</button></div>`}).join('')}</div>`).join('')}</div>`).join('')
-  layout(`<h2>🚚 Ruta del día</h2><button class="btn ghost" id="btn_ver_mapa_repartidor" style="margin-bottom:12px">🗺️ Ver mapa de hoy</button><div class="alert warning"><b>⚠️ ATENCIÓN HOY</b><br>Las restricciones horarias y observaciones importantes aparecen destacadas.</div>${html||'<div class="card"><p class="muted">No hay entregas pendientes.</p></div>'}`)
+  const html=Object.entries(grouped).map(([b,streets])=>{
+    const zonaDelBarrio = Object.values(streets)[0]?.[0]?.customers?.zone
+    return pCard(`
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px"><span style="font-size:11px;color:#8A8570;font-weight:600">📍 BARRIO</span></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <span style="font-size:18px;font-weight:700;color:#2F4D2A">${b}</span>
+        ${zonaBadge(zonaDelBarrio)}
+      </div>
+      ${Object.entries(streets).sort((a,b)=>b[1].length-a[1].length).map(([s,rs])=>`
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid #F0EBDD">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span style="font-weight:600;color:#2F4D2A;font-size:14px">${s}</span>
+            ${pPill(`${rs.length} entrega(s)`)}
+          </div>
+          ${rs.map(r=>{
+            const c=r.customers||{}
+            const telLimpio=(c.phone||'').replace(/\D/g,'')
+            const estadoLabel = r.customer_stage==='en_route' ? '🚚 En camino (avisado)' : r.customer_stage==='preparing' ? '🥚 Preparando' : ''
+            return `<div style="margin-bottom:8px">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+                <div>
+                  <div style="font-weight:700;color:#2F4D2A">${c.street_number||''} · ${c.first_name||''} ${c.last_name||''}</div>
+                  <div style="font-size:12px;color:#8A8570;margin-top:2px">📞 ${c.phone||'-'}</div>
+                  ${estadoLabel?`<div style="font-size:11px;color:#B85C00;margin-top:2px">${estadoLabel}</div>`:''}
+                  ${r.important_note?`<div class="alert warning" style="margin-top:6px">⚠️ ${r.important_note}</div>`:''}
+                </div>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:8px">
+                <button data-delivery="${r.id}" style="flex:1;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:9px 0;font-size:12px;font-weight:600">Abrir</button>
+                ${telLimpio?`<button data-avisar="${r.id}" data-tel="${telLimpio}" data-nombre="${c.first_name||''}" style="flex:1;background:#25D366;color:#fff;border:none;border-radius:10px;padding:9px 0;font-size:12px;font-weight:600">📲 Voy en camino</button>`:''}
+              </div>
+            </div>`
+          }).join('')}
+        </div>
+      `).join('')}
+    `, 'margin-bottom:10px')
+  }).join('')
+  layout(`<h2>🚚 Ruta del día</h2>
+  <div style="display:flex;gap:8px;margin-bottom:12px">
+    <button class="btn ghost" id="btn_ver_mapa_repartidor" style="flex:1">🗺️ Ver mapa de hoy</button>
+    <button id="btn_sali_a_repartir" style="flex:1;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;font-size:13px;font-weight:600">📦 Salí a repartir</button>
+  </div>
+  <div class="alert warning"><b>⚠️ ATENCIÓN HOY</b><br>Las restricciones horarias y observaciones importantes aparecen destacadas.</div>${html||'<div class="card"><p class="muted">No hay entregas pendientes.</p></div>'}`)
   document.querySelectorAll('[data-delivery]').forEach(b=>b.onclick=()=>openDelivery(b.dataset.delivery))
+  document.querySelectorAll('[data-avisar]').forEach(b=>b.onclick=async()=>{
+    const id = b.dataset.avisar
+    // Solo un pedido puede estar "en camino" a la vez para este repartidor
+    await supabase.from('orders').update({ customer_stage: null }).eq('assigned_driver', session.user.id).eq('customer_stage', 'en_route')
+    await supabase.from('orders').update({ customer_stage: 'en_route', en_route_at: new Date().toISOString() }).eq('id', id)
+    const mensaje = encodeURIComponent(`Hola ${b.dataset.nombre}! Soy tu repartidor de NÓMADES 🛵 Ya estoy yendo hacia tu casa, tu pedido llega en los próximos minutos.`)
+    window.open(`https://wa.me/54${b.dataset.tel}?text=${mensaje}`, '_blank')
+    render()
+  })
   document.querySelector('#btn_ver_mapa_repartidor').onclick = ()=>mapaRepartidor()
+  document.querySelector('#btn_sali_a_repartir').onclick = async ()=>{
+    if(!confirm('¿Marcar como "En reparto" todos tus pedidos pendientes de hoy?'))return
+    const hoy = new Date().toISOString().slice(0,10)
+    const { error } = await supabase.from('orders').update({ status: 'out_for_delivery', out_for_delivery_at: new Date().toISOString() }).eq('assigned_driver', session.user.id).eq('delivery_date', hoy).in('status',['pending','assigned'])
+    if(error){ alert('Error: '+error.message); return }
+    alert('✅ Marcado. Tus clientes de hoy ya ven "En reparto" en su cuenta.')
+    render()
+  }
 }
 
 let repMapaFecha = null
@@ -929,6 +1015,8 @@ let pagoEditando = null // id del pago cuyo monto se está editando
 let mostrarFormDiferencia = false
 let cuentaRepartidorAbierta = null // user_id del repartidor cuya cuenta corriente está expandida
 let mostrarFormNuevaCategoria = false
+let mostrarSeccionCategorias = false
+let mostrarSeccionMovimiento = false
 let cobrosSubSeccion = null // 'transfer' | 'mp' | null
 let historialVehiculoActual = null
 
@@ -1319,7 +1407,7 @@ async function fetchAdminData(){
   const barrios = [...new Set((barriosRaw||[]).map(b=>b.neighborhood).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es'))
   const barrioZonaMap = {}
   ;(barriosRaw||[]).forEach(b=>{ if(b.neighborhood && b.zone && !barrioZonaMap[b.neighborhood]) barrioZonaMap[b.neighborhood] = b.zone })
-  const { data: pedidosAsignarRaw } = await supabase.from('orders').select('id,delivery_date,status,assigned_driver,assignment_locked,egg_quantity,customers(first_name,last_name,neighborhood,zone,street,street_number),subscriptions(frequency,plan_breakdown)').in('status',['pending','assigned','rescheduled']).order('delivery_date')
+  const { data: pedidosAsignarRaw } = await supabase.from('orders').select('id,delivery_date,status,assigned_driver,assignment_locked,egg_quantity,customer_stage,customers(first_name,last_name,neighborhood,zone,street,street_number),subscriptions(frequency,plan_breakdown)').in('status',['pending','assigned','rescheduled']).order('delivery_date')
   const pedidosAsignar = pedidosAsignarRaw || []
   const { data: pagosRaw } = await supabase.from('payments').select('id,amount,expected_method,method,reconciled,created_at,customers(first_name,last_name)').order('created_at',{ascending:false}).limit(30)
   const pagos = pagosRaw || []
@@ -1441,10 +1529,14 @@ async function admin(){
               <div style="font-size:12px;color:#8A8570;margin-top:5px">🥚 ${planLabel}</div>
               <div style="font-size:12px;color:#8A8570;margin-top:3px">${formatearFecha(p.delivery_date)}</div>
               <div style="font-size:12px;margin-top:3px;color:${p.assignment_locked?'#B85C00':'#2F4D2A'}">${p.assignment_locked?'🔒 Manual':'🔄 Automático'} → <b>${asignadoNombre}</b></div>
+              ${p.customer_stage?`<div style="font-size:11px;margin-top:3px;color:#B85C00">${p.customer_stage==='preparing'?'🥚 Marcado como "Preparando"':'🚚 Marcado como "En camino"'}</div>`:''}
             </div>
           </div>
           <select data-pedido-driver="${p.id}" style="width:100%;margin-top:10px"><option value="">— Sin asignar —</option>${repartidores.map(r=>`<option value="${r.user_id}" ${p.assigned_driver===r.user_id?'selected':''}>${r.full_name||'(sin nombre)'}</option>`).join('')}</select>
-          ${p.assignment_locked?pBtnRow([pBtn('🔄','Volver a automático',`data-destrabar="${p.id}"`,'ghost')]):''}
+          ${pBtnRow([
+            p.customer_stage==='preparing' ? pBtn('✖️','Quitar "Preparando"',`data-quitar-preparando="${p.id}"`,'ghost') : pBtn('🥚','Marcar "Preparando"',`data-marcar-preparando="${p.id}"`,'ghost'),
+            ...(p.assignment_locked?[pBtn('🔄','Volver a automático',`data-destrabar="${p.id}"`,'ghost')]:[])
+          ])}
         `, 'margin-bottom:8px')
         }).join('')
       })()}
@@ -1786,10 +1878,16 @@ async function admin(){
     </div>
     <div class="alert info" style="margin-top:10px"><b>Caja total acumulada: $${Number(dash.caja||0).toLocaleString('es-AR')}</b></div>
 
-    <div style="margin-top:20px"><h3 style="font-size:15px;color:#2F4D2A">Categorías</h3>
-      <div style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;overflow:hidden;margin-bottom:12px">
-        <button type="button" id="btn_toggle_form_categoria" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:12px 14px;cursor:pointer;gap:10px;background:${mostrarFormNuevaCategoria?'#F5EFE0':'transparent'}">
-          <span style="width:32px;height:32px;border-radius:9px;background:#EAF0DC;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">➕</span>
+    <div style="margin-top:20px;background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;overflow:hidden">
+      <button type="button" id="btn_toggle_seccion_categorias" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:12px 14px;cursor:pointer;gap:10px;background:${mostrarSeccionCategorias?'#F5EFE0':'transparent'}">
+        <span style="width:32px;height:32px;border-radius:9px;background:#EAF0DC;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">🏷️</span>
+        <span style="flex:1;font-weight:700;font-size:14.5px;color:#2F4D2A">Categorías</span>
+        <span style="font-size:13px;color:#8A8570">${mostrarSeccionCategorias?'▲':'▼'}</span>
+      </button>
+      <div style="display:${mostrarSeccionCategorias?'block':'none'};padding:10px 14px 14px">
+      <div style="background:#F5EFE0;border-radius:14px;overflow:hidden;margin-bottom:12px">
+        <button type="button" id="btn_toggle_form_categoria" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:12px 14px;cursor:pointer;gap:10px;background:${mostrarFormNuevaCategoria?'#EAF0DC':'transparent'}">
+          <span style="width:32px;height:32px;border-radius:9px;background:#FFFFFF;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">➕</span>
           <span style="flex:1;font-weight:700;font-size:14.5px;color:#2F4D2A">Agregar categoría</span>
           <span style="font-size:13px;color:#8A8570">${mostrarFormNuevaCategoria?'▲':'▼'}</span>
         </button>
@@ -1810,9 +1908,16 @@ async function admin(){
           <button data-cat-toggle="${c.id}" data-cat-active="${c.active}" style="background:${c.active?'#FFFFFF':'#2F4D2A'};color:${c.active?'#B85C00':'#F5EFE0'};border:1px solid ${c.active?'#E3DCC8':'#2F4D2A'};border-radius:10px;padding:7px 14px;font-size:12px;font-weight:600;white-space:nowrap">${c.active?'Desactivar':'Activar'}</button>
         </div>
       `, 'margin-bottom:8px')).join('') : '<p class="muted">Todavía no hay categorías.</p>'}</div>
+      </div>
     </div>
 
-    <div style="margin-top:20px"><h3 style="font-size:15px;color:#2F4D2A">Registrar movimiento</h3>
+    <div style="margin-top:20px;background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;overflow:hidden">
+      <button type="button" id="btn_toggle_seccion_movimiento" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:12px 14px;cursor:pointer;gap:10px;background:${mostrarSeccionMovimiento?'#F5EFE0':'transparent'}">
+        <span style="width:32px;height:32px;border-radius:9px;background:#EAF0DC;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">📝</span>
+        <span style="flex:1;font-weight:700;font-size:14.5px;color:#2F4D2A">Registrar movimiento</span>
+        <span style="font-size:13px;color:#8A8570">${mostrarSeccionMovimiento?'▲':'▼'}</span>
+      </button>
+      <div style="display:${mostrarSeccionMovimiento?'block':'none'};padding:10px 14px 14px">
       <div class="field"><label>Tipo</label>
         <div style="display:flex;gap:8px;background:#F5EFE0;border-radius:12px;padding:4px">
           <button type="button" id="btn_tipo_expense" data-fin-tipo="expense" style="flex:1;border:none;background:transparent;border-radius:9px;padding:9px 0;font-size:13px;font-weight:600;color:#2F4D2A">Gasto</button>
@@ -1828,6 +1933,7 @@ async function admin(){
       <div class="field"><label>Comprobante (opcional)</label><input type="file" id="fin_receipt" accept="image/*,application/pdf"/></div>
       <div id="err_finanzas" class="alert danger" style="display:none"></div>
       <button class="btn primary" id="btn_guardar_movimiento" style="width:100%">Guardar movimiento</button>
+      </div>
     </div>
 
     <div style="margin-top:20px"><h3 style="font-size:15px;color:#2F4D2A">Últimos movimientos</h3>
@@ -2039,6 +2145,16 @@ async function admin(){
     if(error || !data?.ok){ alert('No se pudo destrabar: '+(error?.message||data?.error||'')); return }
     adminData = null; render()
   })
+  document.querySelectorAll('[data-marcar-preparando]').forEach(b=>b.onclick=async()=>{
+    const { error } = await supabase.from('orders').update({ customer_stage: 'preparing' }).eq('id', b.dataset.marcarPreparando)
+    if(error){ alert('Error: '+error.message); return }
+    adminData = null; render()
+  })
+  document.querySelectorAll('[data-quitar-preparando]').forEach(b=>b.onclick=async()=>{
+    const { error } = await supabase.from('orders').update({ customer_stage: null }).eq('id', b.dataset.quitarPreparando)
+    if(error){ alert('Error: '+error.message); return }
+    adminData = null; render()
+  })
   document.querySelector('#btn_crear_producto').onclick = async ()=>{
     const name = document.querySelector('#prod_new_name').value.trim()
     const unit_label = document.querySelector('#prod_new_unit').value.trim()
@@ -2180,7 +2296,12 @@ async function admin(){
   })
   const btnToggleFormCat = document.querySelector('#btn_toggle_form_categoria')
   if(btnToggleFormCat) btnToggleFormCat.onclick = ()=>{ mostrarFormNuevaCategoria = !mostrarFormNuevaCategoria; render() }
-  document.querySelector('#btn_crear_categoria').onclick = async ()=>{
+  const btnToggleSeccionCat = document.querySelector('#btn_toggle_seccion_categorias')
+  if(btnToggleSeccionCat) btnToggleSeccionCat.onclick = ()=>{ mostrarSeccionCategorias = !mostrarSeccionCategorias; render() }
+  const btnToggleSeccionMov = document.querySelector('#btn_toggle_seccion_movimiento')
+  if(btnToggleSeccionMov) btnToggleSeccionMov.onclick = ()=>{ mostrarSeccionMovimiento = !mostrarSeccionMovimiento; render() }
+  const btnCrearCategoria = document.querySelector('#btn_crear_categoria')
+  if(btnCrearCategoria) btnCrearCategoria.onclick = async ()=>{
     const name = document.querySelector('#cat_new_name').value.trim()
     const type = document.querySelector('#cat_new_type').value
     if(!name){ alert('Ponele un nombre a la categoría.'); return }
@@ -2198,6 +2319,7 @@ async function admin(){
   let finTipoSel = 'expense'
   const actualizarCategoriasFinanzas = ()=>{
     const sel = document.querySelector('#fin_categoria')
+    if(!sel) return
     const tiposPermitidos = finTipoSel==='expense' ? ['fixed','variable'] : ['income']
     const opciones = categorias.filter(c=>c.active && tiposPermitidos.includes(c.type))
     sel.innerHTML = opciones.length ? opciones.map(c=>`<option value="${c.id}">${c.name}</option>`).join('') : '<option value="">No hay categorías de este tipo — creá una arriba</option>'
@@ -2217,8 +2339,10 @@ async function admin(){
   pintarTipoFin()
   actualizarCategoriasFinanzas()
   let comprobanteFinanzas = null
-  document.querySelector('#fin_receipt').onchange = (e)=>{ comprobanteFinanzas = e.target.files[0]||null }
-  document.querySelector('#btn_guardar_movimiento').onclick = async ()=>{
+  const finReceipt = document.querySelector('#fin_receipt')
+  if(finReceipt) finReceipt.onchange = (e)=>{ comprobanteFinanzas = e.target.files[0]||null }
+  const btnGuardarMovimiento = document.querySelector('#btn_guardar_movimiento')
+  if(btnGuardarMovimiento) btnGuardarMovimiento.onclick = async ()=>{
     const box = document.querySelector('#err_finanzas')
     const category_id = document.querySelector('#fin_categoria').value
     const amount = Number(document.querySelector('#fin_amount').value)
