@@ -106,8 +106,19 @@ function inicio(){layout(`<section class="hero">
   <h2>Elegí tu plan</h2>
   <div class="grid two" id="planes_home"><p class="muted">Cargando precios…</p></div>
 </section>
-<section class="card" style="margin-top:18px"><h3>¿Por qué NÓMADES es distinto?</h3><p>La mayoría de los huevos de supermercado vienen de gallinas confinadas todo el día. Acá las gallinas viven al aire libre, se mueven, comen pasto fresco — y eso se nota en el sabor y el color de la yema. Además, cada entrega es trazable: sabés exactamente cuándo se recolectó tu pedido.</p></section>`)
+<section class="card" style="margin-top:18px"><h3>¿Por qué NÓMADES es distinto?</h3><p>La mayoría de los huevos de supermercado vienen de gallinas confinadas todo el día. Acá las gallinas viven al aire libre, se mueven, comen pasto fresco — y eso se nota en el sabor y el color de la yema. Además, cada entrega es trazable: sabés exactamente cuándo se recolectó tu pedido.</p></section>
+<section style="margin-top:18px"><h2>Lo que dicen nuestros clientes</h2><div id="resenas_home"><p class="muted">Cargando…</p></div></section>`)
   cargarPreciosHome()
+  cargarResenasHome()
+}
+
+async function cargarResenasHome(){
+  const cont = document.querySelector('#resenas_home')
+  if(!cont) return
+  const { data } = await supabase.rpc('public_featured_reviews')
+  const resenas = data || []
+  if(!resenas.length){ cont.innerHTML = ''; return }
+  cont.innerHTML = resenas.map(r=>`<div class="card" style="margin-bottom:10px"><div style="color:#E8833A;font-size:15px">${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</div>${r.comment?`<p style="margin-top:6px">"${r.comment}"</p>`:''}<p class="muted" style="font-size:12px;margin-top:4px">— ${r.first_name||'Cliente'}</p></div>`).join('')
 }
 
 async function cargarPreciosHome(){
@@ -174,18 +185,68 @@ function cuentaPanel(){
   <div class="card"><h3>Tu próximo pedido</h3>${next?`<div class="row"><span>${formatearFecha(next.delivery_date)}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div><p>${(next.plan_breakdown && Array.isArray(next.plan_breakdown) && next.plan_breakdown.length) ? next.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')+' huevos' : `${next.egg_quantity||0} huevos`}</p>${next.payment_method?`<div class="alert info">💡 Recordá: el pago es en <b>${METODOS_PAGO_LABEL[next.payment_method]||next.payment_method}</b>.</div>`:''}`:'<p class="muted">No tenés entregas próximas.</p>'}</div>
   ${next && (next.customer_stage || next.status==='out_for_delivery') ? barraEstadoPedido(next.customer_stage, next.status, next.out_for_delivery_at, next.en_route_at) : ''}
   ${fechasMes.length?`<div class="card"><h3>📅 Tus entregas este mes</h3>${fechasMes.map((f,i)=>`<div class="row"><span>${formatearFecha(f)}</span>${i===0?'<span class="badge">Confirmada</span>':'<span class="muted" style="font-size:12px">Estimada</span>'}</div>`).join('')}<p class="muted" style="font-size:12px;margin-top:8px">Solo la primera fecha está confirmada como pedido. Las demás son estimadas según tu frecuencia y pueden moverse un poco.</p></div>`:''}
-  <div class="card" id="card_subs"><h3>Tus suscripciones</h3>${cuenta.subscriptions.length?cuenta.subscriptions.map(s=>`<div class="row"><span>${s.egg_quantity} huevos · ${FRECUENCIAS[s.frequency]||s.frequency}${s.status==='waitlist'?' · <span class="badge" style="background:#b3841f">🕒 Lista de espera</span>':''}</span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="badge">${s.payment_status==='paid'?'✅ Pago al día':'🟡 Pago pendiente'}</span><button class="btn ghost" data-cambiar-plan="${s.id}" style="font-size:12px;padding:6px 12px">✏️ Cambiar plan</button></span></div>`).join(''):'<p class="muted">No tenés suscripciones activas.</p>'}</div>
+  <div class="card" id="card_subs"><h3>Tus suscripciones</h3>${cuenta.subscriptions.length?cuenta.subscriptions.map(s=>{
+    const planLabel = s.plan_breakdown && s.plan_breakdown.length ? s.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')+' huevos' : `${s.egg_quantity} huevos`
+    const estadoBadge = s.status==='waitlist' ? ' · <span class="badge" style="background:#b3841f">🕒 Lista de espera</span>' : s.status==='paused' ? ' · <span class="badge" style="background:#8A8570">⏸️ Pausada</span>' : ''
+    return `<div class="row"><span>${planLabel} · ${FRECUENCIAS[s.frequency]||s.frequency}${estadoBadge}${s.status==='paused'&&s.paused_until?`<br><small class="muted">Hasta el ${formatearFecha(s.paused_until)}</small>`:''}</span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+      ${s.status!=='paused'?`<span class="badge">${s.payment_status==='paid'?'✅ Pago al día':'🟡 Pago pendiente'}</span>`:''}
+      ${s.status==='active'?`<button class="btn ghost" data-cambiar-plan="${s.id}" style="font-size:12px;padding:6px 12px">✏️ Cambiar plan</button><button class="btn ghost" data-pausar="${s.id}" style="font-size:12px;padding:6px 12px">⏸️ Pausar</button>`:''}
+      ${s.status==='paused'?`<button class="btn primary" data-reanudar="${s.id}" style="font-size:12px;padding:6px 12px">▶️ Reanudar</button>`:''}
+    </span></div>`
+  }).join(''):'<p class="muted">No tenés suscripciones activas.</p>'}</div>
   <div class="card" id="card_pagos"><h3>💳 Historial de pagos</h3><p class="muted">Cargando…</p></div>
+  <div class="card"><h3>📣 Recomendá NÓMADES</h3><p class="muted">Compartí tu código — cuando alguien se suscriba con él, vos te ganás 1 entrega gratis.</p><div class="alert info" style="text-align:center;font-size:22px;font-weight:bold;letter-spacing:2px">${c.referral_code||'-'}</div>
+    ${cuenta.credits && cuenta.credits.length ? `<div style="margin-top:10px">${cuenta.credits.map(cr=>`<div class="row"><span>🎁 ${cr.amount_description}</span><span class="muted" style="font-size:12px">${cr.reason||''}</span></div>`).join('')}</div>`:''}
+  </div>
   <div class="card" id="card_repartidor"><h3>🚚 Tu repartidor</h3><p class="muted">Cargando…</p></div>
   <div class="card" id="card_datos"><h3>Tus datos</h3><p>🪪 DNI ${c.dni||'-'}</p><p>🏠 ${tipoVia} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'} (CP ${c.postal_code||'-'})</p><p>📍 Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'}</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
   <button class="btn ghost" id="btn_ver_mapa" style="margin-bottom:10px">🗺️ Ver mapa de suscriptores</button>
+  <div class="card"><h3>⭐ ¿Qué te pareció NÓMADES?</h3>
+    <div class="field"><label>Tu puntaje</label><div id="review_estrellas" style="font-size:28px;letter-spacing:4px">☆☆☆☆☆</div></div>
+    <div class="field"><label>Comentario (opcional)</label><textarea id="review_comment" rows="2" placeholder="Contanos tu experiencia"></textarea></div>
+    <div id="err_review" class="alert danger" style="display:none"></div>
+    <button class="btn primary" id="btn_enviar_review" style="width:100%">Enviar reseña</button>
+  </div>
   <button class="btn ghost" id="btn_logout_cuenta">Cerrar sesión</button>`)
   document.querySelector('#btn_logout_cuenta').onclick = ()=>{ cuenta=null; current='inicio'; render() }
   document.querySelector('#btn_editar_datos').onclick = ()=>editarDatosForm(c)
   document.querySelector('#btn_ver_mapa').onclick = ()=>mapaSuscriptores()
+  let ratingSel = 0
+  document.querySelector('#review_estrellas').onclick = (e)=>{
+    const rect = e.currentTarget.getBoundingClientRect()
+    const pct = (e.clientX - rect.left) / rect.width
+    ratingSel = Math.max(1, Math.min(5, Math.ceil(pct*5)))
+    e.currentTarget.textContent = '★'.repeat(ratingSel) + '☆'.repeat(5-ratingSel)
+  }
+  document.querySelector('#btn_enviar_review').onclick = async ()=>{
+    const box = document.querySelector('#err_review')
+    if(!ratingSel){ box.textContent='Tocá las estrellas para elegir un puntaje.'; box.style.display='block'; return }
+    const { data, error } = await supabase.rpc('customer_add_review', { p_dni: c.dni, p_customer_id: c.id, p_order_id: null, p_rating: ratingSel, p_comment: document.querySelector('#review_comment').value.trim() })
+    if(error || !data?.ok){ box.textContent = data?.error || 'No se pudo enviar.'; box.style.display='block'; return }
+    alert('¡Gracias por tu reseña! 🙌')
+    cuentaPanel()
+  }
   document.querySelectorAll('[data-cambiar-plan]').forEach(b=>b.onclick = ()=>{
     const sub = cuenta.subscriptions.find(s=>s.id===b.dataset.cambiarPlan)
     if(sub) cambiarPlanForm(sub)
+  })
+  document.querySelectorAll('[data-pausar]').forEach(b=>b.onclick = async ()=>{
+    const fecha = prompt('¿Hasta qué fecha querés pausar? (opcional, formato AAAA-MM-DD). Dejá vacío si no sabés todavía.')
+    if(fecha===null) return
+    const { data, error } = await supabase.rpc('customer_pause_subscription', { p_dni: c.dni, p_customer_id: c.id, p_subscription_id: b.dataset.pausar, p_resume_date: fecha||null })
+    if(error || !data?.ok){ alert('No se pudo pausar: '+(data?.error||error?.message||'')); return }
+    alert('⏸️ Suscripción pausada. No te vamos a entregar ni cobrar hasta que la reanudes.')
+    const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
+    if(fresh?.found) cuenta = fresh
+    cuentaPanel()
+  })
+  document.querySelectorAll('[data-reanudar]').forEach(b=>b.onclick = async ()=>{
+    const { data, error } = await supabase.rpc('customer_resume_subscription', { p_dni: c.dni, p_customer_id: c.id, p_subscription_id: b.dataset.reanudar })
+    if(error || !data?.ok){ alert('No se pudo reanudar: '+(data?.error||error?.message||'')); return }
+    alert(data.next_delivery_date ? `▶️ Suscripción reanudada. Próxima entrega: ${formatearFecha(data.next_delivery_date)}` : '▶️ Suscripción reanudada.')
+    const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
+    if(fresh?.found) cuenta = fresh
+    cuentaPanel()
   })
   cargarHistorialPagos(c)
   cargarRepartidor(c, esHoy)
@@ -476,6 +537,18 @@ function pBtn(icon, label, attrs, variant){
   return `<button ${attrs} style="flex:1;${styles[variant||'ghost']};border-radius:10px;padding:9px 4px;font-size:11px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:0">${icon}<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</span></button>`
 }
 function pBtnRow(buttons){ return `<div style="display:flex;gap:8px;margin-top:10px">${buttons.join('')}</div>` }
+function descargarCSV(nombreArchivo, columnas, filas){
+  const escapar = v => `"${String(v==null?'':v).replace(/"/g,'""')}"`
+  const encabezado = columnas.map(c=>escapar(c.label)).join(';')
+  const cuerpo = filas.map(f=> columnas.map(c=>escapar(typeof c.value==='function'?c.value(f):f[c.value])).join(';')).join('\n')
+  const csv = '\uFEFF' + encabezado + '\n' + cuerpo
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = nombreArchivo
+  document.body.appendChild(a); a.click(); document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
 function horaAR(iso){
   if(!iso) return ''
   return new Date(iso).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})
@@ -931,6 +1004,7 @@ let clienteDetalleCache = {}
 async function clientes(){
   const rows=await q('customers','id,first_name,last_name,phone,neighborhood,zone,city,status,dni')
   layout(`<h2>Clientes</h2>
+  <button id="btn_exportar_clientes" class="btn ghost" style="width:100%;margin-bottom:12px">📊 Exportar a Excel (CSV)</button>
   ${rows.length? rows.map(c=>{
     const abierto = clienteExpandido===c.id
     const detalle = clienteDetalleCache[c.id]
@@ -975,11 +1049,22 @@ async function clientes(){
           <div style="margin-top:16px"><h3 style="font-size:14px;color:#2F4D2A;margin-bottom:8px">💳 Historial de pagos</h3>
             ${detalle.payments.length? detalle.payments.map(p=>`<div class="row"><span>${new Date(p.created_at).toLocaleDateString('es-AR')}</span><span><b>$${Number(p.amount||0).toLocaleString('es-AR')}</b> · ${METODOS_PAGO_LABEL[p.method]||p.method}</span></div>`).join('') : '<p class="muted" style="font-size:13px">Sin pagos todavía.</p>'}
           </div>
+          <div style="margin-top:16px"><h3 style="font-size:14px;color:#2F4D2A;margin-bottom:8px">🎁 Créditos por recomendar</h3>
+            ${detalle.credits && detalle.credits.length? detalle.credits.map(cr=>`<div class="row"><span>${cr.amount_description}${cr.used?' <span class="muted" style="font-size:11px">(ya usado)</span>':''}<br><small class="muted">${cr.reason||''}</small></span>${!cr.used?`<button data-usar-credito="${cr.id}" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:600">Marcar usado</button>`:''}</span></div>`).join('') : '<p class="muted" style="font-size:13px">Sin créditos todavía.</p>'}
+          </div>
         `}
       </div>
     </div>`
   }).join('') : '<p class="muted">Sin datos todavía.</p>'}`)
 
+  document.querySelector('#btn_exportar_clientes').onclick = ()=>{
+    descargarCSV('clientes_nomades.csv', [
+      {label:'Nombre', value:c=>`${c.first_name||''} ${c.last_name||''}`},
+      {label:'DNI', value:'dni'}, {label:'Teléfono', value:'phone'},
+      {label:'Barrio', value:'neighborhood'}, {label:'Zona', value:'zone'}, {label:'Ciudad', value:'city'},
+      {label:'Estado', value:'status'}
+    ], rows)
+  }
   document.querySelectorAll('[data-toggle-cliente]').forEach(b=>b.onclick=async()=>{
     const id = b.dataset.toggleCliente
     if(clienteExpandido===id){ clienteExpandido=null; render(); return }
@@ -1011,6 +1096,13 @@ async function clientes(){
     alert('✅ Datos del cliente actualizados.')
     render()
   })
+  document.querySelectorAll('[data-usar-credito]').forEach(b=>b.onclick=async()=>{
+    if(!confirm('¿Marcar este crédito como usado?'))return
+    const { error } = await supabase.from('customer_credits').update({ used: true }).eq('id', b.dataset.usarCredito)
+    if(error){ alert('Error: '+error.message); return }
+    clienteDetalleCache = {}
+    render()
+  })
 }
 
 let pedidoExpandido = null
@@ -1023,6 +1115,7 @@ async function pedidos(){
   const ordenados = [...rows].sort((a,b)=> new Date(b.delivery_date) - new Date(a.delivery_date))
 
   layout(`<h2>Pedidos</h2>
+  <button id="btn_exportar_pedidos" class="btn ghost" style="width:100%;margin-bottom:12px">📊 Exportar a Excel (CSV)</button>
   ${ordenados.length? ordenados.map(r=>{
     const c = r.customers||{}
     const rep = r.assigned_driver ? (staffMap[r.assigned_driver]||'(repartidor desconocido)') : 'Sin asignar'
@@ -1068,6 +1161,15 @@ async function pedidos(){
   }).join('') : '<p class="muted">No hay pedidos cargados.</p>'}
   <p class="muted" style="margin-top:10px">Para reasignar repartidores, andá a Administración → 🚚 Asignación de repartidores.</p>`)
 
+  document.querySelector('#btn_exportar_pedidos').onclick = ()=>{
+    descargarCSV('pedidos_nomades.csv', [
+      {label:'N° Pedido', value:'order_number'}, {label:'Fecha', value:'delivery_date'},
+      {label:'Cliente', value:r=>{const c=r.customers||{};return `${c.first_name||''} ${c.last_name||''}`}},
+      {label:'Barrio', value:r=>r.customers?.neighborhood||''},
+      {label:'Huevos', value:'egg_quantity'}, {label:'Estado', value:r=>ESTADOS[r.status]||r.status},
+      {label:'Repartidor', value:r=>r.assigned_driver?(staffMap[r.assigned_driver]||''):'Sin asignar'}
+    ], ordenados)
+  }
   document.querySelectorAll('[data-toggle-pedido]').forEach(b=>b.onclick=async()=>{
     const id = b.dataset.togglePedido
     if(pedidoExpandido===id){ pedidoExpandido=null; render(); return }
@@ -1153,7 +1255,7 @@ async function repartidor(){
                 <div style="display:flex;gap:6px;margin-top:8px">
                   <button data-delivery="${r.id}" style="flex:1;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:9px 0;font-size:11px;font-weight:600">Abrir</button>
                   <button data-maps="${encodeURIComponent(direccionCompleta)}" style="flex:1;background:#FFFFFF;color:#2F4D2A;border:1px solid #E3DCC8;border-radius:10px;padding:9px 0;font-size:11px;font-weight:600">🧭 Maps</button>
-                  ${telLimpio?`<button data-avisar="${r.id}" data-tel="${telLimpio}" data-nombre="${c.first_name||''}" style="flex:1;background:#25D366;color:#fff;border:none;border-radius:10px;padding:9px 0;font-size:11px;font-weight:600">🛵 Voy</button>`:''}
+                  ${telLimpio?`<button data-avisar="${r.id}" data-tel="${telLimpio}" data-nombre="${c.first_name||''}" data-driver="${r.assigned_driver||session.user.id}" style="flex:1;background:#25D366;color:#fff;border:none;border-radius:10px;padding:9px 0;font-size:11px;font-weight:600">🛵 Voy</button>`:''}
                 </div>
               </div>`
             }).join('')}
@@ -1181,8 +1283,9 @@ async function repartidor(){
   })
   document.querySelectorAll('[data-avisar]').forEach(b=>b.onclick=async()=>{
     const id = b.dataset.avisar
-    // Solo un pedido puede estar "en camino" a la vez para este repartidor
-    await supabase.from('orders').update({ customer_stage: null }).eq('assigned_driver', session.user.id).eq('customer_stage', 'en_route')
+    const driverId = b.dataset.driver || session.user.id
+    // Solo un pedido puede estar "en camino" a la vez para ese repartidor
+    await supabase.from('orders').update({ customer_stage: null }).eq('assigned_driver', driverId).eq('customer_stage', 'en_route')
     const { error } = await supabase.from('orders').update({ customer_stage: 'en_route', en_route_at: new Date().toISOString() }).eq('id', id)
     if(error){ alert('No se pudo actualizar el estado: '+error.message); return }
     const datosVehiculo = miVehiculo ? ` en mi ${miVehiculo.type==='moto'?'moto':'camioneta'} ${miVehiculo.brand||''} ${miVehiculo.model||''}${miVehiculo.color?` color ${miVehiculo.color}`:''}, patente ${miVehiculo.plate}` : ''
@@ -1193,11 +1296,14 @@ async function repartidor(){
   })
   document.querySelector('#btn_ver_mapa_repartidor').onclick = ()=>mapaRepartidor()
   document.querySelector('#btn_sali_a_repartir').onclick = async ()=>{
-    if(!confirm(`¿Marcar como "En reparto" todos tus pedidos pendientes del ${subtitulo}?`))return
-    const { data, error } = await supabase.from('orders').update({ status: 'out_for_delivery', out_for_delivery_at: new Date().toISOString() }).eq('assigned_driver', session.user.id).eq('delivery_date', fecha).in('status',['pending','assigned']).select('id')
+    const esAdmin = myRole==='admin'
+    if(!confirm(`¿Marcar como "En reparto" ${esAdmin?'todos los pedidos pendientes de todos los repartidores':'todos tus pedidos pendientes'} del ${subtitulo}?`))return
+    let query = supabase.from('orders').update({ status: 'out_for_delivery', out_for_delivery_at: new Date().toISOString() }).eq('delivery_date', fecha).in('status',['pending','assigned'])
+    if(!esAdmin) query = query.eq('assigned_driver', session.user.id)
+    const { data, error } = await query.select('id')
     if(error){ alert('Error: '+error.message); return }
     if(!data || !data.length){ alert(`⚠️ No había pedidos pendientes para marcar en el ${subtitulo}. Revisá que estés parado en la fecha correcta arriba.`); return }
-    alert(`✅ Se marcaron ${data.length} pedido(s) como "En reparto". Tus clientes de ese día ya lo ven en su cuenta.`)
+    alert(`✅ Se marcaron ${data.length} pedido(s) como "En reparto". Los clientes de ese día ya lo ven en su cuenta.`)
     render()
   }
  } catch(err) {
@@ -1593,7 +1699,7 @@ let adminData = null // cache de datos del panel admin, para no re-consultar tod
 let adminAsignarFecha = '' // filtro de fecha para "Reasignar pedidos puntuales"
 
 async function fetchAdminData(){
-  const [orders,customers,subs,staff]=await Promise.all([q('orders','id,status'),q('customers','id'),q('subscriptions','id,payment_status,created_at,customers(first_name,last_name)'),q('staff_roles','user_id,role,full_name,created_at')])
+  const [orders,customers,subs,staff]=await Promise.all([q('orders','id,status,delivery_date,egg_quantity'),q('customers','id'),q('subscriptions','id,payment_status,created_at,customers(first_name,last_name)'),q('staff_roles','user_id,role,full_name,created_at')])
   const productos = await q('products','id,name,unit_label,category,current_qty,active')
   const { data: movimientosRaw } = await supabase.from('stock_movements').select('id,product_id,type,quantity,note,created_by,created_at').order('created_at',{ascending:false}).limit(20)
   const movimientos = movimientosRaw || []
@@ -1629,12 +1735,16 @@ async function fetchAdminData(){
   const alertas = alertasVehiculos || { service:[], vtv:[], seguro:[], carnet:[], pagos_pendientes:[] }
   const { data: driverLedgerRaw } = await supabase.from('driver_ledger').select('id,driver_id,entry_date,amount,description,created_at').order('entry_date',{ascending:false})
   const driverLedger = driverLedgerRaw || []
-  return { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger }
+  const { data: rankingRaw } = await supabase.rpc('admin_customer_ranking', {})
+  const ranking = rankingRaw || []
+  const { data: reviewsRaw } = await supabase.rpc('admin_reviews_list', {})
+  const reviews = reviewsRaw || []
+  return { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews }
 }
 
 async function admin(){
   if(!adminData) adminData = await fetchAdminData()
-  const { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger } = adminData
+  const { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews } = adminData
   const capacidadBase = settingsMap.default_daily_capacity_maples || '300'
   const assignmentMode = settingsMap.assignment_mode || 'zone'
   const staffMap = Object.fromEntries(staff.map(s=>[s.user_id, s.full_name||'(sin nombre)']))
@@ -1648,7 +1758,31 @@ async function admin(){
   const AS = (id)=> adminOpenSection===id
   const accHead = (id, icon, titulo, badge)=> `<button type="button" class="acc-header" data-acc="${id}" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:14px 16px;cursor:pointer;gap:10px;background:${AS(id)?'#F5EFE0':'transparent'}"><span style="width:32px;height:32px;border-radius:9px;background:#EAF0DC;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">${icon}</span><span style="flex:1;font-weight:700;font-size:14.5px;color:#2F4D2A">${titulo}</span>${badge?pPill(badge,'#FBE4CC','#B85C00'):''}<span style="font-size:13px;color:#8A8570">${AS(id)?'▲':'▼'}</span></button><div style="display:${AS(id)?'block':'none'};padding:4px 16px 16px 16px">`
   const statCard = (id,label,value)=> `<div data-stat="${id}" style="cursor:pointer;flex:0 0 auto;min-width:96px;background:#2F4D2A;border-radius:14px;padding:10px 14px;display:flex;flex-direction:column;gap:2px"><span style="color:#C9D8B0;font-size:11px;line-height:1.25">${label}</span><span style="color:#F5EFE0;font-size:20px;font-weight:700;line-height:1.15">${value}</span></div>`
+
+  const resumenDia = (()=>{
+    const hoy = new Date().toISOString().slice(0,10)
+    const ordersHoy = orders.filter(o=>o.delivery_date===hoy)
+    const entregadosHoy = ordersHoy.filter(o=>o.status==='delivered').length
+    const pendientesHoy = ordersHoy.filter(o=>['pending','assigned','out_for_delivery','rescheduled'].includes(o.status)).length
+    const huevosHoy = ordersHoy.reduce((s,o)=>s+Number(o.egg_quantity||0),0)
+    const ventasHoy = pagos.filter(p=>p.created_at.slice(0,10)===hoy).reduce((s,p)=>s+Number(p.amount||0),0)
+    const totalAlertasHoy = (alertas.service?.length||0)+(alertas.vtv?.length||0)+(alertas.seguro?.length||0)+(alertas.carnet?.length||0)+(alertas.pagos_pendientes?.length||0)
+    const fechaLinda = formatearFecha(hoy)
+    return `<div style="background:#2F4D2A;border-radius:16px;padding:16px;margin-bottom:12px">
+      <div style="color:#C9D8B0;font-size:12px;margin-bottom:2px">Resumen de hoy</div>
+      <div style="color:#F5EFE0;font-size:15px;font-weight:700;margin-bottom:12px">${fechaLinda}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:9px 10px"><div style="color:#C9D8B0;font-size:11px">Entregadas hoy</div><div style="color:#F5EFE0;font-size:17px;font-weight:700">${entregadosHoy}</div></div>
+        <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:9px 10px"><div style="color:#C9D8B0;font-size:11px">Faltan repartir</div><div style="color:#F5EFE0;font-size:17px;font-weight:700">${pendientesHoy}</div></div>
+        <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:9px 10px"><div style="color:#C9D8B0;font-size:11px">Huevos de hoy</div><div style="color:#F5EFE0;font-size:17px;font-weight:700">${huevosHoy}</div></div>
+        <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:9px 10px"><div style="color:#C9D8B0;font-size:11px">Vendido hoy</div><div style="color:#F5EFE0;font-size:17px;font-weight:700">$${ventasHoy.toLocaleString('es-AR')}</div></div>
+      </div>
+      ${totalAlertasHoy>0?`<div style="margin-top:10px;background:#E8833A;border-radius:10px;padding:8px 12px;color:#FFFFFF;font-size:12px;font-weight:600">⚠️ Tenés ${totalAlertasHoy} alerta${totalAlertasHoy===1?'':'s'} pendiente${totalAlertasHoy===1?'':'s'} en Vehículos y mantenimiento</div>`:''}
+    </div>`
+  })()
+
   layout(`<h2>Panel de administración</h2>
+  ${resumenDia}
   <div style="overflow-x:auto;display:flex;gap:8px;padding-bottom:4px">
     ${statCard('clientes','Clientes',customers.length)}
     ${statCard('pend_entrega','Pend. entrega',count('pending')+count('assigned')+count('out_for_delivery'))}
@@ -2074,6 +2208,35 @@ async function admin(){
     </div>
   </div></div>
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
+  ${accHead('ranking','🏆','Ranking de clientes')}
+    <p class="muted">Tus 20 clientes que más gastaron, en orden. Te sirve para identificar a los más fieles.</p>
+    ${ranking.length? ranking.map((r,i)=>pCard(`
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:28px;text-align:center;font-weight:700;color:${i<3?'#E8833A':'#8A8570'};font-size:${i<3?'16px':'14px'}">${i+1}${i===0?'🥇':i===1?'🥈':i===2?'🥉':''}</div>
+        ${pAvatar(r.first_name,36)}
+        <div style="flex:1">
+          <div style="font-weight:700;color:#2F4D2A">${r.first_name||''} ${r.last_name||''}</div>
+          <div style="font-size:12px;color:#8A8570">${r.neighborhood||'-'} · ${r.entregas} entrega(s)</div>
+        </div>
+        <div style="font-weight:700;color:#2F4D2A;white-space:nowrap">$${Number(r.total_gastado).toLocaleString('es-AR')}</div>
+      </div>
+    `, 'margin-bottom:8px')).join('') : '<p class="muted">Todavía no hay suficientes entregas para armar un ranking.</p>'}
+  </div></div>
+  <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
+  ${accHead('resenas','⭐','Reseñas de clientes')}
+    <p class="muted">Marcá "Destacar" para que aparezca en la portada del sitio, como prueba social.</p>
+    ${reviews.length? reviews.map(r=>pCard(`
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div>
+          <div style="font-weight:700;color:#2F4D2A">${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</div>
+          <div style="font-size:12px;color:#8A8570;margin-top:2px">${r.first_name||''} ${r.last_name||''}</div>
+          ${r.comment?`<div style="font-size:13px;color:#3A3A34;margin-top:6px">"${r.comment}"</div>`:''}
+        </div>
+      </div>
+      <button data-destacar-review="${r.id}" data-featured="${r.featured}" style="width:100%;margin-top:10px;background:${r.featured?'#2F4D2A':'#FFFFFF'};color:${r.featured?'#F5EFE0':'#2F4D2A'};border:1px solid #E3DCC8;border-radius:10px;padding:8px 0;font-size:12px;font-weight:600">${r.featured?'✅ Destacada en portada':'☆ Destacar en portada'}</button>
+    `, 'margin-bottom:8px')).join('') : '<p class="muted">Todavía no hay reseñas de clientes.</p>'}
+  </div></div>
+  <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('finanzas','💰','Finanzas')}
     <div class="grid two">
       <div style="background:#2F4D2A;border-radius:12px;padding:10px 12px"><div style="color:#C9D8B0;font-size:11px">Ventas (30 días)</div><div style="color:#F5EFE0;font-size:17px;font-weight:700">$${Number(dash.ventas||0).toLocaleString('es-AR')}</div></div>
@@ -2142,6 +2305,10 @@ async function admin(){
     </div>
 
     <div style="margin-top:20px"><h3 style="font-size:15px;color:#2F4D2A">Últimos movimientos</h3>
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <button id="btn_exportar_finanzas_csv" class="btn ghost" style="flex:1">📊 Excel</button>
+        <button id="btn_exportar_finanzas_pdf" class="btn ghost" style="flex:1">🖨️ PDF</button>
+      </div>
       ${movimientosFinanzas.length? movimientosFinanzas.map(m=>{
         const cat = categoriaMap[m.category_id]
         const fecha = new Date(m.entry_date+'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})
@@ -2501,6 +2668,12 @@ async function admin(){
     if(error){ alert('Error: '+error.message); return }
     adminData = null; render()
   })
+  document.querySelectorAll('[data-destacar-review]').forEach(b=>b.onclick=async()=>{
+    const featuredNow = b.dataset.featured === 'true'
+    const { error } = await supabase.from('reviews').update({ featured: !featuredNow }).eq('id', b.dataset.destacarReview)
+    if(error){ alert('Error: '+error.message); return }
+    adminData = null; render()
+  })
   const btnToggleFormCat = document.querySelector('#btn_toggle_form_categoria')
   if(btnToggleFormCat) btnToggleFormCat.onclick = ()=>{ mostrarFormNuevaCategoria = !mostrarFormNuevaCategoria; render() }
   const btnToggleSeccionCat = document.querySelector('#btn_toggle_seccion_categorias')
@@ -2569,6 +2742,16 @@ async function admin(){
     if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
     adminData = null; render()
   }
+  const btnExportarFinCsv = document.querySelector('#btn_exportar_finanzas_csv')
+  if(btnExportarFinCsv) btnExportarFinCsv.onclick = ()=>{
+    descargarCSV('finanzas_nomades.csv', [
+      {label:'Fecha', value:'entry_date'}, {label:'Tipo', value:m=>m.type==='expense'?'Gasto':'Ingreso'},
+      {label:'Categoría', value:m=>categoriaMap[m.category_id]?.name||''},
+      {label:'Descripción', value:'description'}, {label:'Monto', value:'amount'}
+    ], movimientosFinanzas)
+  }
+  const btnExportarFinPdf = document.querySelector('#btn_exportar_finanzas_pdf')
+  if(btnExportarFinPdf) btnExportarFinPdf.onclick = ()=>window.print()
 }
 
 const ADMIN_DETALLE_TITULOS = {
@@ -2630,7 +2813,16 @@ async function adminDetalle(){
   }
 }
 
+let lastPushedCurrent = null
+let navegandoPorHistorial = false
+
 async function render(){
+  if(!navegandoPorHistorial && current !== lastPushedCurrent){
+    if(lastPushedCurrent===null) history.replaceState({ current }, '', '')
+    else history.pushState({ current }, '', '')
+    lastPushedCurrent = current
+  }
+  navegandoPorHistorial = false
   if(current==='inicio')return inicio();
   if(current==='cuenta')return cuenta? cuentaPanel() : cuentaLogin();
   if(current==='staff-login')return staffLogin();
@@ -2648,6 +2840,13 @@ async function render(){
   if(current==='admin-detalle')return adminDetalle();
   return admin()
 }
+
+window.addEventListener('popstate', (e)=>{
+  current = e.state?.current || 'inicio'
+  lastPushedCurrent = current
+  navegandoPorHistorial = true
+  render()
+})
 
 async function init(){
   const { data } = await supabase.auth.getSession()
