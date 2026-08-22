@@ -118,7 +118,7 @@ async function cargarResenasHome(){
   const { data } = await supabase.rpc('public_featured_reviews')
   const resenas = data || []
   if(!resenas.length){ cont.innerHTML = ''; return }
-  cont.innerHTML = resenas.map(r=>`<div class="card" style="margin-bottom:10px"><div style="color:#E8833A;font-size:15px">${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</div>${r.comment?`<p style="margin-top:6px">"${r.comment}"</p>`:''}<p class="muted" style="font-size:12px;margin-top:4px">— ${r.first_name||'Cliente'}</p></div>`).join('')
+  cont.innerHTML = resenas.map(r=>`<div class="card" style="margin-bottom:10px"><div style="color:#F5B301;font-size:15px">${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</div>${r.comment?`<p style="margin-top:6px">"${r.comment}"</p>`:''}<p class="muted" style="font-size:12px;margin-top:4px">— ${r.first_name||'Cliente'}</p></div>`).join('')
 }
 
 async function cargarPreciosHome(){
@@ -202,7 +202,7 @@ function cuentaPanel(){
   <div class="card" id="card_datos"><h3>Tus datos</h3><p>🪪 DNI ${c.dni||'-'}</p><p>🏠 ${tipoVia} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'} (CP ${c.postal_code||'-'})</p><p>📍 Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'}</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
   <button class="btn ghost" id="btn_ver_mapa" style="margin-bottom:10px">🗺️ Ver mapa de suscriptores</button>
   <div class="card"><h3>⭐ ¿Qué te pareció NÓMADES?</h3>
-    <div class="field"><label>Tu puntaje</label><div id="review_estrellas" style="font-size:28px;letter-spacing:4px">☆☆☆☆☆</div></div>
+    <div class="field"><label>Tu puntaje</label><div id="review_estrellas" style="font-size:30px;display:flex;gap:4px">${[1,2,3,4,5].map(n=>`<button type="button" data-estrella="${n}" style="all:unset;cursor:pointer;line-height:1;color:#D8D3C6">☆</button>`).join('')}</div></div>
     <div class="field"><label>Comentario (opcional)</label><textarea id="review_comment" rows="2" placeholder="Contanos tu experiencia"></textarea></div>
     <div id="err_review" class="alert danger" style="display:none"></div>
     <button class="btn primary" id="btn_enviar_review" style="width:100%">Enviar reseña</button>
@@ -212,12 +212,17 @@ function cuentaPanel(){
   document.querySelector('#btn_editar_datos').onclick = ()=>editarDatosForm(c)
   document.querySelector('#btn_ver_mapa').onclick = ()=>mapaSuscriptores()
   let ratingSel = 0
-  document.querySelector('#review_estrellas').onclick = (e)=>{
-    const rect = e.currentTarget.getBoundingClientRect()
-    const pct = (e.clientX - rect.left) / rect.width
-    ratingSel = Math.max(1, Math.min(5, Math.ceil(pct*5)))
-    e.currentTarget.textContent = '★'.repeat(ratingSel) + '☆'.repeat(5-ratingSel)
+  const pintarEstrellas = ()=>{
+    document.querySelectorAll('[data-estrella]').forEach(el=>{
+      const activa = Number(el.dataset.estrella) <= ratingSel
+      el.textContent = activa ? '★' : '☆'
+      el.style.color = activa ? '#F5B301' : '#D8D3C6'
+    })
   }
+  document.querySelectorAll('[data-estrella]').forEach(el=>el.onclick=()=>{
+    ratingSel = Number(el.dataset.estrella)
+    pintarEstrellas()
+  })
   document.querySelector('#btn_enviar_review').onclick = async ()=>{
     const box = document.querySelector('#err_review')
     if(!ratingSel){ box.textContent='Tocá las estrellas para elegir un puntaje.'; box.style.display='block'; return }
@@ -2228,7 +2233,7 @@ async function admin(){
     ${reviews.length? reviews.map(r=>pCard(`
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
         <div>
-          <div style="font-weight:700;color:#2F4D2A">${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</div>
+          <div style="font-weight:700;color:#F5B301">${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</div>
           <div style="font-size:12px;color:#8A8570;margin-top:2px">${r.first_name||''} ${r.last_name||''}</div>
           ${r.comment?`<div style="font-size:13px;color:#3A3A34;margin-top:6px">"${r.comment}"</div>`:''}
         </div>
@@ -2619,7 +2624,15 @@ async function admin(){
   const btnRendHoy = document.querySelector('#btn_rend_dia_hoy')
   if(btnRendHoy) btnRendHoy.onclick = ()=>{ adminRendicionFecha=''; render() }
   const btnRendSig = document.querySelector('#btn_rend_dia_sig')
-  if(btnRendSig) btnRendSig.onclick = ()=>{ const f=adminRendicionFecha||new Date().toISOString().slice(0,10); const d=new Date(f+'T00:00:00'); d.setDate(d.getDate()+1); adminRendicionFecha=d.toISOString().slice(0,10); render() }
+  if(btnRendSig) btnRendSig.onclick = ()=>{
+    try{
+      const f=adminRendicionFecha||new Date().toISOString().slice(0,10)
+      const d=new Date(f+'T00:00:00')
+      d.setDate(d.getDate()+1)
+      adminRendicionFecha=d.toISOString().slice(0,10)
+      render()
+    }catch(err){ alert('Error al avanzar de día: '+(err.message||err)) }
+  }
   document.querySelectorAll('[data-editar-pago]').forEach(b=>b.onclick=()=>{
     pagoEditando = pagoEditando===b.dataset.editarPago ? null : b.dataset.editarPago
     render()
