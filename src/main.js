@@ -25,6 +25,7 @@ function layout(content){
   app.innerHTML = `<div class="shell"><div class="top"><div class="brand" style="display:flex;align-items:center;gap:8px">NÓMADES <span class="muted" style="font-size:12px">Huevos de libre pastoreo</span></div><div class="nav">${nav.map(([k,l])=>`<button class="btn ${current===k?'primary':'ghost'}" data-nav="${k}">${l}</button>`).join('')}</div></div>${content}${!session?`<div style="text-align:center;margin-top:24px"><a href="#" id="staff_link" class="muted" style="font-size:12px">Acceso del equipo</a></div>`:''}</div>`
   document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=async ()=>{
     if(b.dataset.nav==='logout'){ await supabase.auth.signOut(); session=null; myRole=null; current='inicio'; return render() }
+    if(b.dataset.nav==='admin'){ adminData = null; adminOpenSection = null }
     current=b.dataset.nav; render()
   })
   const staffLink = document.querySelector('#staff_link')
@@ -703,7 +704,10 @@ async function openDelivery(id){
   }
 }
 
-async function admin(){
+let adminData = null // cache de datos del panel admin, para no re-consultar todo al abrir/cerrar secciones
+let adminAsignarFecha = '' // filtro de fecha para "Reasignar pedidos puntuales"
+
+async function fetchAdminData(){
   const [orders,customers,subs,staff]=await Promise.all([q('orders','id,status'),q('customers','id'),q('subscriptions','id,payment_status,created_at,customers(first_name,last_name)'),q('staff_roles','user_id,role,full_name,created_at')])
   const productos = await q('products','id,name,unit_label,category,current_qty,active')
   const { data: movimientosRaw } = await supabase.from('stock_movements').select('id,product_id,type,quantity,note,created_by,created_at').order('created_at',{ascending:false}).limit(20)
@@ -712,8 +716,6 @@ async function admin(){
   const waitlist = waitlistRaw || []
   const { data: settingsAllRaw } = await supabase.from('farm_settings').select('key,value').in('key',['default_daily_capacity_maples','transfer_cbu','transfer_alias','transfer_bank_name','transfer_holder_name','transfer_holder_doc','mp_alias','mp_wallet_name','mp_cbu','mp_holder_name','mp_holder_doc','assignment_mode'])
   const settingsMap = Object.fromEntries((settingsAllRaw||[]).map(s=>[s.key,s.value]))
-  const capacidadBase = settingsMap.default_daily_capacity_maples || '300'
-  const assignmentMode = settingsMap.assignment_mode || 'zone'
   const repartidores = staff.filter(s=>s.role==='repartidor')
   const { data: zoneDriversRaw } = await supabase.from('zone_drivers').select('zone,driver_user_id')
   const zoneDrivers = Object.fromEntries((zoneDriversRaw||[]).map(z=>[z.zone,z.driver_user_id]))
@@ -725,10 +727,7 @@ async function admin(){
   const pedidosAsignar = pedidosAsignarRaw || []
   const { data: pagosRaw } = await supabase.from('payments').select('id,amount,expected_method,method,reconciled,created_at,customers(first_name,last_name)').order('created_at',{ascending:false}).limit(30)
   const pagos = pagosRaw || []
-  const staffMap = Object.fromEntries(staff.map(s=>[s.user_id, s.full_name||'(sin nombre)']))
   const productMap = Object.fromEntries(productos.map(p=>[p.id, p]))
-  const CATEGORIAS = [{value:'alimento',label:'Alimento'},{value:'sanidad',label:'Sanidad'},{value:'limpieza',label:'Limpieza'},{value:'otro',label:'Otro'}]
-  const CATLABEL = {alimento:'Alimento',sanidad:'Sanidad',limpieza:'Limpieza',otro:'Otro'}
   const { data: planPricesRaw } = await supabase.from('plan_prices').select('id,egg_quantity,price,active').order('egg_quantity')
   const planPrices = planPricesRaw || []
   const { data: catsRaw } = await supabase.from('finance_categories').select('id,name,type,active').order('name')
@@ -737,6 +736,17 @@ async function admin(){
   const movimientosFinanzas = entriesRaw || []
   const { data: dashboardRaw } = await supabase.rpc('finance_dashboard', {})
   const dash = dashboardRaw || {}
+  return { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash }
+}
+
+async function admin(){
+  if(!adminData) adminData = await fetchAdminData()
+  const { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash } = adminData
+  const capacidadBase = settingsMap.default_daily_capacity_maples || '300'
+  const assignmentMode = settingsMap.assignment_mode || 'zone'
+  const staffMap = Object.fromEntries(staff.map(s=>[s.user_id, s.full_name||'(sin nombre)']))
+  const CATEGORIAS = [{value:'alimento',label:'Alimento'},{value:'sanidad',label:'Sanidad'},{value:'limpieza',label:'Limpieza'},{value:'otro',label:'Otro'}]
+  const CATLABEL = {alimento:'Alimento',sanidad:'Sanidad',limpieza:'Limpieza',otro:'Otro'}
   const categoriaMap = Object.fromEntries(categorias.map(c=>[c.id,c]))
   const TIPO_CAT_LABEL = { fixed:'Fijo', variable:'Variable', income:'Ingreso' }
   const count=s=>orders.filter(x=>x.status===s).length
@@ -744,14 +754,15 @@ async function admin(){
   const rolLabel = {admin:'Administrador',campo:'Personal de campo',repartidor:'Repartidor'}
   const AS = (id)=> adminOpenSection===id
   const accHead = (id, icon, titulo, badge)=> `<button type="button" class="acc-header" data-acc="${id}" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:14px 16px;cursor:pointer;gap:10px"><span style="font-size:16px">${icon}</span><span style="flex:1;font-weight:600;font-size:15px">${titulo}</span>${badge?`<span class="badge">${badge}</span>`:''}<span class="muted" style="font-size:13px">${AS(id)?'▲':'▼'}</span></button><div style="display:${AS(id)?'block':'none'};padding:0 16px 16px 16px">`
+  const statCard = (id,label,value)=> `<div class="card" data-stat="${id}" style="cursor:pointer;flex:0 0 auto;min-width:104px;padding:10px 12px;display:flex;flex-direction:column;gap:3px"><span class="muted" style="font-size:11.5px;line-height:1.25">${label}</span><span style="font-size:19px;font-weight:700;line-height:1.1">${value}</span></div>`
   layout(`<h2>Panel de administración</h2>
-  <div class="grid three" style="overflow-x:auto;display:flex;gap:10px;padding-bottom:4px">
-    <div class="card stat" data-stat="clientes" style="cursor:pointer;min-width:88px">Clientes<b>${customers.length}</b></div>
-    <div class="card stat" data-stat="pend_entrega" style="cursor:pointer;min-width:88px">Pend. entrega<b>${count('pending')+count('assigned')+count('out_for_delivery')}</b></div>
-    <div class="card stat" data-stat="pend_pago" style="cursor:pointer;min-width:88px">Pend. pago<b>${pendientesDePago.length}</b></div>
-    <div class="card stat" data-stat="entregados" style="cursor:pointer;min-width:88px">Entregados<b>${count('delivered')}</b></div>
-    <div class="card stat" data-stat="incidencias" style="cursor:pointer;min-width:88px">Incidencias<b>${count('incident')}</b></div>
-    <div class="card stat" data-stat="reprogramados" style="cursor:pointer;min-width:88px">Reprogramados<b>${count('rescheduled')}</b></div>
+  <div style="overflow-x:auto;display:flex;gap:8px;padding-bottom:4px">
+    ${statCard('clientes','Clientes',customers.length)}
+    ${statCard('pend_entrega','Pend. entrega',count('pending')+count('assigned')+count('out_for_delivery'))}
+    ${statCard('pend_pago','Pend. pago',pendientesDePago.length)}
+    ${statCard('entregados','Entregados',count('delivered'))}
+    ${statCard('incidencias','Incidencias',count('incident'))}
+    ${statCard('reprogramados','Reprogramados',count('rescheduled'))}
   </div>
   <div class="card" style="padding:0;overflow:hidden;margin-top:14px">
   ${accHead('personal','👥','Gestión de personal')}
@@ -788,12 +799,18 @@ async function admin(){
       }).join(''):'<p class="muted">Todavía no hay barrios cargados (aparecen cuando hay clientes con barrio).</p>'}
     </div>
     <button class="btn ghost" id="btn_recalcular_asignaciones" style="margin-top:12px">🔄 Recalcular asignaciones automáticas ahora</button>
-    <div class="group" style="margin-top:16px"><h3 style="font-size:15px">Reasignar pedidos puntuales (${pedidosAsignar.length})</h3>
-      ${pedidosAsignar.length?pedidosAsignar.map(p=>{
+    <div class="group" style="margin-top:16px"><h3 style="font-size:15px">Reasignar pedidos puntuales</h3>
+      <div class="field"><label>Filtrar por fecha de entrega</label><input type="date" id="filtro_fecha_asignar" value="${adminAsignarFecha}"/></div>
+      ${adminAsignarFecha?`<button class="btn ghost" id="btn_limpiar_fecha_asignar" style="margin-bottom:10px">Ver todas las fechas</button>`:''}
+      ${(()=>{
+        const pedidosFiltrados = adminAsignarFecha ? pedidosAsignar.filter(p=>p.delivery_date===adminAsignarFecha) : pedidosAsignar
+        if(!pedidosFiltrados.length) return `<p class="muted">${adminAsignarFecha?'No hay pedidos pendientes para esa fecha.':'No hay pedidos pendientes para asignar.'}</p>`
+        return pedidosFiltrados.map(p=>{
         const c=p.customers||{}
         const asignadoNombre = staffMap[p.assigned_driver] || '(sin asignar)'
         return `<div class="row"><span>${c.first_name||''} ${c.last_name||''}<br><small>${c.neighborhood||'-'} · ${formatearFecha(p.delivery_date)}</small><br><small>${p.assignment_locked?'🔒 Manual':'🔄 Automático'} → <b>${asignadoNombre}</b></small></span><span style="display:flex;flex-direction:column;gap:4px;align-items:flex-end"><select data-pedido-driver="${p.id}"><option value="">— Sin asignar —</option>${repartidores.map(r=>`<option value="${r.user_id}" ${p.assigned_driver===r.user_id?'selected':''}>${r.full_name||'(sin nombre)'}</option>`).join('')}</select>${p.assignment_locked?`<button class="btn ghost" data-destrabar="${p.id}" style="font-size:11px;padding:4px 10px">Volver a automático</button>`:''}</span></div>`
-      }).join(''):'<p class="muted">No hay pedidos pendientes para asignar.</p>'}
+        }).join('')
+      })()}
     </div>
   </div></div>
   <div class="card" style="padding:0;overflow:hidden;margin-top:10px">
@@ -933,6 +950,10 @@ async function admin(){
     current = 'admin-detalle'
     render()
   })
+  const filtroFecha = document.querySelector('#filtro_fecha_asignar')
+  if(filtroFecha) filtroFecha.onchange = (e)=>{ adminAsignarFecha = e.target.value; render() }
+  const btnLimpiarFecha = document.querySelector('#btn_limpiar_fecha_asignar')
+  if(btnLimpiarFecha) btnLimpiarFecha.onclick = ()=>{ adminAsignarFecha = ''; render() }
   document.querySelector('#btn_crear_staff').onclick = async ()=>{
     const full_name = document.querySelector('#staff_new_name').value.trim()
     const role = document.querySelector('#staff_new_role').value
@@ -942,13 +963,13 @@ async function admin(){
     const { data, error } = await supabase.functions.invoke('manage-staff', { body: { action:'create', full_name, role, custom_code } })
     if(error){ box.innerHTML = `<div class="alert danger">No se pudo generar: ${error.message}</div>`; return }
     box.innerHTML = `<div class="alert info"><b>✅ Código generado para ${full_name||'este usuario'}:</b><br><span style="font-size:20px;font-weight:bold;letter-spacing:2px">${data.code}</span><br><small>Copialo ahora — no se vuelve a mostrar. Pasáselo a la persona para que entre por "Acceso del equipo".</small></div>`
-    render()
+    adminData = null; render()
   }
   document.querySelectorAll('[data-revoke]').forEach(b=>b.onclick=async()=>{
     if(!confirm('¿Revocar el acceso de esta persona? No va a poder entrar más con su código actual.'))return
     const { error } = await supabase.functions.invoke('manage-staff', { body: { action:'revoke', user_id:b.dataset.revoke } })
     if(error){ alert('Error: '+error.message); return }
-    render()
+    adminData = null; render()
   })
   document.querySelectorAll('[data-reset]').forEach(b=>b.onclick=async()=>{
     const custom_code = prompt('Escribí el nuevo código para esta persona (o dejalo vacío para generar uno automático):') || ''
@@ -959,13 +980,14 @@ async function admin(){
   document.querySelectorAll('#modo_asig_group [data-modo]').forEach(b=>b.onclick=async()=>{
     const { data, error } = await supabase.rpc('admin_set_assignment_mode', { p_mode: b.dataset.modo })
     if(error || !data?.ok){ alert('No se pudo cambiar el modo: '+(error?.message||data?.error||'')); return }
-    render()
+    adminData = null; render()
   })
   document.querySelectorAll('[data-zona-driver]').forEach(sel=>sel.onchange=async()=>{
     const zona = sel.dataset.zonaDriver
     const driver = sel.value || null
     const { error } = await supabase.from('zone_drivers').update({ driver_user_id: driver, updated_at: new Date().toISOString() }).eq('zone', zona)
     if(error){ alert('Error: '+error.message); return }
+    adminData = null
   })
   document.querySelectorAll('[data-barrio-driver]').forEach(sel=>sel.onchange=async()=>{
     const barrio = sel.dataset.barrioDriver
@@ -977,21 +999,23 @@ async function admin(){
       const { error } = await supabase.from('neighborhood_drivers').delete().eq('neighborhood', barrio)
       if(error){ alert('Error: '+error.message); return }
     }
+    adminData = null
   })
   document.querySelector('#btn_recalcular_asignaciones').onclick = async ()=>{
     const { data, error } = await supabase.rpc('recalc_all_order_drivers', {})
     if(error){ alert('Error: '+error.message); return }
+    adminData = null
     alert(`✅ Se recalcularon ${data} pedido(s).`); render()
   }
   document.querySelectorAll('[data-pedido-driver]').forEach(sel=>sel.onchange=async()=>{
     const { data, error } = await supabase.rpc('admin_assign_driver', { p_order_id: sel.dataset.pedidoDriver, p_driver_user_id: sel.value || null })
     if(error || !data?.ok){ alert('No se pudo asignar: '+(error?.message||data?.error||'')); return }
-    render()
+    adminData = null; render()
   })
   document.querySelectorAll('[data-destrabar]').forEach(b=>b.onclick=async()=>{
     const { data, error } = await supabase.rpc('admin_unlock_driver', { p_order_id: b.dataset.destrabar })
     if(error || !data?.ok){ alert('No se pudo destrabar: '+(error?.message||data?.error||'')); return }
-    render()
+    adminData = null; render()
   })
   document.querySelector('#btn_crear_producto').onclick = async ()=>{
     const name = document.querySelector('#prod_new_name').value.trim()
@@ -1001,7 +1025,7 @@ async function admin(){
     if(!name || !unit_label){ box.textContent='Completá nombre y unidad de compra.'; box.style.display='block'; return }
     const { error } = await supabase.from('products').insert({ name, unit_label, category })
     if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
-    render()
+    adminData = null; render()
   }
   document.querySelectorAll('[data-comprar]').forEach(b=>b.onclick=async()=>{
     const id = b.dataset.comprar
@@ -1010,7 +1034,7 @@ async function admin(){
     if(!qty || qty<=0){ alert('Ingresá una cantidad válida.'); return }
     const { error } = await supabase.from('stock_movements').insert({ product_id:id, type:'compra', quantity:qty, created_by: session?.user?.id || null })
     if(error){ alert('Error: '+error.message); return }
-    render()
+    adminData = null; render()
   })
   document.querySelector('#btn_guardar_capacidad').onclick = async ()=>{
     const val = document.querySelector('#cap_base').value.trim()
@@ -1018,12 +1042,13 @@ async function admin(){
     if(!val || Number(val)<=0){ box.textContent='Ingresá un número válido.'; box.style.display='block'; return }
     const { error } = await supabase.from('farm_settings').update({ value: val }).eq('key','default_daily_capacity_maples')
     if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
-    render()
+    adminData = null; render()
   }
   document.querySelectorAll('[data-promover]').forEach(b=>b.onclick=async()=>{
     if(!confirm('¿Activar a esta persona? Va a pasar de la lista de espera a suscripción activa, con 50% de descuento en su primera entrega.'))return
     const { data, error } = await supabase.rpc('promote_waitlist_entry', { p_waitlist_id: b.dataset.promover })
     if(error || !data?.ok){ alert('No se pudo activar: '+(data?.error||error?.message||'')); return }
+    adminData = null
     alert('Activado ✅ Próxima entrega: '+data.next_delivery_date)
     render()
   })
@@ -1033,14 +1058,14 @@ async function admin(){
     if(!price || price<=0){ alert('Ingresá un precio válido.'); return }
     const { error } = await supabase.from('plan_prices').update({ price }).eq('id', id)
     if(error){ alert('Error: '+error.message); return }
-    render()
+    adminData = null; render()
   })
   document.querySelectorAll('[data-pp-toggle]').forEach(b=>b.onclick=async()=>{
     const id = b.dataset.ppToggle
     const activeNow = b.dataset.ppActive === 'true'
     const { error } = await supabase.from('plan_prices').update({ active: !activeNow }).eq('id', id)
     if(error){ alert('Error: '+error.message); return }
-    render()
+    adminData = null; render()
   })
   document.querySelector('#btn_agregar_tamano').onclick = async ()=>{
     const qty = Number(document.querySelector('#pp_new_qty').value)
@@ -1049,7 +1074,7 @@ async function admin(){
     if(!qty || qty<=0 || !price || price<=0){ box.textContent='Completá cantidad de huevos y precio, ambos mayores a 0.'; box.style.display='block'; return }
     const { error } = await supabase.from('plan_prices').insert({ egg_quantity: qty, price, active: true })
     if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
-    render()
+    adminData = null; render()
   }
   document.querySelector('#btn_guardar_pago_config').onclick = async ()=>{
     const valores = {
@@ -1067,11 +1092,13 @@ async function admin(){
     for(const [key, value] of Object.entries(valores)){
       await supabase.from('farm_settings').update({ value }).eq('key', key)
     }
+    adminData = null
     alert('Datos de cobro guardados ✅')
   }
   document.querySelectorAll('[data-conciliar]').forEach(chk=>chk.onchange=async()=>{
     const { error } = await supabase.from('payments').update({ reconciled: chk.checked }).eq('id', chk.dataset.conciliar)
-    if(error){ alert('Error: '+error.message); chk.checked=!chk.checked }
+    if(error){ alert('Error: '+error.message); chk.checked=!chk.checked; return }
+    adminData = null
   })
   document.querySelector('#btn_crear_categoria').onclick = async ()=>{
     const name = document.querySelector('#cat_new_name').value.trim()
@@ -1079,13 +1106,13 @@ async function admin(){
     if(!name){ alert('Ponele un nombre a la categoría.'); return }
     const { error } = await supabase.from('finance_categories').insert({ name, type, active: true })
     if(error){ alert('Error: '+error.message); return }
-    render()
+    adminData = null; render()
   }
   document.querySelectorAll('[data-cat-toggle]').forEach(b=>b.onclick=async()=>{
     const activeNow = b.dataset.catActive === 'true'
     const { error } = await supabase.from('finance_categories').update({ active: !activeNow }).eq('id', b.dataset.catToggle)
     if(error){ alert('Error: '+error.message); return }
-    render()
+    adminData = null; render()
   })
   let finTipoSel = 'expense'
   const actualizarCategoriasFinanzas = ()=>{
@@ -1121,7 +1148,7 @@ async function admin(){
     }
     const { error } = await supabase.from('finance_entries').insert({ category_id, type: finTipoSel, amount, entry_date, description: description||null, attachment_url, created_by: session?.user?.id||null })
     if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
-    render()
+    adminData = null; render()
   }
 }
 
