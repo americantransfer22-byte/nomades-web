@@ -695,7 +695,7 @@ function staffProfileForm(isSetup){
 }
 
 async function miVehiculo(){
-  const { data: vehiculo } = await supabase.from('vehicles').select('id,type,brand,model,plate,photo_url,current_km,service_interval_km,last_service_km,vtv_expiry,insurance_expiry').eq('assigned_to', session.user.id).eq('active', true).maybeSingle()
+  const { data: vehiculo } = await supabase.from('vehicles').select('id,type,brand,model,plate,photo_url,current_km,service_interval_km,last_service_km,vtv_expiry,insurance_expiry,mechanic_name,mechanic_phone,mechanic_appointment_phone,mechanic_address,mechanic_hours,mechanic_email,mechanic_tax_id').eq('assigned_to', session.user.id).eq('active', true).maybeSingle()
   if(!vehiculo){
     layout(`<h2>🏍️ Mi vehículo</h2><div class="card"><p class="muted">Todavía no tenés un vehículo asignado. Hablá con administración.</p></div>`)
     return
@@ -703,6 +703,13 @@ async function miVehiculo(){
   const faltan = (vehiculo.last_service_km + vehiculo.service_interval_km) - vehiculo.current_km
   const { data: historialRaw } = await supabase.from('vehicle_fuel_logs').select('id,km,amount,liters,receipt_url,created_at').eq('vehicle_id', vehiculo.id).order('created_at',{ascending:false}).limit(10)
   const historial = historialRaw || []
+  const { data: serviceHistRaw } = await supabase.from('vehicle_services').select('id,service_date,km,description,parts_used,cost,payment_method,paid_by,payment_status,responsible_id').eq('vehicle_id', vehiculo.id).order('service_date',{ascending:false}).limit(15)
+  const serviceHist = serviceHistRaw || []
+  const { data: staffRaw } = await supabase.from('staff_roles').select('user_id,full_name').in('role',['repartidor','admin'])
+  const staffList = staffRaw || []
+  const staffMap = Object.fromEntries(staffList.map(s=>[s.user_id,s.full_name]))
+
+  const tieneMecanico = vehiculo.mechanic_name || vehiculo.mechanic_address
   layout(`<h2>${vehiculo.type==='moto'?'🏍️':'🚚'} Mi vehículo</h2>
   <div class="card">
     ${vehiculo.photo_url?`<img src="${vehiculo.photo_url}" style="width:100%;border-radius:12px;margin-bottom:10px"/>`:''}
@@ -714,6 +721,48 @@ async function miVehiculo(){
     ${vehiculo.insurance_expiry?`<p>Seguro vence: ${vehiculo.insurance_expiry}</p>`:''}
   </div>
   <div class="card">
+    <h3>🔧 Mecánico de confianza</h3>
+    ${tieneMecanico?`
+      <p><b>${vehiculo.mechanic_name||'-'}</b></p>
+      <p>📞 ${vehiculo.mechanic_phone||'-'}${vehiculo.mechanic_appointment_phone?` · Turnos: ${vehiculo.mechanic_appointment_phone}`:''}</p>
+      <p>📍 ${vehiculo.mechanic_address||'-'}</p>
+      ${vehiculo.mechanic_hours?`<p>🕒 ${vehiculo.mechanic_hours}</p>`:''}
+      ${vehiculo.mechanic_email?`<p>✉️ ${vehiculo.mechanic_email}</p>`:''}
+      ${vehiculo.mechanic_tax_id?`<p>CUIT/DNI: ${vehiculo.mechanic_tax_id}</p>`:''}
+      ${vehiculo.mechanic_address?`<button class="btn ghost" id="btn_navegar_mecanico" style="width:100%;margin-top:6px">🧭 Navegar hasta el mecánico</button>`:''}
+    `:'<p class="muted">Todavía no cargaste los datos del mecánico. Pedile a administración que los cargue.</p>'}
+  </div>
+  <div class="card">
+    <h3>🛠️ Registrar service / mantenimiento</h3>
+    <div class="grid two">
+      <div class="field"><label>Fecha</label><input id="serv_fecha" type="date" value="${new Date().toISOString().slice(0,10)}"/></div>
+      <div class="field"><label>Km actuales</label><input id="serv_km" type="number" value="${Math.round(vehiculo.current_km)}"/></div>
+    </div>
+    <div class="field"><label>¿Qué se le hizo?</label><textarea id="serv_desc" rows="2" placeholder="Ej: cambio de aceite y filtro"></textarea></div>
+    <div class="field"><label>Repuestos / marcas usadas</label><input id="serv_partes" placeholder="Ej: aceite Motul, filtro Fram"/></div>
+    <div class="grid two">
+      <div class="field"><label>Costo</label><input id="serv_costo" type="number" min="0"/></div>
+      <div class="field"><label>Método de pago</label><select id="serv_metodo"><option value="cash">Efectivo</option><option value="transfer">Transferencia</option><option value="mp">Mercado Pago</option></select></div>
+    </div>
+    <div class="field"><label>¿Quién lo llevó al mecánico?</label><select id="serv_responsable">${staffList.map(s=>`<option value="${s.user_id}" ${s.user_id===session.user.id?'selected':''}>${s.full_name}</option>`).join('')}</select></div>
+    <div class="field"><label>¿Quién paga?</label>
+      <div class="grid two">
+        <button type="button" class="btn ghost" id="btn_paga_yo" data-paid-by="driver">Ya lo pagué yo</button>
+        <button type="button" class="btn ghost" id="btn_paga_admin" data-paid-by="admin">Se paga desde administración</button>
+      </div>
+    </div>
+    <div id="err_service" class="alert danger" style="display:none"></div>
+    <button class="btn primary" id="btn_guardar_service" style="width:100%">Guardar service</button>
+  </div>
+  <div class="card"><h3>Historial de service</h3>${serviceHist.length?serviceHist.map(s=>{
+    const fecha = new Date(s.service_date+'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})
+    return `<div class="row"><span>${fecha} · ${Math.round(s.km||0)} km<br><small>${s.description||''}</small>${s.parts_used?`<br><small>🔩 ${s.parts_used}</small>`:''}<br><small>Responsable: ${staffMap[s.responsible_id]||'-'}</small></span><span>${s.cost?`$${Number(s.cost).toLocaleString('es-AR')}`:''}<br>${s.paid_by==='admin'?(s.payment_status==='pending'?'<span class="badge" style="background:#b3841f">🕒 Pendiente admin</span>':'<span class="badge">✅ Pagado (admin)</span>'):'<span class="badge">Pagué yo</span>'}</span></div>`
+  }).join(''):'<p class="muted">Todavía no hay service registrados.</p>'}</div>
+  <div class="card"><h3>Últimas cargas de combustible</h3>${historial.length?historial.map(h=>{
+    const fecha = new Date(h.created_at).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})
+    return `<div class="row"><span>${fecha}<br><small>${Math.round(h.km)} km${h.liters?` · ${h.liters} L`:''}</small></span><span>${h.amount?`$${Number(h.amount).toLocaleString('es-AR')}`:''}${h.receipt_url?` <a href="${h.receipt_url}" target="_blank" style="font-size:12px">Ver ticket</a>`:''}</span></div>`
+  }).join(''):'<p class="muted">Todavía no cargaste combustible.</p>'}</div>
+  <div class="card">
     <h3>⛽ Cargar combustible</h3>
     <div class="field"><label>Kilómetros del odómetro *</label><input id="fuel_km" type="number" min="${vehiculo.current_km}" placeholder="Ej: ${Math.round(vehiculo.current_km)+50}"/></div>
     <div class="grid two">
@@ -722,12 +771,46 @@ async function miVehiculo(){
     </div>
     <div class="field"><label>Foto del ticket *</label><input type="file" id="fuel_ticket" accept="image/*"/></div>
     <div id="err_fuel" class="alert danger" style="display:none"></div>
-    <button class="btn primary" id="btn_cargar_combustible">Guardar carga</button>
-  </div>
-  <div class="card"><h3>Últimas cargas</h3>${historial.length?historial.map(h=>{
-    const fecha = new Date(h.created_at).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})
-    return `<div class="row"><span>${fecha}<br><small>${Math.round(h.km)} km${h.liters?` · ${h.liters} L`:''}</small></span><span>${h.amount?`$${Number(h.amount).toLocaleString('es-AR')}`:''}${h.receipt_url?` <a href="${h.receipt_url}" target="_blank" style="font-size:12px">Ver ticket</a>`:''}</span></div>`
-  }).join(''):'<p class="muted">Todavía no cargaste combustible.</p>'}</div>`)
+    <button class="btn primary" id="btn_cargar_combustible" style="width:100%">Guardar carga</button>
+  </div>`)
+
+  if(vehiculo.mechanic_address){
+    document.querySelector('#btn_navegar_mecanico').onclick = ()=>{
+      window.open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(vehiculo.mechanic_address),'_blank')
+    }
+  }
+
+  let paidBySel = 'driver'
+  const pintarPaidBy = ()=>{
+    document.querySelector('#btn_paga_yo').className = 'btn '+(paidBySel==='driver'?'primary':'ghost')
+    document.querySelector('#btn_paga_admin').className = 'btn '+(paidBySel==='admin'?'primary':'ghost')
+  }
+  document.querySelector('#btn_paga_yo').onclick = ()=>{ paidBySel='driver'; pintarPaidBy() }
+  document.querySelector('#btn_paga_admin').onclick = ()=>{ paidBySel='admin'; pintarPaidBy() }
+  pintarPaidBy()
+
+  document.querySelector('#btn_guardar_service').onclick = async ()=>{
+    const box = document.querySelector('#err_service')
+    const desc = document.querySelector('#serv_desc').value.trim()
+    if(!desc){ box.textContent='Contá qué se le hizo al vehículo.'; box.style.display='block'; return }
+    const payload = {
+      vehicle_id: vehiculo.id,
+      service_date: document.querySelector('#serv_fecha').value,
+      km: Number(document.querySelector('#serv_km').value) || null,
+      description: desc,
+      parts_used: document.querySelector('#serv_partes').value.trim() || null,
+      cost: Number(document.querySelector('#serv_costo').value) || null,
+      payment_method: document.querySelector('#serv_metodo').value,
+      paid_by: paidBySel,
+      payment_status: paidBySel==='admin' ? 'pending' : 'paid',
+      responsible_id: document.querySelector('#serv_responsable').value,
+      created_by: session.user.id
+    }
+    const { error } = await supabase.from('vehicle_services').insert(payload)
+    if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
+    alert('Service guardado ✅')
+    render()
+  }
 
   document.querySelector('#btn_cargar_combustible').onclick = async ()=>{
     const box = document.querySelector('#err_fuel')
@@ -820,6 +903,42 @@ let repMapaFecha = null
 let repMostrarProyeccion = false
 let statsVehiculoActual = null
 let vehiculoEditando = null
+let historialVehiculoActual = null
+
+async function verHistorialVehiculo(v){
+  historialVehiculoActual = v
+  current = 'vehiculo-historial'
+  render()
+}
+
+async function vehiculoHistorial(){
+  const v = historialVehiculoActual
+  if(!v){ current='admin'; return render() }
+  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><button class="btn ghost" id="btn_volver_historial" style="padding:6px 12px">← Volver</button><h2 style="margin:0">📄 Historial de ${v.plate}</h2></div>
+  <button class="btn primary" id="btn_imprimir_historial" style="width:100%;margin-bottom:14px">🖨️ Imprimir / Guardar como PDF</button>
+  <div id="historial_contenido"><p class="muted">Cargando…</p></div>`)
+  document.querySelector('#btn_volver_historial').onclick = ()=>{ current='admin'; adminOpenSection='vehiculos'; render() }
+  document.querySelector('#btn_imprimir_historial').onclick = ()=>window.print()
+
+  const [{ data: serviciosRaw },{ data: staffRaw }] = await Promise.all([
+    supabase.from('vehicle_services').select('id,service_date,km,description,parts_used,cost,payment_method,paid_by,payment_status,responsible_id').eq('vehicle_id', v.id).order('service_date',{ascending:false}),
+    supabase.from('staff_roles').select('user_id,full_name')
+  ])
+  const servicios = serviciosRaw || []
+  const staffMap = Object.fromEntries((staffRaw||[]).map(s=>[s.user_id,s.full_name]))
+  const box = document.querySelector('#historial_contenido')
+  box.innerHTML = `
+    <div class="card">
+      <h3>${v.brand||''} ${v.model||''} — ${v.plate}</h3>
+      <p>Kilómetros actuales: ${Math.round(v.current_km)} km</p>
+    </div>
+    <div class="card"><h3>Historial de service y mantenimiento</h3>
+      ${servicios.length? servicios.map(s=>{
+        const fecha = new Date(s.service_date+'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})
+        return `<div class="row"><span><b>${fecha}</b> · ${Math.round(s.km||0)} km<br><small>${s.description||''}</small>${s.parts_used?`<br><small>🔩 ${s.parts_used}</small>`:''}<br><small>Responsable: ${staffMap[s.responsible_id]||'-'}</small></span><span>${s.cost?`$${Number(s.cost).toLocaleString('es-AR')}`:''}<br><small>${METODOS_PAGO_LABEL[s.payment_method]||s.payment_method||''}${s.paid_by==='admin'?' · Administración':''}</small></span></div>`
+      }).join('') : '<p class="muted">Sin registros todavía.</p>'}
+    </div>`
+}
 
 async function verEstadisticasVehiculo(v){
   statsVehiculoActual = v
@@ -1143,10 +1262,10 @@ async function fetchAdminData(){
   const movimientosFinanzas = entriesRaw || []
   const { data: dashboardRaw } = await supabase.rpc('finance_dashboard', {})
   const dash = dashboardRaw || {}
-  const { data: vehiculosRaw } = await supabase.from('vehicles').select('id,type,brand,model,year,plate,photo_url,current_km,service_interval_km,last_service_km,vtv_expiry,insurance_expiry,assigned_to,active').order('created_at')
+  const { data: vehiculosRaw } = await supabase.from('vehicles').select('id,type,brand,model,year,plate,photo_url,current_km,service_interval_km,last_service_km,vtv_expiry,insurance_expiry,assigned_to,active,mechanic_name,mechanic_phone,mechanic_appointment_phone,mechanic_address,mechanic_hours,mechanic_email,mechanic_tax_id').order('created_at')
   const vehiculos = vehiculosRaw || []
   const { data: alertasVehiculos } = await supabase.rpc('admin_vehicle_alerts', {})
-  const alertas = alertasVehiculos || { service:[], vtv:[], seguro:[], carnet:[] }
+  const alertas = alertasVehiculos || { service:[], vtv:[], seguro:[], carnet:[], pagos_pendientes:[] }
   return { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas }
 }
 
@@ -1255,14 +1374,18 @@ async function admin(){
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('vehiculos','🏍️','Vehículos y mantenimiento')}
     ${(()=>{
-      const totalAlertas = (alertas.service?.length||0)+(alertas.vtv?.length||0)+(alertas.seguro?.length||0)+(alertas.carnet?.length||0)
-      if(!totalAlertas) return '<div class="alert info">✅ Sin alertas pendientes de mantenimiento, VTV, seguro ni carnet.</div>'
+      const totalAlertas = (alertas.service?.length||0)+(alertas.vtv?.length||0)+(alertas.seguro?.length||0)+(alertas.carnet?.length||0)+(alertas.pagos_pendientes?.length||0)
+      if(!totalAlertas) return '<div class="alert info">✅ Sin alertas pendientes de mantenimiento, VTV, seguro, carnet ni pagos.</div>'
       let html = '<div class="alert warning"><b>⚠️ Atención</b><br>'
       if(alertas.service?.length) html += alertas.service.map(a=>`Service próximo: patente <b>${a.plate}</b> (faltan ${Math.round(a.faltan_km)} km)<br>`).join('')
       if(alertas.vtv?.length) html += alertas.vtv.map(a=>`VTV vence pronto: patente <b>${a.plate}</b> (${a.vtv_expiry})<br>`).join('')
       if(alertas.seguro?.length) html += alertas.seguro.map(a=>`Seguro vence pronto: patente <b>${a.plate}</b> (${a.insurance_expiry})<br>`).join('')
       if(alertas.carnet?.length) html += alertas.carnet.map(a=>`Carnet vence pronto: <b>${a.full_name}</b> (${a.license_expiry})<br>`).join('')
       html += '</div>'
+      if(alertas.pagos_pendientes?.length) html += `<div class="alert warning" style="margin-top:8px"><b>💸 Pagos de service pendientes desde administración</b>${alertas.pagos_pendientes.map(p=>{
+        const fecha = new Date(p.service_date+'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})
+        return `<div class="row" style="background:transparent"><span>Patente <b>${p.plate}</b> · ${fecha}<br><small>${p.description||''}</small></span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><b>$${Number(p.cost||0).toLocaleString('es-AR')}</b><button class="btn ghost" data-pagar-service="${p.id}" style="font-size:11px;padding:4px 10px">✅ Marcar pagado</button></span></div>`
+      }).join('')}</div>`
       return html
     })()}
     <div style="margin-top:12px"><h3 style="font-size:15px;color:#2F4D2A">Flota</h3>
@@ -1302,7 +1425,10 @@ async function admin(){
           <select data-vehiculo-asignar="${v.id}" style="width:100%;margin-bottom:8px"><option value="">— Sin asignar —</option>${staff.filter(s=>s.role==='repartidor'||s.role==='admin').map(s=>`<option value="${s.user_id}" ${v.assigned_to===s.user_id?'selected':''}>${s.full_name||'(sin nombre)'}</option>`).join('')}</select>
           ${pBtnRow([
             pBtn('📊','Estadísticas',`data-ver-stats="${v.id}"`,'primary'),
-            pBtn('✏️',editando?'Cerrar':'Editar',`data-editar-vehiculo="${v.id}"`,'ghost'),
+            pBtn('📄','Historial',`data-ver-historial="${v.id}"`,'ghost'),
+            pBtn('✏️',editando?'Cerrar':'Editar',`data-editar-vehiculo="${v.id}"`,'ghost')
+          ])}
+          ${pBtnRow([
             pBtn('✅','Service',`data-marcar-service="${v.id}"`,'ghost'),
             pBtn('🗑️','Eliminar',`data-eliminar-vehiculo="${v.id}"`,'danger')
           ])}
@@ -1317,6 +1443,16 @@ async function admin(){
               <div class="field"><label>Vencimiento seguro</label><input id="ed_veh_seguro_${v.id}" type="date" value="${v.insurance_expiry||''}"/></div>
             </div>
             <div class="field"><label>Cambiar foto (opcional)</label><input type="file" id="ed_veh_foto_${v.id}" accept="image/*"/></div>
+            <h3 style="font-size:14px;color:#2F4D2A;margin-top:14px">🔧 Mecánico de confianza</h3>
+            <div class="grid two">
+              <div class="field"><label>Nombre</label><input id="ed_mec_nombre_${v.id}" value="${v.mechanic_name||''}"/></div>
+              <div class="field"><label>Teléfono</label><input id="ed_mec_telefono_${v.id}" value="${v.mechanic_phone||''}"/></div>
+              <div class="field"><label>Teléfono para turnos</label><input id="ed_mec_turnos_${v.id}" value="${v.mechanic_appointment_phone||''}"/></div>
+              <div class="field"><label>Mail</label><input id="ed_mec_mail_${v.id}" value="${v.mechanic_email||''}"/></div>
+              <div class="field"><label>CUIT/DNI</label><input id="ed_mec_cuit_${v.id}" value="${v.mechanic_tax_id||''}"/></div>
+              <div class="field"><label>Horarios de atención</label><input id="ed_mec_horario_${v.id}" value="${v.mechanic_hours||''}"/></div>
+            </div>
+            <div class="field"><label>Dirección</label><input id="ed_mec_direccion_${v.id}" value="${v.mechanic_address||''}"/></div>
             <div id="err_editar_veh_${v.id}" class="alert danger" style="display:none"></div>
             <button class="btn primary" data-guardar-vehiculo="${v.id}" style="width:100%">💾 Guardar cambios</button>
           </div>`:''}
@@ -1416,41 +1552,63 @@ async function admin(){
       const hoy = new Date().toISOString().slice(0,10)
       const pagosHoy = pagos.filter(p=>p.created_at.slice(0,10)===hoy)
       const totalPorMetodo = m => pagosHoy.filter(p=>p.method===m).reduce((s,p)=>s+Number(p.amount||0),0)
-      return `<div class="grid three"><div class="card stat">Efectivo hoy<b>$${totalPorMetodo('cash').toLocaleString('es-AR')}</b></div><div class="card stat">Transferencia hoy<b>$${totalPorMetodo('transfer').toLocaleString('es-AR')}</b></div><div class="card stat">Mercado Pago hoy<b>$${totalPorMetodo('mp').toLocaleString('es-AR')}</b></div></div>`
+      return `<div class="grid three">
+        <div style="background:#2F4D2A;border-radius:12px;padding:10px 8px;text-align:center"><div style="color:#C9D8B0;font-size:11px">Efectivo hoy</div><div style="color:#F5EFE0;font-size:15px;font-weight:700">$${totalPorMetodo('cash').toLocaleString('es-AR')}</div></div>
+        <div style="background:#2F4D2A;border-radius:12px;padding:10px 8px;text-align:center"><div style="color:#C9D8B0;font-size:11px">Transferencia</div><div style="color:#F5EFE0;font-size:15px;font-weight:700">$${totalPorMetodo('transfer').toLocaleString('es-AR')}</div></div>
+        <div style="background:#2F4D2A;border-radius:12px;padding:10px 8px;text-align:center"><div style="color:#C9D8B0;font-size:11px">Mercado Pago</div><div style="color:#F5EFE0;font-size:15px;font-weight:700">$${totalPorMetodo('mp').toLocaleString('es-AR')}</div></div>
+      </div>`
     })()}
     <div style="margin-top:16px">
       ${pagos.length? pagos.map(p=>{
         const c=p.customers||{}
         const distinto = p.expected_method && p.expected_method !== p.method
         const fecha = new Date(p.created_at).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})
-        return `<div class="row"><span>${c.first_name||''} ${c.last_name||''} <span class="badge">${METODOS_PAGO_LABEL[p.method]||p.method}</span>${distinto?` <small class="muted">(esperado: ${METODOS_PAGO_LABEL[p.expected_method]||p.expected_method})</small>`:''}<br><small>${fecha} · $${Number(p.amount||0).toLocaleString('es-AR')}</small></span><label style="display:flex;align-items:center;gap:6px"><input type="checkbox" data-conciliar="${p.id}" ${p.reconciled?'checked':''}/> Conciliado</label></div>`
+        return pCard(`
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+            <div>
+              <div style="font-weight:600;color:#2F4D2A">${c.first_name||''} ${c.last_name||''}</div>
+              <div style="margin-top:3px">${pPill(METODOS_PAGO_LABEL[p.method]||p.method)}</div>
+              ${distinto?`<div style="font-size:11px;color:#B85C00;margin-top:3px">esperado: ${METODOS_PAGO_LABEL[p.expected_method]||p.expected_method}</div>`:''}
+              <div style="font-size:12px;color:#8A8570;margin-top:3px">${fecha} · $${Number(p.amount||0).toLocaleString('es-AR')}</div>
+            </div>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#2F4D2A;white-space:nowrap"><input type="checkbox" data-conciliar="${p.id}" ${p.reconciled?'checked':''}/> Conciliado</label>
+          </div>
+        `, 'margin-bottom:8px')
       }).join('') : '<p class="muted">Todavía no hay pagos registrados.</p>'}
     </div>
   </div></div>
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('finanzas','💰','Finanzas')}
     <div class="grid two">
-      <div class="card stat">Ventas (30 días)<b>$${Number(dash.ventas||0).toLocaleString('es-AR')}</b></div>
-      <div class="card stat">Gastos (30 días)<b>$${Number(dash.gastos||0).toLocaleString('es-AR')}</b></div>
-      <div class="card stat">Pérdidas (30 días)<b>$${Number(dash.perdidas||0).toLocaleString('es-AR')}</b></div>
-      <div class="card stat">Beneficio neto (30 días)<b style="color:${Number(dash.beneficio_neto||0)>=0?'inherit':'#a33'}">$${Number(dash.beneficio_neto||0).toLocaleString('es-AR')}</b></div>
+      <div style="background:#2F4D2A;border-radius:12px;padding:10px 12px"><div style="color:#C9D8B0;font-size:11px">Ventas (30 días)</div><div style="color:#F5EFE0;font-size:17px;font-weight:700">$${Number(dash.ventas||0).toLocaleString('es-AR')}</div></div>
+      <div style="background:#2F4D2A;border-radius:12px;padding:10px 12px"><div style="color:#C9D8B0;font-size:11px">Gastos (30 días)</div><div style="color:#F5EFE0;font-size:17px;font-weight:700">$${Number(dash.gastos||0).toLocaleString('es-AR')}</div></div>
+      <div style="background:#2F4D2A;border-radius:12px;padding:10px 12px"><div style="color:#C9D8B0;font-size:11px">Pérdidas (30 días)</div><div style="color:#F5EFE0;font-size:17px;font-weight:700">$${Number(dash.perdidas||0).toLocaleString('es-AR')}</div></div>
+      <div style="background:#2F4D2A;border-radius:12px;padding:10px 12px"><div style="color:#C9D8B0;font-size:11px">Beneficio neto (30 días)</div><div style="color:${Number(dash.beneficio_neto||0)>=0?'#F5EFE0':'#F0997B'};font-size:17px;font-weight:700">$${Number(dash.beneficio_neto||0).toLocaleString('es-AR')}</div></div>
     </div>
     <div class="alert info" style="margin-top:10px"><b>Caja total acumulada: $${Number(dash.caja||0).toLocaleString('es-AR')}</b></div>
 
-    <div class="group" style="margin-top:16px"><h3 style="font-size:15px">Categorías</h3>
+    <div style="margin-top:20px"><h3 style="font-size:15px;color:#2F4D2A">Categorías</h3>
       <div class="grid two">
         <div class="field"><label>Nombre</label><input id="cat_new_name" placeholder="Ej: Combustible"/></div>
         <div class="field"><label>Tipo</label><select id="cat_new_type"><option value="fixed">Gasto fijo</option><option value="variable">Gasto variable</option><option value="income">Ingreso</option></select></div>
       </div>
       <button class="btn ghost" id="btn_crear_categoria">➕ Agregar categoría</button>
-      <div style="margin-top:10px">${categorias.length? categorias.map(c=>`<div class="row"><span>${c.name} <span class="badge">${TIPO_CAT_LABEL[c.type]||c.type}</span>${!c.active?' <small class="muted">(inactiva)</small>':''}</span><button class="btn ghost" data-cat-toggle="${c.id}" data-cat-active="${c.active}">${c.active?'Desactivar':'Activar'}</button></div>`).join('') : '<p class="muted">Todavía no hay categorías.</p>'}</div>
+      <div style="margin-top:10px">${categorias.length? categorias.map(c=>pCard(`
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+          <div>
+            <div style="font-weight:600;color:#2F4D2A">${c.name}${!c.active?' <span style="color:#8A8570;font-weight:400">(inactiva)</span>':''}</div>
+            <div style="margin-top:3px">${pPill(TIPO_CAT_LABEL[c.type]||c.type)}</div>
+          </div>
+          <button data-cat-toggle="${c.id}" data-cat-active="${c.active}" style="background:${c.active?'#FFFFFF':'#2F4D2A'};color:${c.active?'#B85C00':'#F5EFE0'};border:1px solid ${c.active?'#E3DCC8':'#2F4D2A'};border-radius:10px;padding:7px 14px;font-size:12px;font-weight:600;white-space:nowrap">${c.active?'Desactivar':'Activar'}</button>
+        </div>
+      `, 'margin-bottom:8px')).join('') : '<p class="muted">Todavía no hay categorías.</p>'}</div>
     </div>
 
-    <div class="group" style="margin-top:16px"><h3 style="font-size:15px">Registrar movimiento</h3>
+    <div style="margin-top:20px"><h3 style="font-size:15px;color:#2F4D2A">Registrar movimiento</h3>
       <div class="field"><label>Tipo</label>
-        <div class="grid two">
-          <button type="button" class="btn ghost" id="btn_tipo_expense" data-fin-tipo="expense">Gasto</button>
-          <button type="button" class="btn ghost" id="btn_tipo_income" data-fin-tipo="income">Ingreso</button>
+        <div style="display:flex;gap:8px;background:#F5EFE0;border-radius:12px;padding:4px">
+          <button type="button" id="btn_tipo_expense" data-fin-tipo="expense" style="flex:1;border:none;background:transparent;border-radius:9px;padding:9px 0;font-size:13px;font-weight:600;color:#2F4D2A">Gasto</button>
+          <button type="button" id="btn_tipo_income" data-fin-tipo="income" style="flex:1;border:none;background:transparent;border-radius:9px;padding:9px 0;font-size:13px;font-weight:600;color:#2F4D2A">Ingreso</button>
         </div>
       </div>
       <div class="field"><label>Categoría</label><select id="fin_categoria"><option value="">Elegí el tipo primero</option></select></div>
@@ -1461,14 +1619,23 @@ async function admin(){
       <div class="field"><label>Descripción</label><input id="fin_desc" placeholder="Ej: nafta de la semana"/></div>
       <div class="field"><label>Comprobante (opcional)</label><input type="file" id="fin_receipt" accept="image/*,application/pdf"/></div>
       <div id="err_finanzas" class="alert danger" style="display:none"></div>
-      <button class="btn primary" id="btn_guardar_movimiento">Guardar movimiento</button>
+      <button class="btn primary" id="btn_guardar_movimiento" style="width:100%">Guardar movimiento</button>
     </div>
 
-    <div class="group" style="margin-top:16px"><h3 style="font-size:15px">Últimos movimientos</h3>
+    <div style="margin-top:20px"><h3 style="font-size:15px;color:#2F4D2A">Últimos movimientos</h3>
       ${movimientosFinanzas.length? movimientosFinanzas.map(m=>{
         const cat = categoriaMap[m.category_id]
         const fecha = new Date(m.entry_date+'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})
-        return `<div class="row"><span>${m.type==='expense'?'🔴':'🟢'} ${cat?cat.name:'(sin categoría)'} <br><small>${fecha}${m.description?' · '+m.description:''}</small>${m.attachment_url?` <br><a href="${m.attachment_url}" target="_blank" style="font-size:12px">Ver comprobante</a>`:''}</span><span><b>$${Number(m.amount||0).toLocaleString('es-AR')}</b></span></div>`
+        return pCard(`
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+            <div>
+              <div style="font-weight:600;color:#2F4D2A">${m.type==='expense'?'🔴':'🟢'} ${cat?cat.name:'(sin categoría)'}</div>
+              <div style="font-size:12px;color:#8A8570;margin-top:2px">${fecha}${m.description?' · '+m.description:''}</div>
+              ${m.attachment_url?`<a href="${m.attachment_url}" target="_blank" style="font-size:12px">Ver comprobante</a>`:''}
+            </div>
+            <b style="color:#2F4D2A;white-space:nowrap">$${Number(m.amount||0).toLocaleString('es-AR')}</b>
+          </div>
+        `, 'margin-bottom:8px')
       }).join('') : '<p class="muted">Todavía no hay movimientos cargados.</p>'}
     </div>
   </div></div>`)
@@ -1498,9 +1665,18 @@ async function admin(){
     if(error || !data?.ok){ alert('No se pudo actualizar.'); return }
     adminData = null; render()
   })
+  document.querySelectorAll('[data-pagar-service]').forEach(b=>b.onclick=async()=>{
+    const { data, error } = await supabase.rpc('admin_marcar_service_pagado', { p_service_id: b.dataset.pagarService })
+    if(error || !data?.ok){ alert('No se pudo actualizar.'); return }
+    adminData = null; render()
+  })
   document.querySelectorAll('[data-ver-stats]').forEach(b=>b.onclick=()=>{
     const v = vehiculos.find(x=>x.id===b.dataset.verStats)
     verEstadisticasVehiculo(v)
+  })
+  document.querySelectorAll('[data-ver-historial]').forEach(b=>b.onclick=()=>{
+    const v = vehiculos.find(x=>x.id===b.dataset.verHistorial)
+    verHistorialVehiculo(v)
   })
   document.querySelectorAll('[data-editar-vehiculo]').forEach(b=>b.onclick=()=>{
     vehiculoEditando = vehiculoEditando===b.dataset.editarVehiculo ? null : b.dataset.editarVehiculo
@@ -1533,7 +1709,14 @@ async function admin(){
       current_km: Number(document.querySelector(`#ed_veh_km_${id}`).value) || 0,
       service_interval_km: Number(document.querySelector(`#ed_veh_intervalo_${id}`).value) || 3000,
       vtv_expiry: document.querySelector(`#ed_veh_vtv_${id}`).value || null,
-      insurance_expiry: document.querySelector(`#ed_veh_seguro_${id}`).value || null
+      insurance_expiry: document.querySelector(`#ed_veh_seguro_${id}`).value || null,
+      mechanic_name: document.querySelector(`#ed_mec_nombre_${id}`).value.trim() || null,
+      mechanic_phone: document.querySelector(`#ed_mec_telefono_${id}`).value.trim() || null,
+      mechanic_appointment_phone: document.querySelector(`#ed_mec_turnos_${id}`).value.trim() || null,
+      mechanic_email: document.querySelector(`#ed_mec_mail_${id}`).value.trim() || null,
+      mechanic_tax_id: document.querySelector(`#ed_mec_cuit_${id}`).value.trim() || null,
+      mechanic_hours: document.querySelector(`#ed_mec_horario_${id}`).value.trim() || null,
+      mechanic_address: document.querySelector(`#ed_mec_direccion_${id}`).value.trim() || null
     }
     if(photo_url !== undefined) payload.photo_url = photo_url
     const { error } = await supabase.from('vehicles').update(payload).eq('id', id)
@@ -1745,12 +1928,19 @@ async function admin(){
     const opciones = categorias.filter(c=>c.active && tiposPermitidos.includes(c.type))
     sel.innerHTML = opciones.length ? opciones.map(c=>`<option value="${c.id}">${c.name}</option>`).join('') : '<option value="">No hay categorías de este tipo — creá una arriba</option>'
   }
+  const pintarTipoFin = ()=>{
+    document.querySelectorAll('[data-fin-tipo]').forEach(x=>{
+      const on = x.dataset.finTipo===finTipoSel
+      x.style.background = on ? '#2F4D2A' : 'transparent'
+      x.style.color = on ? '#F5EFE0' : '#2F4D2A'
+    })
+  }
   document.querySelectorAll('[data-fin-tipo]').forEach(b=>b.onclick=()=>{
     finTipoSel = b.dataset.finTipo
-    document.querySelectorAll('[data-fin-tipo]').forEach(x=> x.className = 'btn '+(x.dataset.finTipo===finTipoSel?'primary':'ghost'))
+    pintarTipoFin()
     actualizarCategoriasFinanzas()
   })
-  document.querySelector('#btn_tipo_expense').className = 'btn primary'
+  pintarTipoFin()
   actualizarCategoriasFinanzas()
   let comprobanteFinanzas = null
   document.querySelector('#fin_receipt').onchange = (e)=>{ comprobanteFinanzas = e.target.files[0]||null }
@@ -1849,6 +2039,7 @@ async function render(){
   if(current==='campo')return campo();
   if(current==='vehiculo')return miVehiculo();
   if(current==='vehiculo-stats')return vehiculoStats();
+  if(current==='vehiculo-historial')return vehiculoHistorial();
   if(current==='admin-detalle')return adminDetalle();
   return admin()
 }
