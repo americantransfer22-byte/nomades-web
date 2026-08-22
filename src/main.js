@@ -924,6 +924,11 @@ let repMostrarProyeccion = false
 let statsVehiculoActual = null
 let vehiculoEditando = null
 let mostrarFormNuevoVehiculo = false
+let adminRendicionFecha = '' // fecha elegida en Rendición y conciliación ('' = hoy)
+let pagoEditando = null // id del pago cuyo monto se está editando
+let mostrarFormDiferencia = false
+let cuentaRepartidorAbierta = null // user_id del repartidor cuya cuenta corriente está expandida
+let cobrosSubSeccion = null // 'transfer' | 'mp' | null
 let historialVehiculoActual = null
 
 async function verHistorialVehiculo(v){
@@ -1330,12 +1335,14 @@ async function fetchAdminData(){
   const vehiculos = vehiculosRaw || []
   const { data: alertasVehiculos } = await supabase.rpc('admin_vehicle_alerts', {})
   const alertas = alertasVehiculos || { service:[], vtv:[], seguro:[], carnet:[], pagos_pendientes:[] }
-  return { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas }
+  const { data: driverLedgerRaw } = await supabase.from('driver_ledger').select('id,driver_id,entry_date,amount,description,created_at').order('entry_date',{ascending:false})
+  const driverLedger = driverLedgerRaw || []
+  return { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger }
 }
 
 async function admin(){
   if(!adminData) adminData = await fetchAdminData()
-  const { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas } = adminData
+  const { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger } = adminData
   const capacidadBase = settingsMap.default_daily_capacity_maples || '300'
   const assignmentMode = settingsMap.assignment_mode || 'zone'
   const staffMap = Object.fromEntries(staff.map(s=>[s.user_id, s.full_name||'(sin nombre)']))
@@ -1656,51 +1663,116 @@ async function admin(){
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('cobros','💳','Datos para cobros digitales')}
     <p class="muted">Esto se le muestra al repartidor cuando un cliente paga digital, para que pueda copiarlo y compartirlo. Editalo cuando quieras (cambio de banco, de cuenta, etc.).</p>
-    <div class="group"><h3 style="font-size:15px">🏦 Transferencia bancaria</h3>
-      <div class="field"><label>Nombre del banco</label><input id="cfg_bank_name" value="${settingsMap.transfer_bank_name||''}"/></div>
-      <div class="field"><label>Alias</label><input id="cfg_alias" value="${settingsMap.transfer_alias||''}"/></div>
-      <div class="field"><label>CBU</label><input id="cfg_cbu" value="${settingsMap.transfer_cbu||''}"/></div>
-      <div class="field"><label>Nombre del titular</label><input id="cfg_holder_name" value="${settingsMap.transfer_holder_name||''}"/></div>
-      <div class="field"><label>DNI/CUIT del titular</label><input id="cfg_holder_doc" value="${settingsMap.transfer_holder_doc||''}"/></div>
+    <div style="background:#F5EFE0;border-radius:12px;overflow:hidden;margin-top:8px">
+      <button type="button" data-sub-acc="transfer" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:11px 12px;cursor:pointer;gap:8px">
+        <span style="font-size:15px">🏦</span>
+        <span style="flex:1;font-weight:700;font-size:13.5px;color:#2F4D2A">Transferencia bancaria</span>
+        <span style="font-size:12px;color:#8A8570">${cobrosSubSeccion==='transfer'?'▲':'▼'}</span>
+      </button>
+      <div style="display:${cobrosSubSeccion==='transfer'?'block':'none'};padding:4px 12px 12px">
+        <div class="field"><label>Nombre del banco</label><input id="cfg_bank_name" value="${settingsMap.transfer_bank_name||''}"/></div>
+        <div class="field"><label>Alias</label><input id="cfg_alias" value="${settingsMap.transfer_alias||''}"/></div>
+        <div class="field"><label>CBU</label><input id="cfg_cbu" value="${settingsMap.transfer_cbu||''}"/></div>
+        <div class="field"><label>Nombre del titular</label><input id="cfg_holder_name" value="${settingsMap.transfer_holder_name||''}"/></div>
+        <div class="field"><label>DNI/CUIT del titular</label><input id="cfg_holder_doc" value="${settingsMap.transfer_holder_doc||''}"/></div>
+      </div>
     </div>
-    <div class="group"><h3 style="font-size:15px">📱 Billetera virtual</h3>
-      <div class="field"><label>Nombre de la billetera</label><input id="cfg_mp_name" value="${settingsMap.mp_wallet_name||''}" placeholder="Ej: Mercado Pago"/></div>
-      <div class="field"><label>Alias</label><input id="cfg_mp" value="${settingsMap.mp_alias||''}"/></div>
-      <div class="field"><label>CBU</label><input id="cfg_mp_cbu" value="${settingsMap.mp_cbu||''}"/></div>
-      <div class="field"><label>Nombre del titular</label><input id="cfg_mp_holder_name" value="${settingsMap.mp_holder_name||''}"/></div>
-      <div class="field"><label>DNI/CUIT del titular</label><input id="cfg_mp_holder_doc" value="${settingsMap.mp_holder_doc||''}"/></div>
+    <div style="background:#F5EFE0;border-radius:12px;overflow:hidden;margin-top:8px">
+      <button type="button" data-sub-acc="mp" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:11px 12px;cursor:pointer;gap:8px">
+        <span style="font-size:15px">📱</span>
+        <span style="flex:1;font-weight:700;font-size:13.5px;color:#2F4D2A">Billetera virtual</span>
+        <span style="font-size:12px;color:#8A8570">${cobrosSubSeccion==='mp'?'▲':'▼'}</span>
+      </button>
+      <div style="display:${cobrosSubSeccion==='mp'?'block':'none'};padding:4px 12px 12px">
+        <div class="field"><label>Nombre de la billetera</label><input id="cfg_mp_name" value="${settingsMap.mp_wallet_name||''}" placeholder="Ej: Mercado Pago"/></div>
+        <div class="field"><label>Alias</label><input id="cfg_mp" value="${settingsMap.mp_alias||''}"/></div>
+        <div class="field"><label>CBU</label><input id="cfg_mp_cbu" value="${settingsMap.mp_cbu||''}"/></div>
+        <div class="field"><label>Nombre del titular</label><input id="cfg_mp_holder_name" value="${settingsMap.mp_holder_name||''}"/></div>
+        <div class="field"><label>DNI/CUIT del titular</label><input id="cfg_mp_holder_doc" value="${settingsMap.mp_holder_doc||''}"/></div>
+      </div>
     </div>
-    <button class="btn ghost" id="btn_guardar_pago_config">Guardar datos de cobro</button>
+    <button id="btn_guardar_pago_config" style="width:100%;margin-top:14px;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:11px 0;font-size:14px;font-weight:600">💾 Guardar datos de cobro</button>
   </div></div>
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('rendicion','🧾','Rendición y conciliación')}
+    <div class="field"><label>Fecha</label><input type="date" id="rend_fecha" value="${adminRendicionFecha || new Date().toISOString().slice(0,10)}"/></div>
+    <div class="grid three" style="margin-bottom:12px">
+      <button class="btn ghost" id="btn_rend_dia_ant">← Día anterior</button>
+      <button class="btn ghost" id="btn_rend_dia_hoy">Hoy</button>
+      <button class="btn ghost" id="btn_rend_dia_sig">Día siguiente →</button>
+    </div>
     ${(()=>{
-      const hoy = new Date().toISOString().slice(0,10)
-      const pagosHoy = pagos.filter(p=>p.created_at.slice(0,10)===hoy)
-      const totalPorMetodo = m => pagosHoy.filter(p=>p.method===m).reduce((s,p)=>s+Number(p.amount||0),0)
-      return `<div class="grid three">
-        <div style="background:#2F4D2A;border-radius:12px;padding:10px 8px;text-align:center"><div style="color:#C9D8B0;font-size:11px">Efectivo hoy</div><div style="color:#F5EFE0;font-size:15px;font-weight:700">$${totalPorMetodo('cash').toLocaleString('es-AR')}</div></div>
+      const fecha = adminRendicionFecha || new Date().toISOString().slice(0,10)
+      const pagosDia = pagos.filter(p=>p.created_at.slice(0,10)===fecha)
+      const totalPorMetodo = m => pagosDia.filter(p=>p.method===m).reduce((s,p)=>s+Number(p.amount||0),0)
+      const totalRendido = totalPorMetodo('cash')+totalPorMetodo('transfer')+totalPorMetodo('mp')
+      return `<div class="grid two">
+        <div style="background:#2F4D2A;border-radius:12px;padding:10px 8px;text-align:center"><div style="color:#C9D8B0;font-size:11px">Efectivo</div><div style="color:#F5EFE0;font-size:15px;font-weight:700">$${totalPorMetodo('cash').toLocaleString('es-AR')}</div></div>
         <div style="background:#2F4D2A;border-radius:12px;padding:10px 8px;text-align:center"><div style="color:#C9D8B0;font-size:11px">Transferencia</div><div style="color:#F5EFE0;font-size:15px;font-weight:700">$${totalPorMetodo('transfer').toLocaleString('es-AR')}</div></div>
         <div style="background:#2F4D2A;border-radius:12px;padding:10px 8px;text-align:center"><div style="color:#C9D8B0;font-size:11px">Mercado Pago</div><div style="color:#F5EFE0;font-size:15px;font-weight:700">$${totalPorMetodo('mp').toLocaleString('es-AR')}</div></div>
+        <div style="background:#E8833A;border-radius:12px;padding:10px 8px;text-align:center"><div style="color:#FCE4D0;font-size:11px">Total rendido</div><div style="color:#FFFFFF;font-size:15px;font-weight:700">$${totalRendido.toLocaleString('es-AR')}</div></div>
+      </div>
+      <div style="margin-top:16px">
+        ${pagosDia.length? pagosDia.map(p=>{
+          const c=p.customers||{}
+          const distinto = p.expected_method && p.expected_method !== p.method
+          const hora = new Date(p.created_at).toLocaleString('es-AR',{hour:'2-digit',minute:'2-digit'})
+          const editando = pagoEditando===p.id
+          return pCard(`
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+              <div>
+                <div style="font-weight:600;color:#2F4D2A">${c.first_name||''} ${c.last_name||''}</div>
+                <div style="margin-top:3px">${pPill(METODOS_PAGO_LABEL[p.method]||p.method)}</div>
+                ${distinto?`<div style="font-size:11px;color:#B85C00;margin-top:3px">esperado: ${METODOS_PAGO_LABEL[p.expected_method]||p.expected_method}</div>`:''}
+                <div style="font-size:12px;color:#8A8570;margin-top:3px">${hora} · $${Number(p.amount||0).toLocaleString('es-AR')}</div>
+              </div>
+              <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#2F4D2A;white-space:nowrap"><input type="checkbox" data-conciliar="${p.id}" ${p.reconciled?'checked':''}/> Conciliado</label>
+            </div>
+            ${editando?`<div style="display:flex;gap:8px;margin-top:10px"><input type="number" id="pago_monto_${p.id}" value="${p.amount}" style="flex:1"/><button data-guardar-pago="${p.id}" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:9px;padding:0 14px;font-size:12px;font-weight:600">Guardar</button></div>`:''}
+            ${pBtnRow([pBtn('✏️',editando?'Cerrar':'Editar',`data-editar-pago="${p.id}"`,'ghost'), pBtn('🗑️','Eliminar',`data-eliminar-pago="${p.id}"`,'danger')])}
+          `, 'margin-bottom:8px')
+        }).join('') : '<p class="muted">No hay pagos registrados para esta fecha.</p>'}
       </div>`
     })()}
-    <div style="margin-top:16px">
-      ${pagos.length? pagos.map(p=>{
-        const c=p.customers||{}
-        const distinto = p.expected_method && p.expected_method !== p.method
-        const fecha = new Date(p.created_at).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})
-        return pCard(`
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
-            <div>
-              <div style="font-weight:600;color:#2F4D2A">${c.first_name||''} ${c.last_name||''}</div>
-              <div style="margin-top:3px">${pPill(METODOS_PAGO_LABEL[p.method]||p.method)}</div>
-              ${distinto?`<div style="font-size:11px;color:#B85C00;margin-top:3px">esperado: ${METODOS_PAGO_LABEL[p.expected_method]||p.expected_method}</div>`:''}
-              <div style="font-size:12px;color:#8A8570;margin-top:3px">${fecha} · $${Number(p.amount||0).toLocaleString('es-AR')}</div>
-            </div>
-            <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#2F4D2A;white-space:nowrap"><input type="checkbox" data-conciliar="${p.id}" ${p.reconciled?'checked':''}/> Conciliado</label>
+
+    <div style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;overflow:hidden;margin-top:20px">
+      <button type="button" id="btn_toggle_form_diferencia" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:12px 14px;cursor:pointer;gap:10px;background:${mostrarFormDiferencia?'#F5EFE0':'transparent'}">
+        <span style="width:32px;height:32px;border-radius:9px;background:#F3E2D8;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">⚠️</span>
+        <span style="flex:1;font-weight:700;font-size:14.5px;color:#2F4D2A">Registrar diferencia de caja</span>
+        <span style="font-size:13px;color:#8A8570">${mostrarFormDiferencia?'▲':'▼'}</span>
+      </button>
+      <div style="display:${mostrarFormDiferencia?'block':'none'};padding:10px 14px 14px">
+        <p class="muted" style="font-size:12px">Usalo si a un repartidor no le cerró la rendición. Un monto negativo queda anotado como saldo que debe; uno positivo como saldo a favor o un pago que hizo.</p>
+        <div class="field"><label>Repartidor</label><select id="dif_repartidor">${repartidores.map(r=>`<option value="${r.user_id}">${r.full_name||'(sin nombre)'}</option>`).join('')}</select></div>
+        <div class="grid two">
+          <div class="field"><label>Fecha de la incidencia</label><input id="dif_fecha" type="date" value="${adminRendicionFecha || new Date().toISOString().slice(0,10)}"/></div>
+          <div class="field"><label>Monto (negativo = debe)</label><input id="dif_monto" type="number"/></div>
+        </div>
+        <div class="field"><label>Motivo</label><input id="dif_motivo" placeholder="Ej: faltaron $2.000 en la rendición del lunes"/></div>
+        <div id="err_diferencia" class="alert danger" style="display:none"></div>
+        <button id="btn_guardar_diferencia" style="width:100%;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:11px 0;font-size:14px;font-weight:600">💾 Guardar</button>
+      </div>
+    </div>
+
+    <div style="margin-top:16px"><h3 style="font-size:15px;color:#2F4D2A">Cuentas de repartidores</h3>
+      ${repartidores.length? repartidores.map(r=>{
+        const entradas = driverLedger.filter(l=>l.driver_id===r.user_id)
+        const saldo = entradas.reduce((s,l)=>s+Number(l.amount||0),0)
+        const abierta = cuentaRepartidorAbierta===r.user_id
+        return `<div style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;overflow:hidden;margin-bottom:8px">
+          <button type="button" data-toggle-cuenta="${r.user_id}" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:12px 14px;cursor:pointer;gap:10px">
+            ${pAvatar(r.full_name,34)}
+            <span style="flex:1;font-weight:600;color:#2F4D2A">${r.full_name||'(sin nombre)'}</span>
+            <span style="font-weight:700;color:${saldo<0?'#B03A2E':'#2F4D2A'}">${saldo<0?'-':''}$${Math.abs(saldo).toLocaleString('es-AR')}</span>
+          </button>
+          <div style="display:${abierta?'block':'none'};padding:0 14px 14px">
+            ${entradas.length? entradas.map(l=>{
+              const fecha = new Date(l.entry_date+'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})
+              return `<div class="row" style="background:transparent"><span>${fecha}<br><small>${l.description||''}</small></span><span style="display:flex;align-items:center;gap:8px"><b style="color:${l.amount<0?'#B03A2E':'#2F4D2A'}">${l.amount<0?'-':'+'}$${Math.abs(l.amount).toLocaleString('es-AR')}</b><button data-eliminar-ledger="${l.id}" style="background:#FFFFFF;color:#B03A2E;border:1px solid #E3DCC8;border-radius:8px;padding:5px 9px;font-size:11px">🗑️</button></span></div>`
+            }).join('') : '<p class="muted" style="font-size:12px">Sin movimientos.</p>'}
           </div>
-        `, 'margin-bottom:8px')
-      }).join('') : '<p class="muted">Todavía no hay pagos registrados.</p>'}
+        </div>`
+      }).join('') : '<p class="muted">Todavía no hay repartidores.</p>'}
     </div>
   </div></div>
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
@@ -1884,6 +1956,10 @@ async function admin(){
   }
   const btnToggleFormVeh = document.querySelector('#btn_toggle_form_vehiculo')
   if(btnToggleFormVeh) btnToggleFormVeh.onclick = ()=>{ mostrarFormNuevoVehiculo = !mostrarFormNuevoVehiculo; render() }
+  document.querySelectorAll('[data-sub-acc]').forEach(b=>b.onclick=()=>{
+    cobrosSubSeccion = cobrosSubSeccion===b.dataset.subAcc ? null : b.dataset.subAcc
+    render()
+  })
   document.querySelectorAll('[data-guardar-carnet]').forEach(b=>b.onclick=async()=>{
     const val = document.querySelector(`#carnet_${b.dataset.guardarCarnet}`).value
     const { error } = await supabase.from('staff_roles').update({ license_expiry: val || null }).eq('user_id', b.dataset.guardarCarnet)
@@ -2035,6 +2111,62 @@ async function admin(){
     const { error } = await supabase.from('payments').update({ reconciled: chk.checked }).eq('id', chk.dataset.conciliar)
     if(error){ alert('Error: '+error.message); chk.checked=!chk.checked; return }
     adminData = null
+  })
+  const rendFechaInput = document.querySelector('#rend_fecha')
+  if(rendFechaInput) rendFechaInput.onchange = (e)=>{ adminRendicionFecha = e.target.value; render() }
+  const btnRendAnt = document.querySelector('#btn_rend_dia_ant')
+  if(btnRendAnt) btnRendAnt.onclick = ()=>{ const f=adminRendicionFecha||new Date().toISOString().slice(0,10); const d=new Date(f+'T00:00:00'); d.setDate(d.getDate()-1); adminRendicionFecha=d.toISOString().slice(0,10); render() }
+  const btnRendHoy = document.querySelector('#btn_rend_dia_hoy')
+  if(btnRendHoy) btnRendHoy.onclick = ()=>{ adminRendicionFecha=''; render() }
+  const btnRendSig = document.querySelector('#btn_rend_dia_sig')
+  if(btnRendSig) btnRendSig.onclick = ()=>{ const f=adminRendicionFecha||new Date().toISOString().slice(0,10); const d=new Date(f+'T00:00:00'); d.setDate(d.getDate()+1); adminRendicionFecha=d.toISOString().slice(0,10); render() }
+  document.querySelectorAll('[data-editar-pago]').forEach(b=>b.onclick=()=>{
+    pagoEditando = pagoEditando===b.dataset.editarPago ? null : b.dataset.editarPago
+    render()
+  })
+  document.querySelectorAll('[data-guardar-pago]').forEach(b=>b.onclick=async()=>{
+    const id = b.dataset.guardarPago
+    const val = Number(document.querySelector(`#pago_monto_${id}`).value)
+    if(!val || val<=0){ alert('Ingresá un monto válido.'); return }
+    const { error } = await supabase.from('payments').update({ amount: val }).eq('id', id)
+    if(error){ alert('Error: '+error.message); return }
+    pagoEditando = null
+    adminData = null; render()
+  })
+  document.querySelectorAll('[data-eliminar-pago]').forEach(b=>b.onclick=async()=>{
+    if(!confirm('¿Eliminar este pago? No se puede deshacer.'))return
+    const { error } = await supabase.from('payments').delete().eq('id', b.dataset.eliminarPago)
+    if(error){ alert('Error: '+error.message); return }
+    adminData = null; render()
+  })
+  const btnToggleDif = document.querySelector('#btn_toggle_form_diferencia')
+  if(btnToggleDif) btnToggleDif.onclick = ()=>{ mostrarFormDiferencia = !mostrarFormDiferencia; render() }
+  const btnGuardarDif = document.querySelector('#btn_guardar_diferencia')
+  if(btnGuardarDif) btnGuardarDif.onclick = async ()=>{
+    const box = document.querySelector('#err_diferencia')
+    const monto = Number(document.querySelector('#dif_monto').value)
+    if(!monto){ box.textContent='Ingresá un monto distinto de 0.'; box.style.display='block'; return }
+    const payload = {
+      driver_id: document.querySelector('#dif_repartidor').value,
+      entry_date: document.querySelector('#dif_fecha').value,
+      amount: monto,
+      description: document.querySelector('#dif_motivo').value.trim() || null,
+      created_by: session.user.id
+    }
+    const { error } = await supabase.from('driver_ledger').insert(payload)
+    if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
+    mostrarFormDiferencia = false
+    adminData = null; render()
+  }
+  document.querySelectorAll('[data-toggle-cuenta]').forEach(b=>b.onclick=()=>{
+    cuentaRepartidorAbierta = cuentaRepartidorAbierta===b.dataset.toggleCuenta ? null : b.dataset.toggleCuenta
+    render()
+  })
+  document.querySelectorAll('[data-eliminar-ledger]').forEach(b=>b.onclick=async()=>{
+    if(!confirm('¿Eliminar este movimiento de la cuenta corriente?'))return
+    const { error } = await supabase.from('driver_ledger').delete().eq('id', b.dataset.eliminarLedger)
+    if(error){ alert('Error: '+error.message); return }
+    adminData = null; render()
   })
   document.querySelector('#btn_crear_categoria').onclick = async ()=>{
     const name = document.querySelector('#cat_new_name').value.trim()
