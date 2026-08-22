@@ -213,7 +213,7 @@ async function mapaSuscriptores(){
   })
 }
 
-
+async function cargarHistorialPagos(c){
   const box = document.querySelector('#card_pagos')
   const { data } = await supabase.rpc('customer_payment_history', { p_dni: c.dni, p_customer_id: c.id })
   const pagos = data || []
@@ -1337,7 +1337,4 @@ async function init(){
     myRole = roleRow?.role || null
     staffProfile = roleRow || null
     if(!myRole){ session=null }
-    else if(!roleRow.profile_completed){ current = 'staff-profile-setup' }
-  }
-  render()
-      }
+    else if(!roleRow.profile_completed){ current = '
