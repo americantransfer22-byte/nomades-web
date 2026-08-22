@@ -195,8 +195,15 @@ function cuentaPanel(){
     </span></div>`
   }).join(''):'<p class="muted">No tenés suscripciones activas.</p>'}</div>
   <div class="card" id="card_pagos"><h3>💳 Historial de pagos</h3><p class="muted">Cargando…</p></div>
-  <div class="card"><h3>📣 Recomendá NÓMADES</h3><p class="muted">Compartí tu código — cuando alguien se suscriba con él, vos te ganás 1 entrega gratis.</p><div class="alert info" style="text-align:center;font-size:22px;font-weight:bold;letter-spacing:2px">${c.referral_code||'-'}</div>
-    ${cuenta.credits && cuenta.credits.length ? `<div style="margin-top:10px">${cuenta.credits.map(cr=>`<div class="row"><span>🎁 ${cr.amount_description}</span><span class="muted" style="font-size:12px">${cr.reason||''}</span></div>`).join('')}</div>`:''}
+  <div class="card"><h3>📣 Recomendá NÓMADES</h3><p class="muted">Compartí tu código — cuando alguien se suscriba con él y reciba y pague su primera entrega, vos te ganás <b>$1.000 de descuento</b> en tu próximo pedido. Cada código sirve una sola vez: apenas se usa, se genera uno nuevo para que compartas.</p>
+    ${(()=>{
+      const pendiente = (cuenta.referral_history||[]).find(h=>h.status==='pending')
+      if(pendiente) return `<div class="alert info" style="text-align:center"><span style="font-size:20px;font-weight:bold;letter-spacing:2px;text-decoration:line-through;opacity:0.6">${pendiente.code}</span><br><small>🔒 En uso — esperando que ${pendiente.referred_first_name||'esa persona'} reciba y pague su primera entrega</small></div>`
+      return `<div class="alert info" style="text-align:center;font-size:22px;font-weight:bold;letter-spacing:2px">${c.referral_code||'-'}</div>`
+    })()}
+    ${cuenta.credits && cuenta.credits.some(cr=>cr.status==='available') ? `<div style="margin-top:10px">${cuenta.credits.filter(cr=>cr.status==='available').map(cr=>`<div class="row"><span>🎁 ${cr.amount_description}</span><span class="badge">Listo para usar</span></div>`).join('')}</div>`:''}
+    ${(cuenta.referral_history && cuenta.referral_history.length) ? `<div style="margin-top:12px"><small class="muted" style="font-weight:600">Historial</small>${cuenta.referral_history.map(h=>`<div class="row"><span>${h.code} → ${h.referred_first_name||'alguien'}</span><span class="badge">${h.status==='completed'?'✅ Completado':'⏳ Pendiente'}</span></div>`).join('')}</div>`:''}
+    <details style="margin-top:10px"><summary style="cursor:pointer;font-size:13px;color:#2F4D2A;font-weight:600">¿Cómo funciona?</summary><p class="muted" style="font-size:12px;margin-top:6px">1. Le pasás tu código a alguien que todavía no es cliente.<br>2. Esa persona lo pone al suscribirse, y su primera entrega le sale con 50% off.<br>3. Cuando le llega y la paga, vos te ganás $1.000 de descuento en tu próximo pedido, y te llega un código nuevo para volver a compartir.<br>4. Mientras el código esté "en uso", no se puede volver a usar hasta que se complete ese ciclo.</p></details>
   </div>
   <div class="card" id="card_repartidor"><h3>🚚 Tu repartidor</h3><p class="muted">Cargando…</p></div>
   <div class="card" id="card_datos"><h3>Tus datos</h3><p>🪪 DNI ${c.dni||'-'}</p><p>🏠 ${tipoVia} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'} (CP ${c.postal_code||'-'})</p><p>📍 Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'}</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
@@ -1055,7 +1062,13 @@ async function clientes(){
             ${detalle.payments.length? detalle.payments.map(p=>`<div class="row"><span>${new Date(p.created_at).toLocaleDateString('es-AR')}</span><span><b>$${Number(p.amount||0).toLocaleString('es-AR')}</b> · ${METODOS_PAGO_LABEL[p.method]||p.method}</span></div>`).join('') : '<p class="muted" style="font-size:13px">Sin pagos todavía.</p>'}
           </div>
           <div style="margin-top:16px"><h3 style="font-size:14px;color:#2F4D2A;margin-bottom:8px">🎁 Créditos por recomendar</h3>
-            ${detalle.credits && detalle.credits.length? detalle.credits.map(cr=>`<div class="row"><span>${cr.amount_description}${cr.used?' <span class="muted" style="font-size:11px">(ya usado)</span>':''}<br><small class="muted">${cr.reason||''}</small></span>${!cr.used?`<button data-usar-credito="${cr.id}" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:600">Marcar usado</button>`:''}</span></div>`).join('') : '<p class="muted" style="font-size:13px">Sin créditos todavía.</p>'}
+            ${detalle.credits && detalle.credits.length? detalle.credits.map(cr=>{
+              const label = cr.status==='pending'?'⏳ Esperando entrega del referido':cr.status==='available'?'🎁 Listo para usar':'✅ Ya usado'
+              return `<div class="row"><span>${cr.amount_description}<br><small class="muted">${label} · ${cr.reason||''}</small></span>${cr.status==='available'?`<button data-usar-credito="${cr.id}" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:600">Marcar usado</button>`:''}</span></div>`
+            }).join('') : '<p class="muted" style="font-size:13px">Sin créditos todavía.</p>'}
+          </div>
+          <div style="margin-top:16px"><h3 style="font-size:14px;color:#2F4D2A;margin-bottom:8px">📣 Historial de códigos de referido</h3>
+            ${detalle.referral_history && detalle.referral_history.length? detalle.referral_history.map(h=>`<div class="row"><span>${h.code} → ${h.referred_first_name||'alguien'}</span><span class="badge">${h.status==='completed'?'✅ Completado':'⏳ Pendiente'}</span></div>`).join('') : '<p class="muted" style="font-size:13px">Todavía no recomendó a nadie.</p>'}
           </div>
         `}
       </div>
@@ -1103,7 +1116,7 @@ async function clientes(){
   })
   document.querySelectorAll('[data-usar-credito]').forEach(b=>b.onclick=async()=>{
     if(!confirm('¿Marcar este crédito como usado?'))return
-    const { error } = await supabase.from('customer_credits').update({ used: true }).eq('id', b.dataset.usarCredito)
+    const { error } = await supabase.from('customer_credits').update({ status: 'used' }).eq('id', b.dataset.usarCredito)
     if(error){ alert('Error: '+error.message); return }
     clienteDetalleCache = {}
     render()
@@ -1594,17 +1607,20 @@ async function openDelivery(id){
   const { data: detalle, error: errDet } = await supabase.rpc('delivery_detail', { p_order_id: id })
   if(errDet || !detalle || detalle.error) return alert('No se pudo cargar el pedido')
   const r = detalle.order, c = detalle.customer, sub = detalle.subscription || {}
+  const credito = detalle.credit
   const { data: settingsRaw } = await supabase.from('farm_settings').select('key,value').in('key',['transfer_cbu','transfer_alias','transfer_bank_name','transfer_holder_name','transfer_holder_doc','mp_alias','mp_wallet_name','mp_cbu','mp_holder_name','mp_holder_doc'])
   const cfg = Object.fromEntries((settingsRaw||[]).map(s=>[s.key,s.value]))
-  const montoDefault = sub.price_at_signup || 0
+  const montoOriginal = sub.price_at_signup || 0
+  const montoDefault = credito ? Math.max(0, montoOriginal - credito.discount_amount) : montoOriginal
   layout(`<h2>Detalle de entrega</h2>${r.important_note?`<div class="alert warning"><b>⚠️ OBSERVACIÓN IMPORTANTE</b><br>${r.important_note}</div>`:''}
+  ${credito?`<div class="alert info">🎁 Este cliente tiene <b>$${Number(credito.discount_amount).toLocaleString('es-AR')} de descuento</b> por recomendar a alguien. Ya está restado del monto a cobrar.</div>`:''}
   <div class="grid two">
     <div class="card">
       <h3>${c.street||''} ${c.street_number||''}</h3>
       <p>${c.first_name||''} ${c.last_name||''}</p>
       <p>📞 ${c.phone||'-'}</p>
       <p>📦 ${FRECUENCIAS[sub.frequency]||sub.frequency||'-'} · ${sub.egg_quantity||'-'} huevos${sub.plan_breakdown?` (${sub.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')})`:''}</p>
-      <p>💰 A cobrar: <b>$${Number(montoDefault).toLocaleString('es-AR')}</b></p>
+      <p>💰 A cobrar: <b>$${Number(montoDefault).toLocaleString('es-AR')}</b>${credito?` <span class="muted" style="text-decoration:line-through">$${Number(montoOriginal).toLocaleString('es-AR')}</span>`:''}</p>
       <p>💳 Método configurado: <b>${METODOS_PAGO_LABEL[sub.payment_method]||sub.payment_method||'-'}</b></p>
       <button class="btn ghost" onclick="window.open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent('${(c.street||'')+' '+(c.street_number||'')+' '+(c.neighborhood||'')}'),'_blank')">📍 Google Maps</button>
     </div>
@@ -1686,6 +1702,7 @@ async function openDelivery(id){
     }
     const {data, error}=await supabase.rpc('confirm_delivery',{p_order_id:id,p_receiver_id:receiverId,p_actual_method:metodoSel,p_amount:monto,p_receipt_url:comprobanteUrl||null})
     if(error || !data?.ok){ errBox.textContent='No se pudo confirmar: '+(error?.message||data?.error||''); errBox.style.display='block'; return }
+    if(credito) await supabase.rpc('confirm_delivery_use_credit', { p_credit_id: credito.id })
     alert('Entrega confirmada ✅'); current='repartidor'; render()
   }
   document.querySelector('#failed').onclick=async()=>{
@@ -2132,12 +2149,7 @@ async function admin(){
   </div></div>
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('rendicion','🧾','Rendición y conciliación')}
-    <div class="field"><label>Fecha</label><input type="date" id="rend_fecha" value="${adminRendicionFecha || new Date().toISOString().slice(0,10)}"/></div>
-    <div class="grid three" style="margin-bottom:12px">
-      <button class="btn ghost" id="btn_rend_dia_ant">← Día anterior</button>
-      <button class="btn ghost" id="btn_rend_dia_hoy">Hoy</button>
-      <button class="btn ghost" id="btn_rend_dia_sig">Día siguiente →</button>
-    </div>
+    <div class="field"><label>Elegí la fecha a ver</label><input type="date" id="rend_fecha" value="${adminRendicionFecha || new Date().toISOString().slice(0,10)}"/></div>
     ${(()=>{
       const fecha = adminRendicionFecha || new Date().toISOString().slice(0,10)
       const pagosDia = pagos.filter(p=>p.created_at.slice(0,10)===fecha)
@@ -2619,20 +2631,6 @@ async function admin(){
   })
   const rendFechaInput = document.querySelector('#rend_fecha')
   if(rendFechaInput) rendFechaInput.onchange = (e)=>{ adminRendicionFecha = e.target.value; render() }
-  const btnRendAnt = document.querySelector('#btn_rend_dia_ant')
-  if(btnRendAnt) btnRendAnt.onclick = ()=>{ const f=adminRendicionFecha||new Date().toISOString().slice(0,10); const d=new Date(f+'T00:00:00'); d.setDate(d.getDate()-1); adminRendicionFecha=d.toISOString().slice(0,10); render() }
-  const btnRendHoy = document.querySelector('#btn_rend_dia_hoy')
-  if(btnRendHoy) btnRendHoy.onclick = ()=>{ adminRendicionFecha=''; render() }
-  const btnRendSig = document.querySelector('#btn_rend_dia_sig')
-  if(btnRendSig) btnRendSig.onclick = ()=>{
-    try{
-      const f=adminRendicionFecha||new Date().toISOString().slice(0,10)
-      const d=new Date(f+'T00:00:00')
-      d.setDate(d.getDate()+1)
-      adminRendicionFecha=d.toISOString().slice(0,10)
-      render()
-    }catch(err){ alert('Error al avanzar de día: '+(err.message||err)) }
-  }
   document.querySelectorAll('[data-editar-pago]').forEach(b=>b.onclick=()=>{
     pagoEditando = pagoEditando===b.dataset.editarPago ? null : b.dataset.editarPago
     render()
