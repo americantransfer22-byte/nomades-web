@@ -934,57 +934,108 @@ async function pedidos(){
   layout(`<h2>Pedidos</h2><div class="card">${rows.length?rows.map(r=>{const c=r.customers||{};const rep=r.assigned_driver?(staffMap[r.assigned_driver]||'(repartidor desconocido)'):'Sin asignar';return `<div class="row"><span><b>${c.first_name||''} ${c.last_name||''}</b><br><small>${c.neighborhood||''} · ${c.street||''} ${c.street_number||''}</small><br><small>🚚 ${rep}${r.assignment_locked?' 🔒':''}</small></span><span>${r.quantity_maples||0} maple(s) · <span class="badge">${ESTADOS[r.status]||r.status}</span></span></div>`}).join(''):'<p class="muted">No hay pedidos cargados.</p>'}</div><p class="muted" style="margin-top:10px">Para reasignar repartidores, andá a Administración → 🚚 Asignación de repartidores.</p>`)
 }
 
+let repRutaFecha = null
+
 async function repartidor(){
-  const rows=await q('orders','id,status,delivery_date,time_window_start,time_window_end,important_note,assigned_driver,customer_stage,customers(id,first_name,last_name,phone,neighborhood,street,street_number,zone)')
-  const grouped={}
-  rows.filter(r=>['pending','assigned','out_for_delivery','rescheduled'].includes(r.status) && (myRole==='admin' || r.assigned_driver===session?.user?.id)).forEach(r=>{
-    const c=r.customers||{}; const b=c.neighborhood||'Sin barrio'; const s=c.street||'Sin calle';
-    grouped[b]??={}; grouped[b][s]??=[]; grouped[b][s].push(r)
-  })
-  const html=Object.entries(grouped).map(([b,streets])=>{
-    const zonaDelBarrio = Object.values(streets)[0]?.[0]?.customers?.zone
-    return pCard(`
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px"><span style="font-size:11px;color:#8A8570;font-weight:600">📍 BARRIO</span></div>
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <span style="font-size:18px;font-weight:700;color:#2F4D2A">${b}</span>
-        ${zonaBadge(zonaDelBarrio)}
+  if(!repRutaFecha) repRutaFecha = new Date().toISOString().slice(0,10)
+  const fecha = repRutaFecha
+  const hoy = new Date().toISOString().slice(0,10)
+  const mananaD = new Date(); mananaD.setDate(mananaD.getDate()+1)
+  const manana = mananaD.toISOString().slice(0,10)
+  const diaSemana = new Date(fecha+'T00:00:00').getDay() // 0=domingo, 6=sábado
+  const esFinde = diaSemana===0 || diaSemana===6
+  const esPasado = fecha < hoy
+
+  const rows = await q('orders','id,status,delivery_date,important_note,assigned_driver,customer_stage,customers(id,first_name,last_name,phone,neighborhood,street,street_number,zone,city)')
+  const rowsDelDia = rows.filter(r=>r.delivery_date===fecha && (myRole==='admin' || r.assigned_driver===session?.user?.id))
+
+  let tituloChico = fecha===hoy ? 'Entregas de hoy' : fecha===manana ? 'Entregas de mañana' : 'Entregas'
+  const subtitulo = formatearFecha(fecha)
+
+  let contenido = ''
+  if(!rowsDelDia.length){
+    contenido = pCard(`<p class="muted" style="margin:0">${esFinde?'No hay entregas los fines de semana.':'No tenés entregas para repartir este día.'}</p>`)
+  } else if(esPasado){
+    const entregados = rowsDelDia.filter(r=>r.status==='delivered').length
+    const incidencias = rowsDelDia.filter(r=>r.status==='incident').length
+    contenido = pCard(`
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <div style="flex:1;background:#2F4D2A;border-radius:10px;padding:8px;text-align:center"><div style="color:#C9D8B0;font-size:11px">Entregados</div><div style="color:#F5EFE0;font-size:16px;font-weight:700">${entregados}</div></div>
+        <div style="flex:1;background:#B03A2E;border-radius:10px;padding:8px;text-align:center"><div style="color:#F7C1C1;font-size:11px">Incidencias</div><div style="color:#FFFFFF;font-size:16px;font-weight:700">${incidencias}</div></div>
       </div>
-      ${Object.entries(streets).sort((a,b)=>b[1].length-a[1].length).map(([s,rs])=>`
-        <div style="margin-top:10px;padding-top:10px;border-top:1px solid #F0EBDD">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <span style="font-weight:600;color:#2F4D2A;font-size:14px">${s}</span>
-            ${pPill(`${rs.length} entrega(s)`)}
-          </div>
-          ${rs.map(r=>{
-            const c=r.customers||{}
-            const telLimpio=(c.phone||'').replace(/\D/g,'')
-            const estadoLabel = r.customer_stage==='en_route' ? '🚚 En camino (avisado)' : r.customer_stage==='preparing' ? '🥚 Preparando' : ''
-            return `<div style="margin-bottom:8px">
-              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-                <div>
-                  <div style="font-weight:700;color:#2F4D2A">${c.street_number||''} · ${c.first_name||''} ${c.last_name||''}</div>
-                  <div style="font-size:12px;color:#8A8570;margin-top:2px">📞 ${c.phone||'-'}</div>
-                  ${estadoLabel?`<div style="font-size:11px;color:#B85C00;margin-top:2px">${estadoLabel}</div>`:''}
-                  ${r.important_note?`<div class="alert warning" style="margin-top:6px">⚠️ ${r.important_note}</div>`:''}
-                </div>
-              </div>
-              <div style="display:flex;gap:8px;margin-top:8px">
-                <button data-delivery="${r.id}" style="flex:1;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:9px 0;font-size:12px;font-weight:600">Abrir</button>
-                ${telLimpio?`<button data-avisar="${r.id}" data-tel="${telLimpio}" data-nombre="${c.first_name||''}" style="flex:1;background:#25D366;color:#fff;border:none;border-radius:10px;padding:9px 0;font-size:12px;font-weight:600">📲 Voy en camino</button>`:''}
-              </div>
-            </div>`
-          }).join('')}
+      ${rowsDelDia.map(r=>{
+        const c=r.customers||{}
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #F0EBDD"><span style="font-size:13px;color:#3A3A34">${c.first_name||''} ${c.last_name||''} · ${c.neighborhood||''}</span>${pPill(ESTADOS[r.status]||r.status)}</div>`
+      }).join('')}
+    `)
+  } else {
+    const grouped={}
+    rowsDelDia.filter(r=>['pending','assigned','out_for_delivery','rescheduled'].includes(r.status)).forEach(r=>{
+      const c=r.customers||{}; const b=c.neighborhood||'Sin barrio'; const s=c.street||'Sin calle';
+      grouped[b]??={}; grouped[b][s]??=[]; grouped[b][s].push(r)
+    })
+    contenido = Object.entries(grouped).map(([b,streets])=>{
+      const primerCliente = Object.values(streets)[0]?.[0]?.customers||{}
+      return pCard(`
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px"><span style="font-size:11px;color:#8A8570;font-weight:600">📍 BARRIO</span></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
+          <span style="font-size:18px;font-weight:700;color:#2F4D2A">${b}</span>
+          ${zonaBadge(primerCliente.zone)}
         </div>
-      `).join('')}
-    `, 'margin-bottom:10px')
-  }).join('')
-  layout(`<h2>🚚 Ruta del día</h2>
+        <div style="font-size:12px;color:#8A8570;margin-bottom:10px">Ciudad: ${primerCliente.city||'-'}</div>
+        ${Object.entries(streets).sort((a,b)=>b[1].length-a[1].length).map(([s,rs])=>`
+          <div style="margin-top:10px;padding-top:10px;border-top:1px solid #F0EBDD">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-weight:600;color:#2F4D2A;font-size:14px">Calle: ${s}</span>
+              ${pPill(`${rs.length} entrega(s)`)}
+            </div>
+            ${rs.map(r=>{
+              const c=r.customers||{}
+              const telLimpio=(c.phone||'').replace(/\D/g,'')
+              const direccionCompleta = `${c.street||''} ${c.street_number||''}, ${c.neighborhood||''}, ${c.city||''}`
+              const estadoLabel = r.customer_stage==='en_route' ? '🛵 En camino (avisado)' : r.customer_stage==='preparing' ? '🥚 Preparando' : ''
+              return `<div style="margin-bottom:8px">
+                <div style="font-weight:700;color:#2F4D2A">${c.street_number||''} · Cliente: ${c.first_name||''} ${c.last_name||''}</div>
+                ${telLimpio?`<a href="tel:${telLimpio}" style="font-size:12px;color:#2F4D2A;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-top:2px">📞 ${c.phone}</a>`:`<div style="font-size:12px;color:#8A8570;margin-top:2px">Sin teléfono</div>`}
+                ${estadoLabel?`<div style="font-size:11px;color:#B85C00;margin-top:2px">${estadoLabel}</div>`:''}
+                ${r.important_note?`<div class="alert warning" style="margin-top:6px">⚠️ ${r.important_note}</div>`:''}
+                <div style="display:flex;gap:6px;margin-top:8px">
+                  <button data-delivery="${r.id}" style="flex:1;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:9px 0;font-size:11px;font-weight:600">Abrir</button>
+                  <button data-maps="${encodeURIComponent(direccionCompleta)}" style="flex:1;background:#FFFFFF;color:#2F4D2A;border:1px solid #E3DCC8;border-radius:10px;padding:9px 0;font-size:11px;font-weight:600">🧭 Maps</button>
+                  ${telLimpio?`<button data-avisar="${r.id}" data-tel="${telLimpio}" data-nombre="${c.first_name||''}" style="flex:1;background:#25D366;color:#fff;border:none;border-radius:10px;padding:9px 0;font-size:11px;font-weight:600">🛵 Voy</button>`:''}
+                </div>
+              </div>`
+            }).join('')}
+          </div>
+        `).join('')}
+      `, 'margin-bottom:10px')
+    }).join('')
+    if(!contenido) contenido = pCard(`<p class="muted" style="margin:0">No hay entregas pendientes para este día (puede que ya estén todas entregadas).</p>`)
+  }
+
+  layout(`<h2>🚚 ${tituloChico}</h2>
+  <p class="muted" style="margin-top:-8px;margin-bottom:12px">${subtitulo}</p>
+  <div class="field"><input type="date" id="rep_ruta_fecha" value="${fecha}"/></div>
+  <div class="grid three" style="margin-bottom:12px">
+    <button class="btn ghost" id="btn_ruta_dia_ant">← Día anterior</button>
+    <button class="btn ghost" id="btn_ruta_dia_hoy">Hoy</button>
+    <button class="btn ghost" id="btn_ruta_dia_sig">Día siguiente →</button>
+  </div>
   <div style="display:flex;gap:8px;margin-bottom:12px">
-    <button class="btn ghost" id="btn_ver_mapa_repartidor" style="flex:1">🗺️ Ver mapa de hoy</button>
+    <button class="btn ghost" id="btn_ver_mapa_repartidor" style="flex:1">🗺️ Ver mapa</button>
     <button id="btn_sali_a_repartir" style="flex:1;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;font-size:13px;font-weight:600">📦 Salí a repartir</button>
   </div>
-  <div class="alert warning"><b>⚠️ ATENCIÓN HOY</b><br>Las restricciones horarias y observaciones importantes aparecen destacadas.</div>${html||'<div class="card"><p class="muted">No hay entregas pendientes.</p></div>'}`)
+  <div class="alert warning"><b>⚠️ ATENCIÓN</b><br>Las restricciones horarias y observaciones importantes aparecen destacadas.</div>
+  ${contenido}`)
+
+  document.querySelector('#rep_ruta_fecha').onchange = (e)=>{ repRutaFecha = e.target.value; render() }
+  document.querySelector('#btn_ruta_dia_ant').onclick = ()=>{ const d=new Date(fecha+'T00:00:00'); d.setDate(d.getDate()-1); repRutaFecha=d.toISOString().slice(0,10); render() }
+  document.querySelector('#btn_ruta_dia_hoy').onclick = ()=>{ repRutaFecha = new Date().toISOString().slice(0,10); render() }
+  document.querySelector('#btn_ruta_dia_sig').onclick = ()=>{ const d=new Date(fecha+'T00:00:00'); d.setDate(d.getDate()+1); repRutaFecha=d.toISOString().slice(0,10); render() }
   document.querySelectorAll('[data-delivery]').forEach(b=>b.onclick=()=>openDelivery(b.dataset.delivery))
+  document.querySelectorAll('[data-maps]').forEach(b=>b.onclick=()=>{
+    window.open('https://www.google.com/maps/search/?api=1&query='+b.dataset.maps,'_blank')
+  })
   document.querySelectorAll('[data-avisar]').forEach(b=>b.onclick=async()=>{
     const id = b.dataset.avisar
     // Solo un pedido puede estar "en camino" a la vez para este repartidor
@@ -997,8 +1048,8 @@ async function repartidor(){
   document.querySelector('#btn_ver_mapa_repartidor').onclick = ()=>mapaRepartidor()
   document.querySelector('#btn_sali_a_repartir').onclick = async ()=>{
     if(!confirm('¿Marcar como "En reparto" todos tus pedidos pendientes de hoy?'))return
-    const hoy = new Date().toISOString().slice(0,10)
-    const { error } = await supabase.from('orders').update({ status: 'out_for_delivery', out_for_delivery_at: new Date().toISOString() }).eq('assigned_driver', session.user.id).eq('delivery_date', hoy).in('status',['pending','assigned'])
+    const hoyStr = new Date().toISOString().slice(0,10)
+    const { error } = await supabase.from('orders').update({ status: 'out_for_delivery', out_for_delivery_at: new Date().toISOString() }).eq('assigned_driver', session.user.id).eq('delivery_date', hoyStr).in('status',['pending','assigned'])
     if(error){ alert('Error: '+error.message); return }
     alert('✅ Marcado. Tus clientes de hoy ya ven "En reparto" en su cuenta.')
     render()
