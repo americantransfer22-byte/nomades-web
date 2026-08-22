@@ -710,9 +710,59 @@ async function repartidor(){
     grouped[b]??={}; grouped[b][s]??=[]; grouped[b][s].push(r)
   })
   const html=Object.entries(grouped).map(([b,streets])=>`<div class="card group"><h3>📍 ${b}</h3>${Object.entries(streets).sort((a,b)=>b[1].length-a[1].length).map(([s,rs])=>`<div class="group"><div class="row"><b>${s}</b><span class="badge">${rs.length} entrega(s)</span></div>${rs.map(r=>{const c=r.customers||{};return `<div class="row"><span><b>${c.street_number||''}</b> · ${c.first_name||''} ${c.last_name||''}<br><small>${c.phone||''}</small>${r.important_note?`<div class="alert warning">⚠️ ${r.important_note}</div>`:''}</span><button class="btn primary" data-delivery="${r.id}">Abrir</button></div>`}).join('')}</div>`).join('')}</div>`).join('')
-  layout(`<h2>🚚 Ruta del día</h2><div class="alert warning"><b>⚠️ ATENCIÓN HOY</b><br>Las restricciones horarias y observaciones importantes aparecen destacadas.</div>${html||'<div class="card"><p class="muted">No hay entregas pendientes.</p></div>'}`)
+  layout(`<h2>🚚 Ruta del día</h2><button class="btn ghost" id="btn_ver_mapa_repartidor" style="margin-bottom:12px">🗺️ Ver mapa de hoy</button><div class="alert warning"><b>⚠️ ATENCIÓN HOY</b><br>Las restricciones horarias y observaciones importantes aparecen destacadas.</div>${html||'<div class="card"><p class="muted">No hay entregas pendientes.</p></div>'}`)
   document.querySelectorAll('[data-delivery]').forEach(b=>b.onclick=()=>openDelivery(b.dataset.delivery))
+  document.querySelector('#btn_ver_mapa_repartidor').onclick = ()=>mapaRepartidor()
 }
+
+async function mapaRepartidor(){
+  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><button class="btn ghost" id="btn_volver_repartidor" style="padding:6px 12px">← Volver</button><h2 style="margin:0">🗺️ Mapa de hoy</h2></div>
+  <div id="rep_mapa_estado" class="muted" style="margin-bottom:8px">Cargando mapa…</div>
+  <div id="rep_mapa_contenedor" style="height:380px;border-radius:12px;overflow:hidden;background:#eee"></div>
+  <div class="card" style="margin-top:12px">
+    <div class="row"><span>🔴 Falta entregar</span></div>
+    <div class="row"><span>🟢 Ya entregado</span></div>
+    <div class="row"><span>⚪ Otros clientes (no les toca hoy)</span></div>
+  </div>`)
+  document.querySelector('#btn_volver_repartidor').onclick = ()=>{ current='repartidor'; render() }
+
+  try{ await cargarLeaflet() }
+  catch(e){ document.querySelector('#rep_mapa_estado').textContent = 'No pudimos cargar el mapa. Revisá tu conexión.'; return }
+
+  const hoy = new Date().toISOString().slice(0,10)
+  const { data: ordersRaw } = await supabase.from('orders').select('id,status,delivery_date,assigned_driver,customers(id,first_name,last_name,phone,neighborhood,street,street_number,latitude,longitude)')
+  const orders = ordersRaw || []
+  const misPedidosHoy = orders.filter(o=>o.delivery_date===hoy && (myRole==='admin' || o.assigned_driver===session?.user?.id))
+  const idsClientesHoy = new Set(misPedidosHoy.map(o=>o.customers?.id).filter(Boolean))
+  const { data: todosClientesRaw } = await supabase.from('customers').select('id,first_name,last_name,phone,neighborhood,street,street_number,latitude,longitude').neq('status','baja')
+  const todosClientes = todosClientesRaw || []
+  const otrosClientes = todosClientes.filter(c=>!idsClientesHoy.has(c.id) && c.latitude!=null && c.longitude!=null)
+
+  const pendientes = misPedidosHoy.filter(o=>['pending','assigned','out_for_delivery','rescheduled'].includes(o.status) && o.customers?.latitude!=null)
+  const entregados = misPedidosHoy.filter(o=>o.status==='delivered' && o.customers?.latitude!=null)
+
+  const estado = document.querySelector('#rep_mapa_estado')
+  estado.textContent = `Hoy: ${pendientes.length} por entregar, ${entregados.length} entregado(s).`
+
+  const puntos = [...pendientes, ...entregados].map(o=>o.customers).filter(Boolean)
+  const centro = puntos.length ? [puntos[0].latitude, puntos[0].longitude] : [-32.9468, -60.6393]
+  const map = L.map('rep_mapa_contenedor').setView(centro, 12)
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+  }).addTo(map)
+
+  const marcador = (c, color, radio)=> L.circleMarker([c.latitude, c.longitude], { radius: radio, color, fillColor: color, fillOpacity: 0.9, weight: 2 })
+    .bindPopup(`<b>${c.first_name||''} ${c.last_name||''}</b><br>${c.street||''} ${c.street_number||''}<br>📞 ${c.phone||'-'}`)
+
+  const grupo = []
+  otrosClientes.forEach(c=>{ marcador(c, '#B4B2A9', 5).addTo(map) })
+  pendientes.forEach(o=>{ const m = marcador(o.customers, '#D14A3D', 8).addTo(map); grupo.push(m) })
+  entregados.forEach(o=>{ const m = marcador(o.customers, '#3B6D11', 8).addTo(map); grupo.push(m) })
+
+  if(grupo.length>1){ map.fitBounds(L.featureGroup(grupo).getBounds().pad(0.25)) }
+}
+
 
 async function historialRepartidor(){
   const { data, error } = await supabase.rpc('repartidor_historial', {})
@@ -1389,6 +1439,7 @@ async function render(){
   if(current==='clientes')return clientes();
   if(current==='pedidos')return pedidos();
   if(current==='repartidor')return repartidor();
+  if(current==='repartidor-mapa')return mapaRepartidor();
   if(current==='historial')return historialRepartidor();
   if(current==='campo')return campo();
   if(current==='admin-detalle')return adminDetalle();
