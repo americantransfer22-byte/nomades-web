@@ -171,13 +171,13 @@ function cuentaPanel(){
   const fechasMes = subActiva && next ? fechasDelMesParaSuscripcion(next.delivery_date, subActiva.frequency) : []
   layout(`<h2>👤 Hola, ${c.first_name}</h2>
   <div id="card_hoy_banner"></div>
-  <div class="card"><h3>Tu próximo pedido</h3>${next?`<div class="row"><span>${formatearFecha(next.delivery_date)}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div><p>${next.quantity_maples||''} maple(s)</p>${next.payment_method?`<div class="alert info">💡 Recordá: el pago es en <b>${METODOS_PAGO_LABEL[next.payment_method]||next.payment_method}</b>.</div>`:''}`:'<p class="muted">No tenés entregas próximas.</p>'}</div>
+  <div class="card"><h3>Tu próximo pedido</h3>${next?`<div class="row"><span>${formatearFecha(next.delivery_date)}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div><p>${(next.plan_breakdown && Array.isArray(next.plan_breakdown) && next.plan_breakdown.length) ? next.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')+' huevos' : `${next.egg_quantity||0} huevos`}</p>${next.payment_method?`<div class="alert info">💡 Recordá: el pago es en <b>${METODOS_PAGO_LABEL[next.payment_method]||next.payment_method}</b>.</div>`:''}`:'<p class="muted">No tenés entregas próximas.</p>'}</div>
   ${next && (next.customer_stage || next.status==='out_for_delivery') ? barraEstadoPedido(next.customer_stage, next.status, next.out_for_delivery_at, next.en_route_at) : ''}
   ${fechasMes.length?`<div class="card"><h3>📅 Tus entregas este mes</h3>${fechasMes.map((f,i)=>`<div class="row"><span>${formatearFecha(f)}</span>${i===0?'<span class="badge">Confirmada</span>':'<span class="muted" style="font-size:12px">Estimada</span>'}</div>`).join('')}<p class="muted" style="font-size:12px;margin-top:8px">Solo la primera fecha está confirmada como pedido. Las demás son estimadas según tu frecuencia y pueden moverse un poco.</p></div>`:''}
   <div class="card" id="card_subs"><h3>Tus suscripciones</h3>${cuenta.subscriptions.length?cuenta.subscriptions.map(s=>`<div class="row"><span>${s.egg_quantity} huevos · ${FRECUENCIAS[s.frequency]||s.frequency}${s.status==='waitlist'?' · <span class="badge" style="background:#b3841f">🕒 Lista de espera</span>':''}</span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="badge">${s.payment_status==='paid'?'✅ Pago al día':'🟡 Pago pendiente'}</span><button class="btn ghost" data-cambiar-plan="${s.id}" style="font-size:12px;padding:6px 12px">✏️ Cambiar plan</button></span></div>`).join(''):'<p class="muted">No tenés suscripciones activas.</p>'}</div>
   <div class="card" id="card_pagos"><h3>💳 Historial de pagos</h3><p class="muted">Cargando…</p></div>
   <div class="card" id="card_repartidor"><h3>🚚 Tu repartidor</h3><p class="muted">Cargando…</p></div>
-  <div class="card" id="card_datos"><h3>Tus datos</h3><p>🏠 ${tipoVia} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'} (CP ${c.postal_code||'-'})</p><p>📍 Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'}</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
+  <div class="card" id="card_datos"><h3>Tus datos</h3><p>🪪 DNI ${c.dni||'-'}</p><p>🏠 ${tipoVia} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'} (CP ${c.postal_code||'-'})</p><p>📍 Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'}</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
   <button class="btn ghost" id="btn_ver_mapa" style="margin-bottom:10px">🗺️ Ver mapa de suscriptores</button>
   <button class="btn ghost" id="btn_logout_cuenta">Cerrar sesión</button>`)
   document.querySelector('#btn_logout_cuenta').onclick = ()=>{ cuenta=null; current='inicio'; render() }
@@ -462,7 +462,7 @@ const ZONA_COLORES = {
 }
 function zonaBadge(zona){
   const c = ZONA_COLORES[zona] || { bg:'#eee', text:'#666' }
-  const label = zona ? zona[0].toUpperCase()+zona.slice(1) : 'Sin zona'
+  const label = zona ? 'Zona '+zona[0].toUpperCase()+zona.slice(1) : 'Sin zona'
   return `<span style="background:${c.bg};color:${c.text};font-size:11px;font-weight:700;padding:2px 9px;border-radius:6px;white-space:nowrap">${label}</span>`
 }
 
@@ -542,6 +542,7 @@ function editarDatosForm(c){
   citySelValue = c.city || ''
   const box = document.querySelector('#card_datos')
   box.innerHTML = `<h3>Editar mis datos</h3>
+    <div class="field"><label>DNI</label><input id="ed_dni" value="${c.dni||''}"/></div>
     <div class="field"><label>Teléfono</label><input id="ed_phone" value="${c.phone||''}"/></div>
     <div class="field"><label>Email</label><input id="ed_email" value="${c.email||''}"/></div>
     <div class="field"><label>Tipo de vía</label><div class="grid three" id="ed_via_group">${TIPOS_VIA_OPCIONES.map(t=>`<button type="button" class="btn ${viaSel===t.value?'primary':'ghost'}" data-via="${t.value}">${t.label}</button>`).join('')}</div></div>
@@ -576,9 +577,11 @@ function editarDatosForm(c){
   document.querySelector('#btn_cancelar_edit').onclick = ()=>cuentaPanel()
   document.querySelector('#btn_guardar_datos').onclick = async ()=>{
     const errBox = document.querySelector('#err_edit')
+    const nuevoDni = document.querySelector('#ed_dni').value.trim()
     const payload = {
       p_dni: c.dni,
       p_customer_id: c.id,
+      p_new_dni: nuevoDni && nuevoDni !== c.dni ? nuevoDni : null,
       p_phone: document.querySelector('#ed_phone').value.trim(),
       p_email: document.querySelector('#ed_email').value.trim(),
       p_street: document.querySelector('#ed_street').value.trim(),
@@ -592,8 +595,8 @@ function editarDatosForm(c){
       p_postal_code: document.querySelector('#ed_postal_code').value.trim()
     }
     const { data, error } = await supabase.rpc('customer_update', payload)
-    if(error || !data?.ok){ errBox.textContent='No pudimos guardar los cambios. Probá de nuevo.'; errBox.style.display='block'; return }
-    Object.assign(c, { phone: payload.p_phone||c.phone, email: payload.p_email||c.email, street: payload.p_street||c.street, street_number: payload.p_street_number||c.street_number, neighborhood: payload.p_neighborhood||c.neighborhood, zone: payload.p_zone||c.zone, street_type: payload.p_street_type||c.street_type, city: payload.p_city||c.city, province: payload.p_province||c.province, country: payload.p_country||c.country, postal_code: payload.p_postal_code||c.postal_code })
+    if(error || !data?.ok){ errBox.textContent = data?.error || 'No pudimos guardar los cambios. Probá de nuevo.'; errBox.style.display='block'; return }
+    Object.assign(c, { dni: payload.p_new_dni||c.dni, phone: payload.p_phone||c.phone, email: payload.p_email||c.email, street: payload.p_street||c.street, street_number: payload.p_street_number||c.street_number, neighborhood: payload.p_neighborhood||c.neighborhood, zone: payload.p_zone||c.zone, street_type: payload.p_street_type||c.street_type, city: payload.p_city||c.city, province: payload.p_province||c.province, country: payload.p_country||c.country, postal_code: payload.p_postal_code||c.postal_code })
     cuentaPanel()
   }
 }
@@ -922,16 +925,159 @@ async function campo(){
   })
 }
 
+let clienteExpandido = null
+let clienteDetalleCache = {}
+
 async function clientes(){
-  const rows=await q('customers','id,first_name,last_name,phone,neighborhood,status')
-  layout(`<h2>Clientes</h2><div class="card"><div class="row"><b>Cliente</b><b>Barrio / Estado</b></div>${rows.length?rows.map(r=>`<div class="row"><span>${r.first_name||''} ${r.last_name||''}<br><small>${r.phone||''}</small></span><span>${r.neighborhood||'-'} · <span class="badge">${r.status||'activo'}</span></span></div>`).join(''):'<p class="muted">Sin datos todavía.</p>'}</div>`)
+  const rows=await q('customers','id,first_name,last_name,phone,neighborhood,zone,city,status,dni')
+  layout(`<h2>Clientes</h2>
+  ${rows.length? rows.map(c=>{
+    const abierto = clienteExpandido===c.id
+    const detalle = clienteDetalleCache[c.id]
+    return `<div style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;overflow:hidden;margin-bottom:8px">
+      <button type="button" data-toggle-cliente="${c.id}" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:12px 14px;cursor:pointer;gap:10px;background:${abierto?'#F5EFE0':'transparent'}">
+        ${pAvatar(c.first_name)}
+        <div style="flex:1;text-align:left">
+          <div style="font-weight:700;color:#2F4D2A">${c.first_name||''} ${c.last_name||''}</div>
+          <div style="font-size:12px;color:#8A8570;margin-top:2px">🏘️ ${c.neighborhood||'-'} · Ciudad: ${c.city||'-'}</div>
+          <div style="margin-top:4px">${zonaBadge(c.zone)}</div>
+        </div>
+        <span style="font-size:13px;color:#8A8570">${abierto?'▲':'▼'}</span>
+      </button>
+      <div style="display:${abierto?'block':'none'};padding:0 14px 14px">
+        ${!detalle ? '<p class="muted">Cargando…</p>' : `
+          <div style="border-top:1px solid #F0EBDD;padding-top:12px">
+            <h3 style="font-size:14px;color:#2F4D2A;margin-bottom:8px">✏️ Editar datos</h3>
+            <div class="grid two">
+              <div class="field"><label>DNI</label><input id="cl_dni_${c.id}" value="${detalle.customer.dni||''}"/></div>
+              <div class="field"><label>Teléfono</label><input id="cl_phone_${c.id}" value="${detalle.customer.phone||''}"/></div>
+              <div class="field"><label>Email</label><input id="cl_email_${c.id}" value="${detalle.customer.email||''}"/></div>
+              <div class="field"><label>Barrio</label><input id="cl_neighborhood_${c.id}" value="${detalle.customer.neighborhood||''}"/></div>
+              <div class="field"><label>Calle</label><input id="cl_street_${c.id}" value="${detalle.customer.street||''}"/></div>
+              <div class="field"><label>Número</label><input id="cl_street_number_${c.id}" value="${detalle.customer.street_number||''}"/></div>
+              <div class="field"><label>Ciudad</label><input id="cl_city_${c.id}" value="${detalle.customer.city||''}"/></div>
+              <div class="field"><label>Provincia</label><input id="cl_province_${c.id}" value="${detalle.customer.province||''}"/></div>
+              <div class="field"><label>Código postal</label><input id="cl_postal_${c.id}" value="${detalle.customer.postal_code||''}"/></div>
+              <div class="field"><label>Zona</label><select id="cl_zone_${c.id}">${ZONAS.map(z=>`<option value="${z.value}" ${detalle.customer.zone===z.value?'selected':''}>${z.label}</option>`).join('')}</select></div>
+            </div>
+            <div id="err_cliente_${c.id}" class="alert danger" style="display:none"></div>
+            <button data-guardar-cliente="${c.id}" style="width:100%;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:10px 0;font-size:13px;font-weight:600;margin-top:4px">💾 Guardar cambios</button>
+          </div>
+          <div style="margin-top:16px"><h3 style="font-size:14px;color:#2F4D2A;margin-bottom:8px">📦 Suscripciones</h3>
+            ${detalle.subscriptions.length? detalle.subscriptions.map(s=>{
+              const plan = s.plan_breakdown && s.plan_breakdown.length ? s.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ') : `${s.egg_quantity} huevos`
+              return `<div class="row"><span>${plan} · ${FRECUENCIAS[s.frequency]||s.frequency}</span><span class="badge">${s.payment_status==='paid'?'✅ Pago al día':'🟡 Pendiente'}</span></div>`
+            }).join('') : '<p class="muted" style="font-size:13px">Sin suscripciones.</p>'}
+          </div>
+          <div style="margin-top:16px"><h3 style="font-size:14px;color:#2F4D2A;margin-bottom:8px">🧾 Historial de pedidos</h3>
+            ${detalle.orders.length? detalle.orders.map(o=>`<div class="row"><span>Pedido #${o.order_number||'-'} · ${formatearFecha(o.delivery_date)}</span><span class="badge">${ESTADOS[o.status]||o.status}</span></div>`).join('') : '<p class="muted" style="font-size:13px">Sin pedidos todavía.</p>'}
+          </div>
+          <div style="margin-top:16px"><h3 style="font-size:14px;color:#2F4D2A;margin-bottom:8px">💳 Historial de pagos</h3>
+            ${detalle.payments.length? detalle.payments.map(p=>`<div class="row"><span>${new Date(p.created_at).toLocaleDateString('es-AR')}</span><span><b>$${Number(p.amount||0).toLocaleString('es-AR')}</b> · ${METODOS_PAGO_LABEL[p.method]||p.method}</span></div>`).join('') : '<p class="muted" style="font-size:13px">Sin pagos todavía.</p>'}
+          </div>
+        `}
+      </div>
+    </div>`
+  }).join('') : '<p class="muted">Sin datos todavía.</p>'}`)
+
+  document.querySelectorAll('[data-toggle-cliente]').forEach(b=>b.onclick=async()=>{
+    const id = b.dataset.toggleCliente
+    if(clienteExpandido===id){ clienteExpandido=null; render(); return }
+    clienteExpandido = id
+    if(!clienteDetalleCache[id]){
+      const { data } = await supabase.rpc('admin_customer_detail', { p_customer_id: id })
+      if(data?.found) clienteDetalleCache[id] = data
+    }
+    render()
+  })
+  document.querySelectorAll('[data-guardar-cliente]').forEach(b=>b.onclick=async()=>{
+    const id = b.dataset.guardarCliente
+    const box = document.querySelector(`#err_cliente_${id}`)
+    const payload = {
+      dni: document.querySelector(`#cl_dni_${id}`).value.trim(),
+      phone: document.querySelector(`#cl_phone_${id}`).value.trim(),
+      email: document.querySelector(`#cl_email_${id}`).value.trim(),
+      neighborhood: document.querySelector(`#cl_neighborhood_${id}`).value.trim(),
+      street: document.querySelector(`#cl_street_${id}`).value.trim(),
+      street_number: document.querySelector(`#cl_street_number_${id}`).value.trim(),
+      city: document.querySelector(`#cl_city_${id}`).value.trim(),
+      province: document.querySelector(`#cl_province_${id}`).value.trim(),
+      postal_code: document.querySelector(`#cl_postal_${id}`).value.trim(),
+      zone: document.querySelector(`#cl_zone_${id}`).value
+    }
+    const { error } = await supabase.from('customers').update(payload).eq('id', id)
+    if(error){ box.textContent = 'No se pudo guardar: '+error.message; box.style.display='block'; return }
+    delete clienteDetalleCache[id]
+    alert('✅ Datos del cliente actualizados.')
+    render()
+  })
 }
 
+let pedidoExpandido = null
+let pedidoDetalleCache = {}
+
 async function pedidos(){
-  const rows=await q('orders','id,delivery_date,status,quantity_maples,assigned_driver,assignment_locked,customers(first_name,last_name,neighborhood,street,street_number)')
-  const { data: staffRaw } = await supabase.from('staff_roles').select('user_id,full_name').eq('role','repartidor')
+  const rows = await q('orders','id,order_number,delivery_date,status,egg_quantity,assigned_driver,assignment_locked,customers(first_name,last_name,neighborhood,street,street_number)')
+  const { data: staffRaw } = await supabase.from('staff_roles').select('user_id,full_name')
   const staffMap = Object.fromEntries((staffRaw||[]).map(s=>[s.user_id, s.full_name||'(sin nombre)']))
-  layout(`<h2>Pedidos</h2><div class="card">${rows.length?rows.map(r=>{const c=r.customers||{};const rep=r.assigned_driver?(staffMap[r.assigned_driver]||'(repartidor desconocido)'):'Sin asignar';return `<div class="row"><span><b>${c.first_name||''} ${c.last_name||''}</b><br><small>${c.neighborhood||''} · ${c.street||''} ${c.street_number||''}</small><br><small>🚚 ${rep}${r.assignment_locked?' 🔒':''}</small></span><span>${r.quantity_maples||0} maple(s) · <span class="badge">${ESTADOS[r.status]||r.status}</span></span></div>`}).join(''):'<p class="muted">No hay pedidos cargados.</p>'}</div><p class="muted" style="margin-top:10px">Para reasignar repartidores, andá a Administración → 🚚 Asignación de repartidores.</p>`)
+  const ordenados = [...rows].sort((a,b)=> new Date(b.delivery_date) - new Date(a.delivery_date))
+
+  layout(`<h2>Pedidos</h2>
+  ${ordenados.length? ordenados.map(r=>{
+    const c = r.customers||{}
+    const rep = r.assigned_driver ? (staffMap[r.assigned_driver]||'(repartidor desconocido)') : 'Sin asignar'
+    const abierto = pedidoExpandido===r.id
+    const detalle = pedidoDetalleCache[r.id]
+    return `<div style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;overflow:hidden;margin-bottom:8px">
+      <button type="button" data-toggle-pedido="${r.id}" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:12px 14px;cursor:pointer;gap:10px;background:${abierto?'#F5EFE0':'transparent'}">
+        <div style="flex:1;text-align:left">
+          <div style="font-size:11px;color:#8A8570">Pedido #${r.order_number||'-'}</div>
+          <div style="font-weight:700;color:#2F4D2A">${c.first_name||''} ${c.last_name||''}</div>
+          <div style="font-size:12px;color:#8A8570;margin-top:2px">${c.neighborhood||''} · ${c.street||''} ${c.street_number||''} · ${formatearFecha(r.delivery_date)}</div>
+          <div style="font-size:12px;color:#8A8570;margin-top:2px">🚚 ${rep}${r.assignment_locked?' 🔒':''} · ${r.egg_quantity||0} huevos</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+          ${pPill(ESTADOS[r.status]||r.status)}
+          <span style="font-size:13px;color:#8A8570">${abierto?'▲':'▼'}</span>
+        </div>
+      </button>
+      <div style="display:${abierto?'block':'none'};padding:0 14px 14px">
+        ${!detalle ? '<p class="muted">Cargando…</p>' : `
+          <div style="border-top:1px solid #F0EBDD;padding-top:12px">
+            <h3 style="font-size:14px;color:#2F4D2A;margin-bottom:8px">📋 Línea de tiempo</h3>
+            <div class="row"><span>📦 Salió a repartir</span><span>${detalle.out_for_delivery_at?new Date(detalle.out_for_delivery_at).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—'}</span></div>
+            <div class="row"><span>🛵 Hacia la casa del cliente</span><span>${detalle.en_route_at?new Date(detalle.en_route_at).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—'}</span></div>
+            <div class="row"><span>🏠 Entregado</span><span>${detalle.delivered_at?new Date(detalle.delivered_at).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—'}</span></div>
+          </div>
+          <div style="margin-top:14px"><h3 style="font-size:14px;color:#2F4D2A;margin-bottom:8px">🚚 Reparto</h3>
+            <div class="row"><span>Repartidor</span><span>${detalle.driver_name||'Sin asignar'}</span></div>
+            ${detalle.frequency?`<div class="row"><span>Frecuencia</span><span>${FRECUENCIAS[detalle.frequency]||detalle.frequency}</span></div>`:''}
+            ${detalle.plan_breakdown && detalle.plan_breakdown.length?`<div class="row"><span>Plan</span><span>${detalle.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')}</span></div>`:''}
+          </div>
+          <div style="margin-top:14px"><h3 style="font-size:14px;color:#2F4D2A;margin-bottom:8px">💳 Pago</h3>
+            <div class="row"><span>Método esperado</span><span>${METODOS_PAGO_LABEL[detalle.expected_payment_method]||detalle.expected_payment_method||'-'}</span></div>
+            ${detalle.payment?`<div class="row"><span>Pagó con</span><span><b>$${Number(detalle.payment.amount||0).toLocaleString('es-AR')}</b> · ${METODOS_PAGO_LABEL[detalle.payment.method]||detalle.payment.method}</span></div>`:'<p class="muted" style="font-size:13px">Todavía no hay pago registrado.</p>'}
+          </div>
+          ${detalle.incidents && detalle.incidents.length?`<div style="margin-top:14px"><h3 style="font-size:14px;color:#B03A2E;margin-bottom:8px">⚠️ Incidencias</h3>
+            ${detalle.incidents.map(i=>`<div class="row"><span>${i.failure_reason||'Incidencia'}</span><span style="font-size:12px;color:#8A8570">${new Date(i.created_at).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span></div>`).join('')}
+          </div>`:''}
+          ${detalle.important_note?`<div class="alert warning" style="margin-top:12px">⚠️ ${detalle.important_note}</div>`:''}
+        `}
+      </div>
+    </div>`
+  }).join('') : '<p class="muted">No hay pedidos cargados.</p>'}
+  <p class="muted" style="margin-top:10px">Para reasignar repartidores, andá a Administración → 🚚 Asignación de repartidores.</p>`)
+
+  document.querySelectorAll('[data-toggle-pedido]').forEach(b=>b.onclick=async()=>{
+    const id = b.dataset.togglePedido
+    if(pedidoExpandido===id){ pedidoExpandido=null; render(); return }
+    pedidoExpandido = id
+    if(!pedidoDetalleCache[id]){
+      const { data } = await supabase.rpc('admin_order_detail', { p_order_id: id })
+      if(data?.found) pedidoDetalleCache[id] = data
+    }
+    render()
+  })
 }
 
 let repRutaFecha = null
@@ -1020,12 +1166,7 @@ async function repartidor(){
 
   layout(`<h2>🚚 ${tituloChico}</h2>
   <p class="muted" style="margin-top:-8px;margin-bottom:12px">${subtitulo}</p>
-  <div class="field"><input type="date" id="rep_ruta_fecha" value="${fecha}"/></div>
-  <div class="grid three" style="margin-bottom:12px">
-    <button class="btn ghost" id="btn_ruta_dia_ant">← Día anterior</button>
-    <button class="btn ghost" id="btn_ruta_dia_hoy">Hoy</button>
-    <button class="btn ghost" id="btn_ruta_dia_sig">Día siguiente →</button>
-  </div>
+  <div class="field"><label>Elegí la fecha a ver</label><input type="date" id="rep_ruta_fecha" value="${fecha}"/></div>
   <div style="display:flex;gap:8px;margin-bottom:12px">
     <button class="btn ghost" id="btn_ver_mapa_repartidor" style="flex:1">🗺️ Ver mapa</button>
     <button id="btn_sali_a_repartir" style="flex:1;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;font-size:13px;font-weight:600">📦 Salí a repartir</button>
@@ -1034,9 +1175,6 @@ async function repartidor(){
   ${contenido}`)
 
   document.querySelector('#rep_ruta_fecha').onchange = (e)=>{ repRutaFecha = e.target.value; render() }
-  document.querySelector('#btn_ruta_dia_ant').onclick = ()=>{ alert('Botón detectado ✅'); try{ const d=new Date(fecha+'T00:00:00'); d.setDate(d.getDate()-1); repRutaFecha=d.toISOString().slice(0,10); render() }catch(err){ alert('Error al cambiar de día: '+(err.message||err)) } }
-  document.querySelector('#btn_ruta_dia_hoy').onclick = ()=>{ alert('Botón detectado ✅'); try{ repRutaFecha = new Date().toISOString().slice(0,10); render() }catch(err){ alert('Error al ir a hoy: '+(err.message||err)) } }
-  document.querySelector('#btn_ruta_dia_sig').onclick = ()=>{ alert('Botón detectado ✅'); try{ const d=new Date(fecha+'T00:00:00'); d.setDate(d.getDate()+1); repRutaFecha=d.toISOString().slice(0,10); render() }catch(err){ alert('Error al cambiar de día: '+(err.message||err)) } }
   document.querySelectorAll('[data-delivery]').forEach(b=>b.onclick=()=>openDelivery(b.dataset.delivery))
   document.querySelectorAll('[data-maps]').forEach(b=>b.onclick=()=>{
     window.open('https://www.google.com/maps/search/?api=1&query='+b.dataset.maps,'_blank')
