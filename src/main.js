@@ -928,6 +928,7 @@ let adminRendicionFecha = '' // fecha elegida en Rendición y conciliación ('' 
 let pagoEditando = null // id del pago cuyo monto se está editando
 let mostrarFormDiferencia = false
 let cuentaRepartidorAbierta = null // user_id del repartidor cuya cuenta corriente está expandida
+let mostrarFormNuevaCategoria = false
 let cobrosSubSeccion = null // 'transfer' | 'mp' | null
 let historialVehiculoActual = null
 
@@ -1786,12 +1787,21 @@ async function admin(){
     <div class="alert info" style="margin-top:10px"><b>Caja total acumulada: $${Number(dash.caja||0).toLocaleString('es-AR')}</b></div>
 
     <div style="margin-top:20px"><h3 style="font-size:15px;color:#2F4D2A">Categorías</h3>
-      <div class="grid two">
-        <div class="field"><label>Nombre</label><input id="cat_new_name" placeholder="Ej: Combustible"/></div>
-        <div class="field"><label>Tipo</label><select id="cat_new_type"><option value="fixed">Gasto fijo</option><option value="variable">Gasto variable</option><option value="income">Ingreso</option></select></div>
+      <div style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;overflow:hidden;margin-bottom:12px">
+        <button type="button" id="btn_toggle_form_categoria" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:12px 14px;cursor:pointer;gap:10px;background:${mostrarFormNuevaCategoria?'#F5EFE0':'transparent'}">
+          <span style="width:32px;height:32px;border-radius:9px;background:#EAF0DC;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">➕</span>
+          <span style="flex:1;font-weight:700;font-size:14.5px;color:#2F4D2A">Agregar categoría</span>
+          <span style="font-size:13px;color:#8A8570">${mostrarFormNuevaCategoria?'▲':'▼'}</span>
+        </button>
+        <div style="display:${mostrarFormNuevaCategoria?'block':'none'};padding:10px 14px 14px">
+          <div class="grid two">
+            <div class="field"><label>Nombre</label><input id="cat_new_name" placeholder="Ej: Combustible"/></div>
+            <div class="field"><label>Tipo</label><select id="cat_new_type"><option value="fixed">Gasto fijo</option><option value="variable">Gasto variable</option><option value="income">Ingreso</option></select></div>
+          </div>
+          <button id="btn_crear_categoria" style="width:100%;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:11px 0;font-size:14px;font-weight:600">💾 Guardar categoría</button>
+        </div>
       </div>
-      <button class="btn ghost" id="btn_crear_categoria">➕ Agregar categoría</button>
-      <div style="margin-top:10px">${categorias.length? categorias.map(c=>pCard(`
+      <div>${categorias.length? categorias.map(c=>pCard(`
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
           <div>
             <div style="font-weight:600;color:#2F4D2A">${c.name}${!c.active?' <span style="color:#8A8570;font-weight:400">(inactiva)</span>':''}</div>
@@ -2168,12 +2178,15 @@ async function admin(){
     if(error){ alert('Error: '+error.message); return }
     adminData = null; render()
   })
+  const btnToggleFormCat = document.querySelector('#btn_toggle_form_categoria')
+  if(btnToggleFormCat) btnToggleFormCat.onclick = ()=>{ mostrarFormNuevaCategoria = !mostrarFormNuevaCategoria; render() }
   document.querySelector('#btn_crear_categoria').onclick = async ()=>{
     const name = document.querySelector('#cat_new_name').value.trim()
     const type = document.querySelector('#cat_new_type').value
     if(!name){ alert('Ponele un nombre a la categoría.'); return }
     const { error } = await supabase.from('finance_categories').insert({ name, type, active: true })
     if(error){ alert('Error: '+error.message); return }
+    mostrarFormNuevaCategoria = false
     adminData = null; render()
   }
   document.querySelectorAll('[data-cat-toggle]').forEach(b=>b.onclick=async()=>{
