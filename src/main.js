@@ -1369,7 +1369,7 @@ async function admin(){
       }).join(''):'<p class="muted">Todavía no hay barrios cargados (aparecen cuando hay clientes con barrio).</p>'}
     </div>
     <button class="btn ghost" id="btn_recalcular_asignaciones" style="margin-top:12px">🔄 Recalcular asignaciones automáticas ahora</button>
-    <div class="group" style="margin-top:16px"><h3 style="font-size:15px">Reasignar pedidos puntuales</h3>
+    <div style="margin-top:16px"><h3 style="font-size:15px;color:#2F4D2A">Reasignar pedidos puntuales</h3>
       <div class="field"><label>Filtrar por fecha de entrega</label><input type="date" id="filtro_fecha_asignar" value="${adminAsignarFecha}"/></div>
       ${adminAsignarFecha?`<button class="btn ghost" id="btn_limpiar_fecha_asignar" style="margin-bottom:10px">Ver todas las fechas</button>`:''}
       ${(()=>{
@@ -1383,14 +1383,21 @@ async function admin(){
         const planLabel = sub.plan_breakdown && Array.isArray(sub.plan_breakdown) && sub.plan_breakdown.length
           ? sub.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')
           : `${p.egg_quantity||'-'} huevos`
-        return `<div class="row"><span>
-            <b>${c.first_name||''} ${c.last_name||''}</b><br>
-            <small>🏘️ ${c.neighborhood||'-'}</small><br>
-            <small>📍 ${c.street||''} ${c.street_number||''}</small><br>
-            <small>${zonaBadge(c.zone)} · ${freqLabel}</small><br>
-            <small>🥚 ${planLabel}</small><br>
-            <small>${formatearFecha(p.delivery_date)} · ${p.assignment_locked?'🔒 Manual':'🔄 Automático'} → <b>${asignadoNombre}</b></small>
-          </span><span style="display:flex;flex-direction:column;gap:4px;align-items:flex-end"><select data-pedido-driver="${p.id}"><option value="">— Sin asignar —</option>${repartidores.map(r=>`<option value="${r.user_id}" ${p.assigned_driver===r.user_id?'selected':''}>${r.full_name||'(sin nombre)'}</option>`).join('')}</select>${p.assignment_locked?`<button class="btn ghost" data-destrabar="${p.id}" style="font-size:11px;padding:4px 10px">Volver a automático</button>`:''}</span></div>`
+        return pCard(`
+          <div style="display:flex;align-items:flex-start;gap:10px">
+            ${pAvatar(c.first_name)}
+            <div style="flex:1">
+              <div style="font-weight:700;color:#2F4D2A">${c.first_name||''} ${c.last_name||''}</div>
+              <div style="font-size:12px;color:#8A8570;margin-top:2px">🏘️ ${c.neighborhood||'-'} · 📍 ${c.street||''} ${c.street_number||''}</div>
+              <div style="display:flex;gap:6px;align-items:center;margin-top:5px">${zonaBadge(c.zone)}${pPill(freqLabel)}</div>
+              <div style="font-size:12px;color:#8A8570;margin-top:5px">🥚 ${planLabel}</div>
+              <div style="font-size:12px;color:#8A8570;margin-top:3px">${formatearFecha(p.delivery_date)}</div>
+              <div style="font-size:12px;margin-top:3px;color:${p.assignment_locked?'#B85C00':'#2F4D2A'}">${p.assignment_locked?'🔒 Manual':'🔄 Automático'} → <b>${asignadoNombre}</b></div>
+            </div>
+          </div>
+          <select data-pedido-driver="${p.id}" style="width:100%;margin-top:10px"><option value="">— Sin asignar —</option>${repartidores.map(r=>`<option value="${r.user_id}" ${p.assigned_driver===r.user_id?'selected':''}>${r.full_name||'(sin nombre)'}</option>`).join('')}</select>
+          ${p.assignment_locked?pBtnRow([pBtn('🔄','Volver a automático',`data-destrabar="${p.id}"`,'ghost')]):''}
+        `, 'margin-bottom:8px')
         }).join('')
       })()}
     </div>
@@ -1512,25 +1519,56 @@ async function admin(){
       <div class="field"><label>Unidad de compra</label><input id="prod_new_unit" placeholder="Ej: saco de 25kg"/></div>
     </div>
     <div class="field"><label>Categoría</label><select id="prod_new_cat">${CATEGORIAS.map(c=>`<option value="${c.value}">${c.label}</option>`).join('')}</select></div>
-    <button class="btn primary" id="btn_crear_producto">➕ Agregar producto</button>
+    <button class="btn primary" id="btn_crear_producto" style="width:100%">➕ Agregar producto</button>
     <div id="err_producto" class="alert danger" style="display:none"></div>
     <div style="margin-top:16px">
-      ${productos.length? productos.map(p=>`<div class="row"><span><b>${p.name}</b> <span class="badge">${CATLABEL[p.category]||p.category}</span><br><small>${p.current_qty} × ${p.unit_label}${!p.active?' · inactivo':''}</small></span><span style="display:flex;gap:6px;align-items:center"><input type="number" min="0" step="1" placeholder="Cant." id="compra_qty_${p.id}" style="width:70px"/><button class="btn ghost" data-comprar="${p.id}">+ Compra</button></span></div>`).join('') : '<p class="muted">Todavía no cargaste productos.</p>'}
+      ${productos.length? productos.map(p=>pCard(`
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+          <div>
+            <div style="font-weight:700;color:#2F4D2A">${p.name}${!p.active?' <span style="color:#8A8570;font-weight:400;font-size:12px">(inactivo)</span>':''}</div>
+            <div style="display:flex;gap:6px;align-items:center;margin-top:4px">${pPill(CATLABEL[p.category]||p.category)}<span style="font-size:12px;color:#8A8570">${p.current_qty} × ${p.unit_label}</span></div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <input type="number" min="0" step="1" placeholder="Cantidad" id="compra_qty_${p.id}" style="flex:1"/>
+          <button data-comprar="${p.id}" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:0 16px;font-size:13px;font-weight:600;white-space:nowrap">+ Compra</button>
+        </div>
+      `, 'margin-bottom:8px')).join('') : '<p class="muted">Todavía no cargaste productos.</p>'}
     </div>
-    <div style="margin-top:16px"><h3 style="font-size:15px">Últimos movimientos</h3>
+    <div style="margin-top:20px"><h3 style="font-size:15px;color:#2F4D2A">Últimos movimientos</h3>
       ${movimientos.length? movimientos.map(m=>{
         const prod = productMap[m.product_id]
         const quien = m.created_by ? (staffMap[m.created_by]||'Equipo') : 'Admin'
         const tipoLabel = m.type==='compra'?'🟢 Compra':m.type==='consumo'?'🔴 Consumo':'🔵 Ajuste'
         const fecha = new Date(m.created_at).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})
-        return `<div class="row"><span>${tipoLabel} · ${prod?prod.name:'(producto eliminado)'}<br><small>${quien} · ${fecha}${m.note?' · '+m.note:''}</small></span><span>${m.quantity} ${prod?prod.unit_label:''}</span></div>`
+        return pCard(`
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+            <div>
+              <div style="font-weight:600;color:#2F4D2A">${tipoLabel} · ${prod?prod.name:'(producto eliminado)'}</div>
+              <div style="font-size:12px;color:#8A8570;margin-top:2px">${quien} · ${fecha}${m.note?' · '+m.note:''}</div>
+            </div>
+            <b style="color:#2F4D2A;white-space:nowrap">${m.quantity} ${prod?prod.unit_label:''}</b>
+          </div>
+        `, 'margin-bottom:8px')
       }).join('') : '<p class="muted">Sin movimientos todavía.</p>'}
     </div>
   </div></div>
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('tamanos','🥚','Tamaños de maple')}
     <p class="muted">Estos son los tamaños que el cliente puede combinar en su plan. Agregá, editá el precio o desactivá los que no quieras ofrecer, sin tocar código.</p>
-    ${planPrices.length? planPrices.map(pp=>`<div class="row"><span><b>${pp.egg_quantity} huevos</b>${!pp.active?' · <span class="badge">Inactivo</span>':''}</span><span style="display:flex;gap:6px;align-items:center"><input type="number" min="0" step="1" value="${pp.price}" id="pp_price_${pp.id}" style="width:90px"/><button class="btn ghost" data-pp-save="${pp.id}">💾</button><button class="btn ghost" data-pp-toggle="${pp.id}" data-pp-active="${pp.active}">${pp.active?'Desactivar':'Activar'}</button></span></div>`).join('') : '<p class="muted">Todavía no cargaste tamaños.</p>'}
+    ${planPrices.length? planPrices.map(pp=>pCard(`
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <div>
+          <div style="font-weight:700;color:#2F4D2A">${pp.egg_quantity} huevos</div>
+          ${!pp.active?pPill('Inactivo','#F3E2D8','#B85C00'):''}
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="number" min="0" step="1" value="${pp.price}" id="pp_price_${pp.id}" style="width:90px"/>
+          <button data-pp-save="${pp.id}" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;width:38px;height:38px">💾</button>
+        </div>
+      </div>
+      <button data-pp-toggle="${pp.id}" data-pp-active="${pp.active}" style="width:100%;margin-top:8px;background:#FFFFFF;color:${pp.active?'#B85C00':'#2F4D2A'};border:1px solid #E3DCC8;border-radius:10px;padding:8px 0;font-size:12px;font-weight:600">${pp.active?'Desactivar':'Activar'}</button>
+    `, 'margin-bottom:8px')).join('') : '<p class="muted">Todavía no cargaste tamaños.</p>'}
     <div class="grid two" style="margin-top:10px">
       <div class="field"><label>Nuevo tamaño (huevos)</label><input id="pp_new_qty" type="number" min="1" placeholder="Ej: 12"/></div>
       <div class="field"><label>Precio</label><input id="pp_new_price" type="number" min="0" placeholder="Ej: 5000"/></div>
@@ -1541,13 +1579,22 @@ async function admin(){
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('capacidad','📅','Capacidad y lista de espera')}
     <div class="field"><label>Capacidad base diaria (en huevos), por si todavía no hay producción cargada para estimar</label><input id="cap_base" type="number" min="0" value="${capacidadBase}"/></div>
-    <button class="btn ghost" id="btn_guardar_capacidad">Guardar capacidad base</button>
+    <button class="btn ghost" id="btn_guardar_capacidad" style="width:100%">Guardar capacidad base</button>
     <div id="err_capacidad" class="alert danger" style="display:none;margin-top:8px"></div>
-    <div style="margin-top:16px"><h3 style="font-size:15px">Lista de espera (${waitlist.length})</h3>
+    <div style="margin-top:20px"><h3 style="font-size:15px;color:#2F4D2A">Lista de espera (${waitlist.length})</h3>
       ${waitlist.length? waitlist.map((w,i)=>{
         const c = w.customers||{}
         const freqLabel = FRECUENCIAS[w.frequency]||w.frequency
-        return `<div class="row"><span><b>#${i+1}</b> ${c.first_name||''} ${c.last_name||''}<br><small>${w.egg_quantity} huevos · ${freqLabel} · 📞 ${c.phone||'-'}</small></span><button class="btn primary" data-promover="${w.id}">✅ Activar</button></div>`
+        return pCard(`
+          <div style="display:flex;align-items:center;gap:10px">
+            ${pAvatar(c.first_name)}
+            <div style="flex:1">
+              <div style="font-weight:700;color:#2F4D2A">#${i+1} ${c.first_name||''} ${c.last_name||''}</div>
+              <div style="font-size:12px;color:#8A8570;margin-top:2px">${w.egg_quantity} huevos · ${freqLabel} · 📞 ${c.phone||'-'}</div>
+            </div>
+          </div>
+          <button data-promover="${w.id}" style="width:100%;margin-top:10px;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:9px 0;font-size:13px;font-weight:600">✅ Activar</button>
+        `, 'margin-bottom:8px')
       }).join('') : '<p class="muted">Nadie en lista de espera por ahora 🎉</p>'}
     </div>
   </div></div>
