@@ -6,6 +6,8 @@ let session = null
 let myRole = null // 'admin' | 'campo' | 'repartidor'
 let cuenta = null // datos del cliente logueado por DNI
 let staffProfile = null // datos del perfil del trabajador logueado
+let adminOpenSection = null // qué sección del acordeón de admin está abierta
+let adminDetalleTipo = null // qué tarjeta de resumen se está viendo en detalle
 
 function navStaffFor(role){
   if(role==='admin') return [['clientes','Clientes'],['pedidos','Pedidos'],['repartidor','Repartidor'],['campo','Campo'],['admin','Administración'],['perfil','Mi perfil']]
@@ -121,7 +123,6 @@ function cuentaPanel(){
   <div class="card"><h3>Tu próximo pedido</h3>${next?`<div class="row"><span>${formatearFecha(next.delivery_date)}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div><p>${next.quantity_maples||''} maple(s)</p>${next.payment_method?`<div class="alert info">💡 Recordá: el pago es en <b>${METODOS_PAGO_LABEL[next.payment_method]||next.payment_method}</b>.</div>`:''}`:'<p class="muted">No tenés entregas próximas.</p>'}</div>
   <div class="card" id="card_subs"><h3>Tus suscripciones</h3>${cuenta.subscriptions.length?cuenta.subscriptions.map(s=>`<div class="row"><span>${s.egg_quantity} huevos · ${FRECUENCIAS[s.frequency]||s.frequency}${s.status==='waitlist'?' · <span class="badge" style="background:#b3841f">🕒 Lista de espera</span>':''}</span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="badge">${s.payment_status==='paid'?'✅ Pago al día':'🟡 Pago pendiente'}</span><button class="btn ghost" data-cambiar-plan="${s.id}" style="font-size:12px;padding:6px 12px">✏️ Cambiar plan</button></span></div>`).join(''):'<p class="muted">No tenés suscripciones activas.</p>'}</div>
   <div class="card" id="card_pagos"><h3>💳 Historial de pagos</h3><p class="muted">Cargando…</p></div>
-  <div class="card" id="card_repartidor"><h3>🚚 Tu repartidor</h3><p class="muted">Cargando…</p></div>
   <div class="card" id="card_datos"><h3>Tus datos</h3><p>🏠 ${tipoVia} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'} (CP ${c.postal_code||'-'})</p><p>📍 Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'}</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
   <button class="btn ghost" id="btn_logout_cuenta">Cerrar sesión</button>`)
   document.querySelector('#btn_logout_cuenta').onclick = ()=>{ cuenta=null; current='inicio'; render() }
@@ -131,22 +132,6 @@ function cuentaPanel(){
     if(sub) cambiarPlanForm(sub)
   })
   cargarHistorialPagos(c)
-  cargarRepartidorAsignado(c)
-}
-
-async function cargarRepartidorAsignado(c){
-  const box = document.querySelector('#card_repartidor')
-  if(!box) return
-  if(!c.zone){ box.innerHTML = `<h3>🚚 Tu repartidor</h3><p class="muted">Completá tu zona en "Editar mis datos" para ver a tu repartidor asignado.</p>`; return }
-  const { data, error } = await supabase.rpc('customer_assigned_driver', { p_zone: c.zone })
-  if(error || !data?.found){ box.innerHTML = `<h3>🚚 Tu repartidor</h3><p class="muted">Todavía no hay un repartidor asignado a tu zona.</p>`; return }
-  const telLimpio = (data.phone||'').replace(/\D/g,'')
-  box.innerHTML = `<h3>🚚 Tu repartidor</h3>
-    <div style="display:flex;align-items:center;gap:12px">
-      ${data.photo_url?`<img src="${data.photo_url}" style="width:56px;height:56px;border-radius:50%;object-fit:cover"/>`:''}
-      <div><b>${data.full_name||'Sin nombre'}</b>${data.phone?`<br><small class="muted">${data.phone}</small>`:''}</div>
-    </div>
-    ${telLimpio?`<a href="https://wa.me/54${telLimpio}" target="_blank"><button class="btn primary" style="margin-top:10px">💬 Escribirle por WhatsApp</button></a>`:''}`
 }
 
 async function cargarHistorialPagos(c){
@@ -563,14 +548,16 @@ async function clientes(){
 }
 
 async function pedidos(){
-  const rows=await q('orders','id,delivery_date,status,quantity_maples,customers(first_name,last_name,neighborhood,street,street_number)')
-  layout(`<h2>Pedidos</h2><div class="card">${rows.length?rows.map(r=>{const c=r.customers||{};return `<div class="row"><span><b>${c.first_name||''} ${c.last_name||''}</b><br><small>${c.neighborhood||''} · ${c.street||''} ${c.street_number||''}</small></span><span>${r.quantity_maples||0} maple(s) · <span class="badge">${ESTADOS[r.status]||r.status}</span></span></div>`}).join(''):'<p class="muted">No hay pedidos cargados.</p>'}</div>`)
+  const rows=await q('orders','id,delivery_date,status,quantity_maples,assigned_driver,assignment_locked,customers(first_name,last_name,neighborhood,street,street_number)')
+  const { data: staffRaw } = await supabase.from('staff_roles').select('user_id,full_name').eq('role','repartidor')
+  const staffMap = Object.fromEntries((staffRaw||[]).map(s=>[s.user_id, s.full_name||'(sin nombre)']))
+  layout(`<h2>Pedidos</h2><div class="card">${rows.length?rows.map(r=>{const c=r.customers||{};const rep=r.assigned_driver?(staffMap[r.assigned_driver]||'(repartidor desconocido)'):'Sin asignar';return `<div class="row"><span><b>${c.first_name||''} ${c.last_name||''}</b><br><small>${c.neighborhood||''} · ${c.street||''} ${c.street_number||''}</small><br><small>🚚 ${rep}${r.assignment_locked?' 🔒':''}</small></span><span>${r.quantity_maples||0} maple(s) · <span class="badge">${ESTADOS[r.status]||r.status}</span></span></div>`}).join(''):'<p class="muted">No hay pedidos cargados.</p>'}</div><p class="muted" style="margin-top:10px">Para reasignar repartidores, andá a Administración → 🚚 Asignación de repartidores.</p>`)
 }
 
 async function repartidor(){
-  const rows=await q('orders','id,status,delivery_date,time_window_start,time_window_end,important_note,customers(id,first_name,last_name,phone,neighborhood,street,street_number)')
+  const rows=await q('orders','id,status,delivery_date,time_window_start,time_window_end,important_note,assigned_driver,customers(id,first_name,last_name,phone,neighborhood,street,street_number)')
   const grouped={}
-  rows.filter(r=>['pending','assigned','out_for_delivery','rescheduled'].includes(r.status)).forEach(r=>{
+  rows.filter(r=>['pending','assigned','out_for_delivery','rescheduled'].includes(r.status) && (myRole==='admin' || r.assigned_driver===session?.user?.id)).forEach(r=>{
     const c=r.customers||{}; const b=c.neighborhood||'Sin barrio'; const s=c.street||'Sin calle';
     grouped[b]??={}; grouped[b][s]??=[]; grouped[b][s].push(r)
   })
@@ -723,9 +710,19 @@ async function admin(){
   const movimientos = movimientosRaw || []
   const { data: waitlistRaw } = await supabase.from('waitlist').select('id,customer_id,egg_quantity,frequency,position,created_at,customers(first_name,last_name,phone)').order('position')
   const waitlist = waitlistRaw || []
-  const { data: settingsAllRaw } = await supabase.from('farm_settings').select('key,value').in('key',['default_daily_capacity_maples','transfer_cbu','transfer_alias','transfer_bank_name','transfer_holder_name','transfer_holder_doc','mp_alias','mp_wallet_name','mp_cbu','mp_holder_name','mp_holder_doc'])
+  const { data: settingsAllRaw } = await supabase.from('farm_settings').select('key,value').in('key',['default_daily_capacity_maples','transfer_cbu','transfer_alias','transfer_bank_name','transfer_holder_name','transfer_holder_doc','mp_alias','mp_wallet_name','mp_cbu','mp_holder_name','mp_holder_doc','assignment_mode'])
   const settingsMap = Object.fromEntries((settingsAllRaw||[]).map(s=>[s.key,s.value]))
   const capacidadBase = settingsMap.default_daily_capacity_maples || '300'
+  const assignmentMode = settingsMap.assignment_mode || 'zone'
+  const repartidores = staff.filter(s=>s.role==='repartidor')
+  const { data: zoneDriversRaw } = await supabase.from('zone_drivers').select('zone,driver_user_id')
+  const zoneDrivers = Object.fromEntries((zoneDriversRaw||[]).map(z=>[z.zone,z.driver_user_id]))
+  const { data: neighDriversRaw } = await supabase.from('neighborhood_drivers').select('neighborhood,driver_user_id')
+  const neighDrivers = neighDriversRaw || []
+  const { data: barriosRaw } = await supabase.from('customers').select('neighborhood').not('neighborhood','is',null)
+  const barrios = [...new Set((barriosRaw||[]).map(b=>b.neighborhood).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es'))
+  const { data: pedidosAsignarRaw } = await supabase.from('orders').select('id,delivery_date,status,assigned_driver,assignment_locked,customers(first_name,last_name,neighborhood,zone)').in('status',['pending','assigned','rescheduled']).order('delivery_date')
+  const pedidosAsignar = pedidosAsignarRaw || []
   const { data: pagosRaw } = await supabase.from('payments').select('id,amount,expected_method,method,reconciled,created_at,customers(first_name,last_name)').order('created_at',{ascending:false}).limit(30)
   const pagos = pagosRaw || []
   const staffMap = Object.fromEntries(staff.map(s=>[s.user_id, s.full_name||'(sin nombre)']))
@@ -742,15 +739,22 @@ async function admin(){
   const dash = dashboardRaw || {}
   const categoriaMap = Object.fromEntries(categorias.map(c=>[c.id,c]))
   const TIPO_CAT_LABEL = { fixed:'Fijo', variable:'Variable', income:'Ingreso' }
-  const { data: zoneDriversRaw } = await supabase.from('zone_drivers').select('zone,driver_user_id').order('zone')
-  const zoneDrivers = zoneDriversRaw || []
-  const repartidores = staff.filter(s=>s.role==='repartidor')
   const count=s=>orders.filter(x=>x.status===s).length
   const pendientesDePago = subs.filter(s=>s.payment_status==='pending')
   const rolLabel = {admin:'Administrador',campo:'Personal de campo',repartidor:'Repartidor'}
-  layout(`<h2>Panel de administración</h2><div class="grid stats"><div class="card stat">Clientes<b>${customers.length}</b></div><div class="card stat">Pendientes<b>${count('pending')+count('assigned')+count('out_for_delivery')}</b></div><div class="card stat">Entregados<b>${count('delivered')}</b></div><div class="card stat">Incidencias<b>${count('incident')}</b></div><div class="card stat">Reprogramados<b>${count('rescheduled')}</b></div></div>
-  <div class="card"><h3>🆕 Suscripciones nuevas (pago pendiente)</h3>${pendientesDePago.length?pendientesDePago.map(s=>{const c=s.customers||{};return `<div class="row"><span>${c.first_name||''} ${c.last_name||''}</span><span class="badge">🟡 Pendiente</span></div>`}).join(''):'<p class="muted">No hay suscripciones pendientes de confirmar pago.</p>'}</div>
-  <div class="card"><h3>👥 Gestión de personal</h3>
+  const AS = (id)=> adminOpenSection===id
+  const accHead = (id, icon, titulo, badge)=> `<button type="button" class="acc-header" data-acc="${id}" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:14px 16px;cursor:pointer;gap:10px"><span style="font-size:16px">${icon}</span><span style="flex:1;font-weight:600;font-size:15px">${titulo}</span>${badge?`<span class="badge">${badge}</span>`:''}<span class="muted" style="font-size:13px">${AS(id)?'▲':'▼'}</span></button><div style="display:${AS(id)?'block':'none'};padding:0 16px 16px 16px">`
+  layout(`<h2>Panel de administración</h2>
+  <div class="grid three" style="overflow-x:auto;display:flex;gap:10px;padding-bottom:4px">
+    <div class="card stat" data-stat="clientes" style="cursor:pointer;min-width:88px">Clientes<b>${customers.length}</b></div>
+    <div class="card stat" data-stat="pend_entrega" style="cursor:pointer;min-width:88px">Pend. entrega<b>${count('pending')+count('assigned')+count('out_for_delivery')}</b></div>
+    <div class="card stat" data-stat="pend_pago" style="cursor:pointer;min-width:88px">Pend. pago<b>${pendientesDePago.length}</b></div>
+    <div class="card stat" data-stat="entregados" style="cursor:pointer;min-width:88px">Entregados<b>${count('delivered')}</b></div>
+    <div class="card stat" data-stat="incidencias" style="cursor:pointer;min-width:88px">Incidencias<b>${count('incident')}</b></div>
+    <div class="card stat" data-stat="reprogramados" style="cursor:pointer;min-width:88px">Reprogramados<b>${count('rescheduled')}</b></div>
+  </div>
+  <div class="card" style="padding:0;overflow:hidden;margin-top:14px">
+  ${accHead('personal','👥','Gestión de personal')}
     <div class="grid two">
       <div class="field"><label>Nombre</label><input id="staff_new_name"/></div>
       <div class="field"><label>Rol</label><select id="staff_new_role"><option value="campo">Personal de campo</option><option value="repartidor">Repartidor</option><option value="admin">Administrador</option></select></div>
@@ -762,8 +766,38 @@ async function admin(){
       const esVos = session && s.user_id === session.user.id
       return `<div class="row"><span>${s.full_name||'(sin nombre)'} <span class="badge">${rolLabel[s.role]||s.role}</span>${esVos?' <span class="badge" style="background:var(--accent)">Vos</span>':''}</span><span>${esVos?'<span class="muted" style="font-size:12px">Para cambiar tu propio código, cerrá sesión y usá "Acceso del equipo" con tu código actual</span>':`<button class="btn ghost" data-reset="${s.user_id}">🔄 Nuevo código</button> <button class="btn ghost" data-revoke="${s.user_id}">❌ Revocar</button>`}</span></div>`
     }).join(''):'<p class="muted">Todavía no agregaste personal.</p>'}</div>
-  </div>
-  <div class="card"><h3>🧺 Compras e insumos</h3>
+  </div></div>
+  <div class="card" style="padding:0;overflow:hidden;margin-top:10px">
+  ${accHead('asignacion','🚚','Asignación de repartidores')}
+    <p class="muted">Elegí cómo se decide quién reparte cada pedido. Podés combinar el modo automático con reasignaciones manuales puntuales.</p>
+    <div class="field"><label>Modo de asignación</label>
+      <div class="grid three" id="modo_asig_group">
+        <button type="button" class="btn ${assignmentMode==='zone'?'primary':'ghost'}" data-modo="zone">Por zona</button>
+        <button type="button" class="btn ${assignmentMode==='neighborhood'?'primary':'ghost'}" data-modo="neighborhood">Por barrio</button>
+        <button type="button" class="btn ${assignmentMode==='manual'?'primary':'ghost'}" data-modo="manual">Manual</button>
+      </div>
+    </div>
+    ${!repartidores.length?'<p class="alert warning">Todavía no tenés repartidores cargados en "Gestión de personal" — agregá uno para poder asignarlo.</p>':''}
+    <div class="group"><h3 style="font-size:15px">Repartidor por zona</h3>
+      ${ZONAS.map(z=>`<div class="row"><span>${z.label}</span><select data-zona-driver="${z.value}"><option value="">— Sin asignar —</option>${repartidores.map(r=>`<option value="${r.user_id}" ${zoneDrivers[z.value]===r.user_id?'selected':''}>${r.full_name||'(sin nombre)'}</option>`).join('')}</select></div>`).join('')}
+    </div>
+    <div class="group" style="margin-top:12px"><h3 style="font-size:15px">Repartidor por barrio</h3>
+      ${barrios.length?barrios.map(b=>{
+        const actual = neighDrivers.find(n=>n.neighborhood===b)?.driver_user_id || ''
+        return `<div class="row"><span>${b}</span><select data-barrio-driver="${b}"><option value="">— Usa la regla de zona —</option>${repartidores.map(r=>`<option value="${r.user_id}" ${actual===r.user_id?'selected':''}>${r.full_name||'(sin nombre)'}</option>`).join('')}</select></div>`
+      }).join(''):'<p class="muted">Todavía no hay barrios cargados (aparecen cuando hay clientes con barrio).</p>'}
+    </div>
+    <button class="btn ghost" id="btn_recalcular_asignaciones" style="margin-top:12px">🔄 Recalcular asignaciones automáticas ahora</button>
+    <div class="group" style="margin-top:16px"><h3 style="font-size:15px">Reasignar pedidos puntuales (${pedidosAsignar.length})</h3>
+      ${pedidosAsignar.length?pedidosAsignar.map(p=>{
+        const c=p.customers||{}
+        const asignadoNombre = staffMap[p.assigned_driver] || '(sin asignar)'
+        return `<div class="row"><span>${c.first_name||''} ${c.last_name||''}<br><small>${c.neighborhood||'-'} · ${formatearFecha(p.delivery_date)}</small><br><small>${p.assignment_locked?'🔒 Manual':'🔄 Automático'} → <b>${asignadoNombre}</b></small></span><span style="display:flex;flex-direction:column;gap:4px;align-items:flex-end"><select data-pedido-driver="${p.id}"><option value="">— Sin asignar —</option>${repartidores.map(r=>`<option value="${r.user_id}" ${p.assigned_driver===r.user_id?'selected':''}>${r.full_name||'(sin nombre)'}</option>`).join('')}</select>${p.assignment_locked?`<button class="btn ghost" data-destrabar="${p.id}" style="font-size:11px;padding:4px 10px">Volver a automático</button>`:''}</span></div>`
+      }).join(''):'<p class="muted">No hay pedidos pendientes para asignar.</p>'}
+    </div>
+  </div></div>
+  <div class="card" style="padding:0;overflow:hidden;margin-top:10px">
+  ${accHead('insumos','🧺','Compras e insumos')}
     <div class="grid two">
       <div class="field"><label>Producto</label><input id="prod_new_name" placeholder="Ej: Maíz"/></div>
       <div class="field"><label>Unidad de compra</label><input id="prod_new_unit" placeholder="Ej: saco de 25kg"/></div>
@@ -783,8 +817,9 @@ async function admin(){
         return `<div class="row"><span>${tipoLabel} · ${prod?prod.name:'(producto eliminado)'}<br><small>${quien} · ${fecha}${m.note?' · '+m.note:''}</small></span><span>${m.quantity} ${prod?prod.unit_label:''}</span></div>`
       }).join('') : '<p class="muted">Sin movimientos todavía.</p>'}
     </div>
-  </div>
-  <div class="card"><h3>🥚 Tamaños de maple que ofrecés</h3>
+  </div></div>
+  <div class="card" style="padding:0;overflow:hidden;margin-top:10px">
+  ${accHead('tamanos','🥚','Tamaños de maple')}
     <p class="muted">Estos son los tamaños que el cliente puede combinar en su plan. Agregá, editá el precio o desactivá los que no quieras ofrecer, sin tocar código.</p>
     ${planPrices.length? planPrices.map(pp=>`<div class="row"><span><b>${pp.egg_quantity} huevos</b>${!pp.active?' · <span class="badge">Inactivo</span>':''}</span><span style="display:flex;gap:6px;align-items:center"><input type="number" min="0" step="1" value="${pp.price}" id="pp_price_${pp.id}" style="width:90px"/><button class="btn ghost" data-pp-save="${pp.id}">💾</button><button class="btn ghost" data-pp-toggle="${pp.id}" data-pp-active="${pp.active}">${pp.active?'Desactivar':'Activar'}</button></span></div>`).join('') : '<p class="muted">Todavía no cargaste tamaños.</p>'}
     <div class="grid two" style="margin-top:10px">
@@ -793,8 +828,9 @@ async function admin(){
     </div>
     <button class="btn primary" id="btn_agregar_tamano">➕ Agregar tamaño</button>
     <div id="err_tamano" class="alert danger" style="display:none;margin-top:8px"></div>
-  </div>
-  <div class="card"><h3>📅 Capacidad y lista de espera</h3>
+  </div></div>
+  <div class="card" style="padding:0;overflow:hidden;margin-top:10px">
+  ${accHead('capacidad','📅','Capacidad y lista de espera')}
     <div class="field"><label>Capacidad base diaria (en huevos), por si todavía no hay producción cargada para estimar</label><input id="cap_base" type="number" min="0" value="${capacidadBase}"/></div>
     <button class="btn ghost" id="btn_guardar_capacidad">Guardar capacidad base</button>
     <div id="err_capacidad" class="alert danger" style="display:none;margin-top:8px"></div>
@@ -805,8 +841,9 @@ async function admin(){
         return `<div class="row"><span><b>#${i+1}</b> ${c.first_name||''} ${c.last_name||''}<br><small>${w.egg_quantity} huevos · ${freqLabel} · 📞 ${c.phone||'-'}</small></span><button class="btn primary" data-promover="${w.id}">✅ Activar</button></div>`
       }).join('') : '<p class="muted">Nadie en lista de espera por ahora 🎉</p>'}
     </div>
-  </div>
-  <div class="card"><h3>💳 Datos para cobros digitales</h3>
+  </div></div>
+  <div class="card" style="padding:0;overflow:hidden;margin-top:10px">
+  ${accHead('cobros','💳','Datos para cobros digitales')}
     <p class="muted">Esto se le muestra al repartidor cuando un cliente paga digital, para que pueda copiarlo y compartirlo. Editalo cuando quieras (cambio de banco, de cuenta, etc.).</p>
     <div class="group"><h3 style="font-size:15px">🏦 Transferencia bancaria</h3>
       <div class="field"><label>Nombre del banco</label><input id="cfg_bank_name" value="${settingsMap.transfer_bank_name||''}"/></div>
@@ -823,8 +860,9 @@ async function admin(){
       <div class="field"><label>DNI/CUIT del titular</label><input id="cfg_mp_holder_doc" value="${settingsMap.mp_holder_doc||''}"/></div>
     </div>
     <button class="btn ghost" id="btn_guardar_pago_config">Guardar datos de cobro</button>
-  </div>
-  <div class="card"><h3>🧾 Rendición y conciliación</h3>
+  </div></div>
+  <div class="card" style="padding:0;overflow:hidden;margin-top:10px">
+  ${accHead('rendicion','🧾','Rendición y conciliación')}
     ${(()=>{
       const hoy = new Date().toISOString().slice(0,10)
       const pagosHoy = pagos.filter(p=>p.created_at.slice(0,10)===hoy)
@@ -839,8 +877,9 @@ async function admin(){
         return `<div class="row"><span>${c.first_name||''} ${c.last_name||''} <span class="badge">${METODOS_PAGO_LABEL[p.method]||p.method}</span>${distinto?` <small class="muted">(esperado: ${METODOS_PAGO_LABEL[p.expected_method]||p.expected_method})</small>`:''}<br><small>${fecha} · $${Number(p.amount||0).toLocaleString('es-AR')}</small></span><label style="display:flex;align-items:center;gap:6px"><input type="checkbox" data-conciliar="${p.id}" ${p.reconciled?'checked':''}/> Conciliado</label></div>`
       }).join('') : '<p class="muted">Todavía no hay pagos registrados.</p>'}
     </div>
-  </div>
-  <div class="card"><h3>💰 Finanzas</h3>
+  </div></div>
+  <div class="card" style="padding:0;overflow:hidden;margin-top:10px">
+  ${accHead('finanzas','💰','Finanzas')}
     <div class="grid two">
       <div class="card stat">Ventas (30 días)<b>$${Number(dash.ventas||0).toLocaleString('es-AR')}</b></div>
       <div class="card stat">Gastos (30 días)<b>$${Number(dash.gastos||0).toLocaleString('es-AR')}</b></div>
@@ -883,16 +922,17 @@ async function admin(){
         return `<div class="row"><span>${m.type==='expense'?'🔴':'🟢'} ${cat?cat.name:'(sin categoría)'} <br><small>${fecha}${m.description?' · '+m.description:''}</small>${m.attachment_url?` <br><a href="${m.attachment_url}" target="_blank" style="font-size:12px">Ver comprobante</a>`:''}</span><span><b>$${Number(m.amount||0).toLocaleString('es-AR')}</b></span></div>`
       }).join('') : '<p class="muted">Todavía no hay movimientos cargados.</p>'}
     </div>
-  </div>
-  <div class="card"><h3>🗺️ Repartidor por zona</h3>
-    <p class="muted">Asigná qué repartidor cubre cada zona. El cliente va a ver estos datos en su cuenta para poder contactarlo.</p>
-    ${zoneDrivers.map(z=>{
-      const asignado = staffMap[z.driver_user_id]
-      return `<div class="row"><span><b>Zona ${z.zone[0].toUpperCase()+z.zone.slice(1)}</b>${asignado?`<br><small>${asignado}</small>`:'<br><small class="muted">Sin asignar</small>'}</span><select data-zone-select="${z.zone}"><option value="">Sin asignar</option>${repartidores.map(r=>`<option value="${r.user_id}" ${r.user_id===z.driver_user_id?'selected':''}>${r.full_name||'(sin nombre)'}</option>`).join('')}</select></span></div>`
-    }).join('')}
-    <div id="err_zona" class="alert danger" style="display:none;margin-top:8px"></div>
-  </div>`)
+  </div></div>`)
 
+  document.querySelectorAll('[data-acc]').forEach(b=>b.onclick=()=>{
+    adminOpenSection = adminOpenSection===b.dataset.acc ? null : b.dataset.acc
+    render()
+  })
+  document.querySelectorAll('[data-stat]').forEach(b=>b.onclick=()=>{
+    adminDetalleTipo = b.dataset.stat
+    current = 'admin-detalle'
+    render()
+  })
   document.querySelector('#btn_crear_staff').onclick = async ()=>{
     const full_name = document.querySelector('#staff_new_name').value.trim()
     const role = document.querySelector('#staff_new_role').value
@@ -915,6 +955,43 @@ async function admin(){
     const { data, error } = await supabase.functions.invoke('manage-staff', { body: { action:'reset', user_id:b.dataset.reset, custom_code } })
     if(error){ alert('Error: '+error.message); return }
     alert('Nuevo código: '+data.code+'\n\nCopialo ahora, no se vuelve a mostrar.')
+  })
+  document.querySelectorAll('#modo_asig_group [data-modo]').forEach(b=>b.onclick=async()=>{
+    const { data, error } = await supabase.rpc('admin_set_assignment_mode', { p_mode: b.dataset.modo })
+    if(error || !data?.ok){ alert('No se pudo cambiar el modo: '+(error?.message||data?.error||'')); return }
+    render()
+  })
+  document.querySelectorAll('[data-zona-driver]').forEach(sel=>sel.onchange=async()=>{
+    const zona = sel.dataset.zonaDriver
+    const driver = sel.value || null
+    const { error } = await supabase.from('zone_drivers').update({ driver_user_id: driver, updated_at: new Date().toISOString() }).eq('zone', zona)
+    if(error){ alert('Error: '+error.message); return }
+  })
+  document.querySelectorAll('[data-barrio-driver]').forEach(sel=>sel.onchange=async()=>{
+    const barrio = sel.dataset.barrioDriver
+    const driver = sel.value || null
+    if(driver){
+      const { error } = await supabase.from('neighborhood_drivers').upsert({ neighborhood: barrio, driver_user_id: driver, updated_at: new Date().toISOString() })
+      if(error){ alert('Error: '+error.message); return }
+    } else {
+      const { error } = await supabase.from('neighborhood_drivers').delete().eq('neighborhood', barrio)
+      if(error){ alert('Error: '+error.message); return }
+    }
+  })
+  document.querySelector('#btn_recalcular_asignaciones').onclick = async ()=>{
+    const { data, error } = await supabase.rpc('recalc_all_order_drivers', {})
+    if(error){ alert('Error: '+error.message); return }
+    alert(`✅ Se recalcularon ${data} pedido(s).`); render()
+  }
+  document.querySelectorAll('[data-pedido-driver]').forEach(sel=>sel.onchange=async()=>{
+    const { data, error } = await supabase.rpc('admin_assign_driver', { p_order_id: sel.dataset.pedidoDriver, p_driver_user_id: sel.value || null })
+    if(error || !data?.ok){ alert('No se pudo asignar: '+(error?.message||data?.error||'')); return }
+    render()
+  })
+  document.querySelectorAll('[data-destrabar]').forEach(b=>b.onclick=async()=>{
+    const { data, error } = await supabase.rpc('admin_unlock_driver', { p_order_id: b.dataset.destrabar })
+    if(error || !data?.ok){ alert('No se pudo destrabar: '+(error?.message||data?.error||'')); return }
+    render()
   })
   document.querySelector('#btn_crear_producto').onclick = async ()=>{
     const name = document.querySelector('#prod_new_name').value.trim()
@@ -1046,14 +1123,65 @@ async function admin(){
     if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
     render()
   }
-  document.querySelectorAll('[data-zone-select]').forEach(sel=>sel.onchange=async()=>{
-    const zone = sel.dataset.zoneSelect
-    const driver_user_id = sel.value || null
-    const box = document.querySelector('#err_zona')
-    const { error } = await supabase.from('zone_drivers').update({ driver_user_id, updated_at: new Date().toISOString() }).eq('zone', zone)
-    if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
-    render()
-  })
+}
+
+const ADMIN_DETALLE_TITULOS = {
+  clientes: 'Clientes',
+  pend_entrega: 'Pedidos pendientes de entrega',
+  pend_pago: 'Suscripciones pendientes de pago',
+  entregados: 'Entregados',
+  incidencias: 'Incidencias',
+  reprogramados: 'Reprogramados'
+}
+
+async function adminDetalle(){
+  const tipo = adminDetalleTipo
+  let rows = []
+  let renderRow = ()=>''
+
+  if(tipo==='clientes'){
+    const { data } = await supabase.from('customers').select('id,first_name,last_name,neighborhood,zone,phone,subscriptions(egg_quantity,frequency,payment_status,status)').order('first_name')
+    rows = data || []
+    renderRow = c=>{
+      const sub = (c.subscriptions||[]).find(s=>s.status==='active') || (c.subscriptions||[])[0]
+      const plan = sub? `${sub.egg_quantity} huevos · ${FRECUENCIAS[sub.frequency]||sub.frequency}` : 'Sin plan activo'
+      const pago = sub? (sub.payment_status==='paid'?'✅ Al día':'🟡 Pendiente') : ''
+      return `<div class="row"><span><b>${c.first_name||''} ${c.last_name||''}</b><br><small>${c.neighborhood||'-'} · ${plan}</small><br><small>📞 ${c.phone||'-'}</small></span><span class="badge">${pago}</span></div>`
+    }
+  } else if(tipo==='pend_entrega'){
+    const { data } = await supabase.from('orders').select('id,delivery_date,status,quantity_maples,customers(first_name,last_name,neighborhood)').in('status',['pending','assigned','out_for_delivery']).order('delivery_date')
+    rows = data || []
+    renderRow = r=>{ const c=r.customers||{}; return `<div class="row"><span><b>${c.first_name||''} ${c.last_name||''}</b><br><small>${c.neighborhood||'-'} · ${formatearFecha(r.delivery_date)}</small></span><span class="badge">${ESTADOS[r.status]||r.status}</span></div>` }
+  } else if(tipo==='pend_pago'){
+    const { data } = await supabase.from('subscriptions').select('id,egg_quantity,frequency,created_at,customers(first_name,last_name,neighborhood,phone)').eq('payment_status','pending').order('created_at')
+    rows = data || []
+    renderRow = s=>{ const c=s.customers||{}; return `<div class="row"><span><b>${c.first_name||''} ${c.last_name||''}</b><br><small>${c.neighborhood||'-'} · ${s.egg_quantity} huevos · ${FRECUENCIAS[s.frequency]||s.frequency}</small><br><small>📞 ${c.phone||'-'}</small></span><span class="badge">🟡 Pendiente</span></div>` }
+  } else if(tipo==='entregados'){
+    const { data } = await supabase.from('orders').select('id,delivery_date,delivered_at,customers(first_name,last_name,neighborhood)').eq('status','delivered').order('delivered_at',{ascending:false}).limit(50)
+    rows = data || []
+    renderRow = r=>{ const c=r.customers||{}; return `<div class="row"><span><b>${c.first_name||''} ${c.last_name||''}</b><br><small>${c.neighborhood||'-'} · ${formatearFecha(r.delivery_date)}</small></span><span class="badge">🟢 Entregado</span></div>` }
+  } else if(tipo==='incidencias'){
+    const { data } = await supabase.from('orders').select('id,delivery_date,customers(first_name,last_name,neighborhood,phone)').eq('status','incident').order('delivery_date',{ascending:false})
+    rows = data || []
+    renderRow = r=>{ const c=r.customers||{}; return `<div class="row"><span><b>${c.first_name||''} ${c.last_name||''}</b><br><small>${c.neighborhood||'-'} · ${formatearFecha(r.delivery_date)}</small><br><small>📞 ${c.phone||'-'}</small></span><span class="badge">🔴 Incidencia</span></div>` }
+  } else if(tipo==='reprogramados'){
+    const { data } = await supabase.from('orders').select('id,delivery_date,customers(first_name,last_name,neighborhood)').eq('status','rescheduled').order('delivery_date')
+    rows = data || []
+    renderRow = r=>{ const c=r.customers||{}; return `<div class="row"><span><b>${c.first_name||''} ${c.last_name||''}</b><br><small>${c.neighborhood||'-'} · ${formatearFecha(r.delivery_date)}</small></span><span class="badge">🟠 Reprogramado</span></div>` }
+  }
+
+  const titulo = ADMIN_DETALLE_TITULOS[tipo] || 'Detalle'
+  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><button class="btn ghost" id="btn_volver_admin" style="padding:6px 12px">← Volver</button><h2 style="margin:0;font-size:17px" id="detalle_titulo">${titulo} (${rows.length})</h2></div>
+  <div class="field"><input id="admin_buscar" placeholder="Buscar por nombre o barrio"/></div>
+  <div class="card" id="detalle_lista">${rows.length? rows.map(renderRow).join('') : '<p class="muted">No hay resultados.</p>'}</div>`)
+
+  document.querySelector('#btn_volver_admin').onclick = ()=>{ current='admin'; render() }
+  document.querySelector('#admin_buscar').oninput = (e)=>{
+    const term = e.target.value.toLowerCase().trim()
+    const filtradas = term? rows.filter(r=>JSON.stringify(r).toLowerCase().includes(term)) : rows
+    document.querySelector('#detalle_titulo').textContent = `${titulo} (${filtradas.length})`
+    document.querySelector('#detalle_lista').innerHTML = filtradas.length? filtradas.map(renderRow).join('') : '<p class="muted">No hay resultados.</p>'
+  }
 }
 
 async function render(){
@@ -1067,6 +1195,7 @@ async function render(){
   if(current==='repartidor')return repartidor();
   if(current==='historial')return historialRepartidor();
   if(current==='campo')return campo();
+  if(current==='admin-detalle')return adminDetalle();
   return admin()
 }
 
