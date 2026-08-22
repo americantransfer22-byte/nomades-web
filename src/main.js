@@ -10,9 +10,9 @@ let adminOpenSection = null // qué sección del acordeón de admin está abiert
 let adminDetalleTipo = null // qué tarjeta de resumen se está viendo en detalle
 
 function navStaffFor(role){
-  if(role==='admin') return [['clientes','Clientes'],['pedidos','Pedidos'],['repartidor','Repartidor'],['campo','Campo'],['admin','Administración'],['perfil','Mi perfil']]
+  if(role==='admin') return [['clientes','Clientes'],['pedidos','Pedidos'],['repartidor','Repartidor'],['campo','Campo'],['admin','Administración'],['vehiculo','Mi vehículo'],['perfil','Mi perfil']]
   if(role==='campo') return [['campo','Campo'],['perfil','Mi perfil']]
-  if(role==='repartidor') return [['repartidor','Repartidor'],['historial','Historial'],['perfil','Mi perfil']]
+  if(role==='repartidor') return [['repartidor','Repartidor'],['historial','Historial'],['vehiculo','Mi vehículo'],['perfil','Mi perfil']]
   return []
 }
 
@@ -148,10 +148,14 @@ function cuentaPanel(){
   const c = cuenta.customer
   const next = cuenta.next_order
   const tipoVia = TIPOS_VIA[c.street_type] || 'Calle'
+  const hoy = new Date().toISOString().slice(0,10)
+  const esHoy = next && next.delivery_date === hoy
   layout(`<h2>👤 Hola, ${c.first_name}</h2>
+  <div id="card_hoy_banner"></div>
   <div class="card"><h3>Tu próximo pedido</h3>${next?`<div class="row"><span>${formatearFecha(next.delivery_date)}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div><p>${next.quantity_maples||''} maple(s)</p>${next.payment_method?`<div class="alert info">💡 Recordá: el pago es en <b>${METODOS_PAGO_LABEL[next.payment_method]||next.payment_method}</b>.</div>`:''}`:'<p class="muted">No tenés entregas próximas.</p>'}</div>
   <div class="card" id="card_subs"><h3>Tus suscripciones</h3>${cuenta.subscriptions.length?cuenta.subscriptions.map(s=>`<div class="row"><span>${s.egg_quantity} huevos · ${FRECUENCIAS[s.frequency]||s.frequency}${s.status==='waitlist'?' · <span class="badge" style="background:#b3841f">🕒 Lista de espera</span>':''}</span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="badge">${s.payment_status==='paid'?'✅ Pago al día':'🟡 Pago pendiente'}</span><button class="btn ghost" data-cambiar-plan="${s.id}" style="font-size:12px;padding:6px 12px">✏️ Cambiar plan</button></span></div>`).join(''):'<p class="muted">No tenés suscripciones activas.</p>'}</div>
   <div class="card" id="card_pagos"><h3>💳 Historial de pagos</h3><p class="muted">Cargando…</p></div>
+  <div class="card" id="card_repartidor"><h3>🚚 Tu repartidor</h3><p class="muted">Cargando…</p></div>
   <div class="card" id="card_datos"><h3>Tus datos</h3><p>🏠 ${tipoVia} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'} (CP ${c.postal_code||'-'})</p><p>📍 Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'}</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
   <button class="btn ghost" id="btn_ver_mapa" style="margin-bottom:10px">🗺️ Ver mapa de suscriptores</button>
   <button class="btn ghost" id="btn_logout_cuenta">Cerrar sesión</button>`)
@@ -163,7 +167,37 @@ function cuentaPanel(){
     if(sub) cambiarPlanForm(sub)
   })
   cargarHistorialPagos(c)
+  cargarRepartidor(c, esHoy)
 }
+
+async function cargarRepartidor(c, esHoy){
+  const box = document.querySelector('#card_repartidor')
+  const bannerBox = document.querySelector('#card_hoy_banner')
+  if(!box) return
+  const { data } = await supabase.rpc('customer_get_driver', { p_dni: c.dni, p_customer_id: c.id })
+  if(!data?.found){ box.innerHTML = `<h3>🚚 Tu repartidor</h3><p class="muted">Todavía no te asignamos un repartidor fijo. Te contactamos por WhatsApp o teléfono para coordinar tu entrega.</p>`; return }
+  const foto = data.photo_url ? `<img src="${data.photo_url}" style="width:56px;height:56px;border-radius:50%;object-fit:cover"/>` : `<div style="width:56px;height:56px;border-radius:50%;background:#EAF0DC;display:flex;align-items:center;justify-content:center;font-size:22px">🚚</div>`
+  const telLimpio = (data.phone||'').replace(/\D/g,'')
+  const v = data.vehicle
+  const vehiculoLinea = v ? `<p style="margin:6px 0 0">${v.type==='moto'?'🏍️':'🚚'} ${v.brand||''} ${v.model||''} · Patente ${v.plate}</p>` : ''
+  box.innerHTML = `<h3>🚚 Tu repartidor</h3>
+    <div style="display:flex;align-items:center;gap:12px">
+      ${foto}
+      <div><b>${data.full_name}</b>${data.phone?`<br><span class="muted">📞 ${data.phone}</span>`:''}</div>
+    </div>
+    ${vehiculoLinea}
+    ${v?.photo_url?`<img src="${v.photo_url}" style="width:100%;border-radius:10px;margin-top:8px"/>`:''}
+    ${telLimpio?`<a href="https://wa.me/54${telLimpio}" target="_blank" class="btn primary" style="margin-top:10px;display:inline-block;text-decoration:none;text-align:center;width:100%">💬 Escribirle por WhatsApp</a>`:''}`
+
+  if(esHoy && bannerBox){
+    bannerBox.innerHTML = `<div class="card" style="background:#2F4D2A;color:#F5EFE0;text-align:center;margin-bottom:14px">
+      <h3 style="color:#F5EFE0;margin:0 0 8px">🚚 ¡Hoy te entregamos tu pedido!</h3>
+      <div style="display:flex;align-items:center;justify-content:center;gap:10px">${foto}<div style="text-align:left"><b>${data.full_name}</b>${v?`<br><small>${v.type==='moto'?'🏍️':'🚚'} ${v.brand||''} ${v.model||''} · ${v.plate}</small>`:''}</div></div>
+      ${v?.photo_url?`<img src="${v.photo_url}" style="width:100%;border-radius:10px;margin-top:10px"/>`:''}
+    </div>`
+  }
+}
+
 
 async function initAdminMapa(){
   const estado = document.querySelector('#admin_mapa_estado')
@@ -648,6 +682,61 @@ function staffProfileForm(isSetup){
   }
 }
 
+async function miVehiculo(){
+  const { data: vehiculo } = await supabase.from('vehicles').select('id,type,brand,model,plate,photo_url,current_km,service_interval_km,last_service_km,vtv_expiry,insurance_expiry').eq('assigned_to', session.user.id).eq('active', true).maybeSingle()
+  if(!vehiculo){
+    layout(`<h2>🏍️ Mi vehículo</h2><div class="card"><p class="muted">Todavía no tenés un vehículo asignado. Hablá con administración.</p></div>`)
+    return
+  }
+  const faltan = (vehiculo.last_service_km + vehiculo.service_interval_km) - vehiculo.current_km
+  const { data: historialRaw } = await supabase.from('vehicle_fuel_logs').select('id,km,amount,liters,receipt_url,created_at').eq('vehicle_id', vehiculo.id).order('created_at',{ascending:false}).limit(10)
+  const historial = historialRaw || []
+  layout(`<h2>${vehiculo.type==='moto'?'🏍️':'🚚'} Mi vehículo</h2>
+  <div class="card">
+    ${vehiculo.photo_url?`<img src="${vehiculo.photo_url}" style="width:100%;border-radius:12px;margin-bottom:10px"/>`:''}
+    <h3>${vehiculo.brand||''} ${vehiculo.model||''}</h3>
+    <p>Patente: <b>${vehiculo.plate}</b></p>
+    <p>Kilómetros actuales: <b>${Math.round(vehiculo.current_km)} km</b></p>
+    <p>${faltan<=500?'⚠️ ':''}Próximo service en: <b>${Math.max(0,Math.round(faltan))} km</b></p>
+    ${vehiculo.vtv_expiry?`<p>VTV vence: ${vehiculo.vtv_expiry}</p>`:''}
+    ${vehiculo.insurance_expiry?`<p>Seguro vence: ${vehiculo.insurance_expiry}</p>`:''}
+  </div>
+  <div class="card">
+    <h3>⛽ Cargar combustible</h3>
+    <div class="field"><label>Kilómetros del odómetro *</label><input id="fuel_km" type="number" min="${vehiculo.current_km}" placeholder="Ej: ${Math.round(vehiculo.current_km)+50}"/></div>
+    <div class="grid two">
+      <div class="field"><label>Monto pagado</label><input id="fuel_monto" type="number" min="0"/></div>
+      <div class="field"><label>Litros (opcional)</label><input id="fuel_litros" type="number" min="0" step="0.1"/></div>
+    </div>
+    <div class="field"><label>Foto del ticket *</label><input type="file" id="fuel_ticket" accept="image/*"/></div>
+    <div id="err_fuel" class="alert danger" style="display:none"></div>
+    <button class="btn primary" id="btn_cargar_combustible">Guardar carga</button>
+  </div>
+  <div class="card"><h3>Últimas cargas</h3>${historial.length?historial.map(h=>{
+    const fecha = new Date(h.created_at).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})
+    return `<div class="row"><span>${fecha}<br><small>${Math.round(h.km)} km${h.liters?` · ${h.liters} L`:''}</small></span><span>${h.amount?`$${Number(h.amount).toLocaleString('es-AR')}`:''}${h.receipt_url?` <a href="${h.receipt_url}" target="_blank" style="font-size:12px">Ver ticket</a>`:''}</span></div>`
+  }).join(''):'<p class="muted">Todavía no cargaste combustible.</p>'}</div>`)
+
+  document.querySelector('#btn_cargar_combustible').onclick = async ()=>{
+    const box = document.querySelector('#err_fuel')
+    const km = Number(document.querySelector('#fuel_km').value)
+    const monto = Number(document.querySelector('#fuel_monto').value) || null
+    const litros = Number(document.querySelector('#fuel_litros').value) || null
+    const ticketFile = document.querySelector('#fuel_ticket').files[0]
+    if(!km || km<=0){ box.textContent='Ingresá los kilómetros del odómetro.'; box.style.display='block'; return }
+    if(!ticketFile){ box.textContent='Subí la foto del ticket.'; box.style.display='block'; return }
+    const path = `${vehiculo.id}/${Date.now()}_${ticketFile.name}`
+    const { error: upErr } = await supabase.storage.from('fuel-receipts').upload(path, ticketFile)
+    if(upErr){ box.textContent='No se pudo subir el ticket: '+upErr.message; box.style.display='block'; return }
+    const { data: pub } = supabase.storage.from('fuel-receipts').getPublicUrl(path)
+    const { data, error } = await supabase.rpc('driver_log_fuel', { p_vehicle_id: vehiculo.id, p_km: km, p_amount: monto, p_liters: litros, p_receipt_url: pub.publicUrl })
+    if(error || !data?.ok){ box.textContent = data?.error || 'No se pudo guardar la carga.'; box.style.display='block'; return }
+    if(data.alerta_service) alert(`⛽ Carga guardada ✅\n\n⚠️ Atención: faltan ${Math.round(data.faltan_km)} km para el próximo service.`)
+    else alert('⛽ Carga guardada ✅')
+    render()
+  }
+}
+
 async function campo(){
   const today = new Date().toISOString().slice(0,10)
   const recientes = await q('production','id,production_date,eggs_count,maples_count,losses_count,notes')
@@ -717,6 +806,44 @@ async function repartidor(){
 
 let repMapaFecha = null
 let repMostrarProyeccion = false
+let statsVehiculoActual = null
+
+async function verEstadisticasVehiculo(v){
+  statsVehiculoActual = v
+  current = 'vehiculo-stats'
+  render()
+}
+
+async function vehiculoStats(){
+  const v = statsVehiculoActual
+  if(!v){ current='admin'; return render() }
+  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><button class="btn ghost" id="btn_volver_stats" style="padding:6px 12px">← Volver</button><h2 style="margin:0">📊 ${v.plate}</h2></div>
+  <div id="stats_contenido" class="card"><p class="muted">Calculando…</p></div>`)
+  document.querySelector('#btn_volver_stats').onclick = ()=>{ current='admin'; adminOpenSection='vehiculos'; render() }
+
+  const { data } = await supabase.rpc('vehicle_stats', { p_vehicle_id: v.id })
+  const box = document.querySelector('#stats_contenido')
+  if(!data || data.cargas < 2){
+    box.innerHTML = `<p class="muted">Todavía no hay suficientes cargas registradas para calcular estadísticas (hacen falta al menos 2).</p>`
+    return
+  }
+  box.innerHTML = `
+    <h3>Kilómetros recorridos</h3>
+    <div class="grid three">
+      <div class="card stat">Por día<b>${data.km_por_dia ?? '-'}</b></div>
+      <div class="card stat">Por mes<b>${data.km_por_mes ?? '-'}</b></div>
+      <div class="card stat">Por año<b>${data.km_por_anio ?? '-'}</b></div>
+    </div>
+    <p class="muted" style="margin-top:8px">Calculado sobre ${data.km_totales} km en ${data.dias_totales} día(s), con ${data.cargas} carga(s) registradas.</p>
+    <h3 style="margin-top:16px">Rendimiento</h3>
+    <div class="row"><span>Kilómetros por litro</span><span><b>${data.km_por_litro ?? '-'} km/L</b></span></div>
+    <div class="row"><span>Costo por kilómetro</span><span><b>${data.costo_por_km?`$${Number(data.costo_por_km).toLocaleString('es-AR')}`:'-'}</b></span></div>
+    <div class="row"><span>Litros cargados (total)</span><span>${data.litros_totales ?? '-'}</span></div>
+    <div class="row"><span>Gasto en combustible (total)</span><span>$${Number(data.gasto_total||0).toLocaleString('es-AR')}</span></div>
+    ${data.por_mes?.length?`<h3 style="margin-top:16px">Últimos meses</h3>${data.por_mes.map(m=>`<div class="row"><span>${m.mes}</span><span>${Math.round(m.km)} km</span></div>`).join('')}`:''}
+  `
+}
+
 
 function proximaFechaProyectada(fecha, frecuencia){
   const d = new Date(fecha+'T00:00:00')
@@ -1003,12 +1130,16 @@ async function fetchAdminData(){
   const movimientosFinanzas = entriesRaw || []
   const { data: dashboardRaw } = await supabase.rpc('finance_dashboard', {})
   const dash = dashboardRaw || {}
-  return { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash }
+  const { data: vehiculosRaw } = await supabase.from('vehicles').select('id,type,brand,model,year,plate,photo_url,current_km,service_interval_km,last_service_km,vtv_expiry,insurance_expiry,assigned_to,active').order('created_at')
+  const vehiculos = vehiculosRaw || []
+  const { data: alertasVehiculos } = await supabase.rpc('admin_vehicle_alerts', {})
+  const alertas = alertasVehiculos || { service:[], vtv:[], seguro:[], carnet:[] }
+  return { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas }
 }
 
 async function admin(){
   if(!adminData) adminData = await fetchAdminData()
-  const { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash } = adminData
+  const { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas } = adminData
   const capacidadBase = settingsMap.default_daily_capacity_maples || '300'
   const assignmentMode = settingsMap.assignment_mode || 'zone'
   const staffMap = Object.fromEntries(staff.map(s=>[s.user_id, s.full_name||'(sin nombre)']))
@@ -1097,6 +1228,61 @@ async function admin(){
           </span><span style="display:flex;flex-direction:column;gap:4px;align-items:flex-end"><select data-pedido-driver="${p.id}"><option value="">— Sin asignar —</option>${repartidores.map(r=>`<option value="${r.user_id}" ${p.assigned_driver===r.user_id?'selected':''}>${r.full_name||'(sin nombre)'}</option>`).join('')}</select>${p.assignment_locked?`<button class="btn ghost" data-destrabar="${p.id}" style="font-size:11px;padding:4px 10px">Volver a automático</button>`:''}</span></div>`
         }).join('')
       })()}
+    </div>
+  </div></div>
+  <div class="card" style="padding:0;overflow:hidden;margin-top:10px">
+  ${accHead('vehiculos','🏍️','Vehículos y mantenimiento')}
+    ${(()=>{
+      const totalAlertas = (alertas.service?.length||0)+(alertas.vtv?.length||0)+(alertas.seguro?.length||0)+(alertas.carnet?.length||0)
+      if(!totalAlertas) return '<div class="alert info">✅ Sin alertas pendientes de mantenimiento, VTV, seguro ni carnet.</div>'
+      let html = '<div class="alert warning"><b>⚠️ Atención</b><br>'
+      if(alertas.service?.length) html += alertas.service.map(a=>`Service próximo: patente <b>${a.plate}</b> (faltan ${Math.round(a.faltan_km)} km)<br>`).join('')
+      if(alertas.vtv?.length) html += alertas.vtv.map(a=>`VTV vence pronto: patente <b>${a.plate}</b> (${a.vtv_expiry})<br>`).join('')
+      if(alertas.seguro?.length) html += alertas.seguro.map(a=>`Seguro vence pronto: patente <b>${a.plate}</b> (${a.insurance_expiry})<br>`).join('')
+      if(alertas.carnet?.length) html += alertas.carnet.map(a=>`Carnet vence pronto: <b>${a.full_name}</b> (${a.license_expiry})<br>`).join('')
+      html += '</div>'
+      return html
+    })()}
+    <div class="group" style="margin-top:12px"><h3 style="font-size:15px">Flota</h3>
+      ${vehiculos.length? vehiculos.map(v=>{
+        const staffAsig = staff.find(s=>s.user_id===v.assigned_to)
+        const proximoService = v.last_service_km + v.service_interval_km
+        const faltan = proximoService - v.current_km
+        return `<div class="row" style="align-items:flex-start">
+          <span>${v.photo_url?`<img src="${v.photo_url}" style="width:64px;height:64px;object-fit:cover;border-radius:8px;margin-bottom:6px"/><br>`:''}
+            <b>${v.type==='moto'?'🏍️':'🚚'} ${v.brand||''} ${v.model||''}</b> <span class="badge">${v.plate}</span><br>
+            <small>${Math.round(v.current_km)} km · próximo service en ${Math.max(0,Math.round(faltan))} km${faltan<=500?' ⚠️':''}</small><br>
+            <small>Asignado a: ${staffAsig?.full_name||'— Sin asignar —'}</small><br>
+            <small>VTV: ${v.vtv_expiry||'-'} · Seguro: ${v.insurance_expiry||'-'}</small>
+          </span>
+          <span style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
+            <select data-vehiculo-asignar="${v.id}"><option value="">— Sin asignar —</option>${staff.filter(s=>s.role==='repartidor'||s.role==='admin').map(s=>`<option value="${s.user_id}" ${v.assigned_to===s.user_id?'selected':''}>${s.full_name||'(sin nombre)'}</option>`).join('')}</select>
+            <button class="btn ghost" data-marcar-service="${v.id}" style="font-size:11px;padding:4px 10px">✅ Service hecho</button>
+            <button class="btn ghost" data-ver-stats="${v.id}" style="font-size:11px;padding:4px 10px">📊 Estadísticas</button>
+          </span>
+        </div>`
+      }).join('') : '<p class="muted">Todavía no cargaste vehículos.</p>'}
+    </div>
+    <div class="group" style="margin-top:16px"><h3 style="font-size:15px">➕ Agregar vehículo</h3>
+      <div class="grid two">
+        <div class="field"><label>Tipo</label><select id="veh_new_tipo"><option value="moto">Moto</option><option value="camioneta">Camioneta</option></select></div>
+        <div class="field"><label>Patente</label><input id="veh_new_patente" placeholder="Ej: AB123CD"/></div>
+        <div class="field"><label>Marca</label><input id="veh_new_marca" placeholder="Ej: Honda"/></div>
+        <div class="field"><label>Modelo</label><input id="veh_new_modelo" placeholder="Ej: Wave 110"/></div>
+      </div>
+      <div class="field"><label>Foto del vehículo</label><input type="file" id="veh_new_foto" accept="image/*"/></div>
+      <div class="grid two">
+        <div class="field"><label>Km actuales</label><input id="veh_new_km" type="number" min="0" value="0"/></div>
+        <div class="field"><label>Cada cuántos km es el service</label><input id="veh_new_intervalo" type="number" min="1" value="3000"/></div>
+        <div class="field"><label>Vencimiento VTV</label><input id="veh_new_vtv" type="date"/></div>
+        <div class="field"><label>Vencimiento seguro</label><input id="veh_new_seguro" type="date"/></div>
+      </div>
+      <div class="field"><label>Asignar a</label><select id="veh_new_asignado"><option value="">— Sin asignar —</option>${staff.filter(s=>s.role==='repartidor'||s.role==='admin').map(s=>`<option value="${s.user_id}">${s.full_name||'(sin nombre)'}</option>`).join('')}</select></div>
+      <div id="err_vehiculo" class="alert danger" style="display:none"></div>
+      <button class="btn primary" id="btn_crear_vehiculo">➕ Agregar vehículo</button>
+    </div>
+    <div class="group" style="margin-top:16px"><h3 style="font-size:15px">Vencimiento de carnet por persona</h3>
+      ${staff.filter(s=>s.role==='repartidor'||s.role==='admin').map(s=>`<div class="row"><span>${s.full_name||'(sin nombre)'}</span><span style="display:flex;gap:6px;align-items:center"><input type="date" id="carnet_${s.user_id}" value="${s.license_expiry||''}" style="width:150px"/><button class="btn ghost" data-guardar-carnet="${s.user_id}" style="font-size:12px">💾</button></span></div>`).join('')}
     </div>
   </div></div>
   <div class="card" style="padding:0;overflow:hidden;margin-top:10px">
@@ -1241,6 +1427,58 @@ async function admin(){
   const btnLimpiarFecha = document.querySelector('#btn_limpiar_fecha_asignar')
   if(btnLimpiarFecha) btnLimpiarFecha.onclick = ()=>{ adminAsignarFecha = ''; render() }
   if(AS('mapa')) initAdminMapa()
+  document.querySelectorAll('[data-vehiculo-asignar]').forEach(sel=>sel.onchange=async()=>{
+    const { error } = await supabase.from('vehicles').update({ assigned_to: sel.value || null }).eq('id', sel.dataset.vehiculoAsignar)
+    if(error){ alert('Error: '+error.message); return }
+    adminData = null; render()
+  })
+  document.querySelectorAll('[data-marcar-service]').forEach(b=>b.onclick=async()=>{
+    if(!confirm('¿Marcar el service como realizado hoy? Se reinicia el contador de kilómetros.'))return
+    const { data, error } = await supabase.rpc('admin_marcar_service', { p_vehicle_id: b.dataset.marcarService })
+    if(error || !data?.ok){ alert('No se pudo actualizar.'); return }
+    adminData = null; render()
+  })
+  document.querySelectorAll('[data-ver-stats]').forEach(b=>b.onclick=()=>{
+    const v = vehiculos.find(x=>x.id===b.dataset.verStats)
+    verEstadisticasVehiculo(v)
+  })
+  document.querySelector('#btn_crear_vehiculo').onclick = async ()=>{
+    const box = document.querySelector('#err_vehiculo')
+    const patente = document.querySelector('#veh_new_patente').value.trim()
+    if(!patente){ box.textContent='Ingresá la patente.'; box.style.display='block'; return }
+    let photo_url = null
+    const fotoInput = document.querySelector('#veh_new_foto')
+    const fotoFile = fotoInput.files[0]
+    if(fotoFile){
+      const path = `${Date.now()}_${fotoFile.name}`
+      const { error: upErr } = await supabase.storage.from('vehicle-photos').upload(path, fotoFile)
+      if(upErr){ box.textContent='No se pudo subir la foto: '+upErr.message; box.style.display='block'; return }
+      const { data: pub } = supabase.storage.from('vehicle-photos').getPublicUrl(path)
+      photo_url = pub.publicUrl
+    }
+    const payload = {
+      type: document.querySelector('#veh_new_tipo').value,
+      plate: patente,
+      brand: document.querySelector('#veh_new_marca').value.trim() || null,
+      model: document.querySelector('#veh_new_modelo').value.trim() || null,
+      photo_url,
+      current_km: Number(document.querySelector('#veh_new_km').value) || 0,
+      last_service_km: Number(document.querySelector('#veh_new_km').value) || 0,
+      service_interval_km: Number(document.querySelector('#veh_new_intervalo').value) || 3000,
+      vtv_expiry: document.querySelector('#veh_new_vtv').value || null,
+      insurance_expiry: document.querySelector('#veh_new_seguro').value || null,
+      assigned_to: document.querySelector('#veh_new_asignado').value || null
+    }
+    const { error } = await supabase.from('vehicles').insert(payload)
+    if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
+    adminData = null; render()
+  }
+  document.querySelectorAll('[data-guardar-carnet]').forEach(b=>b.onclick=async()=>{
+    const val = document.querySelector(`#carnet_${b.dataset.guardarCarnet}`).value
+    const { error } = await supabase.from('staff_roles').update({ license_expiry: val || null }).eq('user_id', b.dataset.guardarCarnet)
+    if(error){ alert('Error: '+error.message); return }
+    adminData = null; alert('Guardado ✅')
+  })
   document.querySelector('#btn_crear_staff').onclick = async ()=>{
     const full_name = document.querySelector('#staff_new_name').value.trim()
     const role = document.querySelector('#staff_new_role').value
@@ -1510,6 +1748,8 @@ async function render(){
   if(current==='repartidor-mapa')return mapaRepartidor();
   if(current==='historial')return historialRepartidor();
   if(current==='campo')return campo();
+  if(current==='vehiculo')return miVehiculo();
+  if(current==='vehiculo-stats')return vehiculoStats();
   if(current==='admin-detalle')return adminDetalle();
   return admin()
 }
