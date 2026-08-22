@@ -121,6 +121,7 @@ function cuentaPanel(){
   <div class="card"><h3>Tu próximo pedido</h3>${next?`<div class="row"><span>${formatearFecha(next.delivery_date)}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div><p>${next.quantity_maples||''} maple(s)</p>${next.payment_method?`<div class="alert info">💡 Recordá: el pago es en <b>${METODOS_PAGO_LABEL[next.payment_method]||next.payment_method}</b>.</div>`:''}`:'<p class="muted">No tenés entregas próximas.</p>'}</div>
   <div class="card" id="card_subs"><h3>Tus suscripciones</h3>${cuenta.subscriptions.length?cuenta.subscriptions.map(s=>`<div class="row"><span>${s.egg_quantity} huevos · ${FRECUENCIAS[s.frequency]||s.frequency}${s.status==='waitlist'?' · <span class="badge" style="background:#b3841f">🕒 Lista de espera</span>':''}</span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="badge">${s.payment_status==='paid'?'✅ Pago al día':'🟡 Pago pendiente'}</span><button class="btn ghost" data-cambiar-plan="${s.id}" style="font-size:12px;padding:6px 12px">✏️ Cambiar plan</button></span></div>`).join(''):'<p class="muted">No tenés suscripciones activas.</p>'}</div>
   <div class="card" id="card_pagos"><h3>💳 Historial de pagos</h3><p class="muted">Cargando…</p></div>
+  <div class="card" id="card_repartidor"><h3>🚚 Tu repartidor</h3><p class="muted">Cargando…</p></div>
   <div class="card" id="card_datos"><h3>Tus datos</h3><p>🏠 ${tipoVia} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'} (CP ${c.postal_code||'-'})</p><p>📍 Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'}</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
   <button class="btn ghost" id="btn_logout_cuenta">Cerrar sesión</button>`)
   document.querySelector('#btn_logout_cuenta').onclick = ()=>{ cuenta=null; current='inicio'; render() }
@@ -130,6 +131,22 @@ function cuentaPanel(){
     if(sub) cambiarPlanForm(sub)
   })
   cargarHistorialPagos(c)
+  cargarRepartidorAsignado(c)
+}
+
+async function cargarRepartidorAsignado(c){
+  const box = document.querySelector('#card_repartidor')
+  if(!box) return
+  if(!c.zone){ box.innerHTML = `<h3>🚚 Tu repartidor</h3><p class="muted">Completá tu zona en "Editar mis datos" para ver a tu repartidor asignado.</p>`; return }
+  const { data, error } = await supabase.rpc('customer_assigned_driver', { p_zone: c.zone })
+  if(error || !data?.found){ box.innerHTML = `<h3>🚚 Tu repartidor</h3><p class="muted">Todavía no hay un repartidor asignado a tu zona.</p>`; return }
+  const telLimpio = (data.phone||'').replace(/\D/g,'')
+  box.innerHTML = `<h3>🚚 Tu repartidor</h3>
+    <div style="display:flex;align-items:center;gap:12px">
+      ${data.photo_url?`<img src="${data.photo_url}" style="width:56px;height:56px;border-radius:50%;object-fit:cover"/>`:''}
+      <div><b>${data.full_name||'Sin nombre'}</b>${data.phone?`<br><small class="muted">${data.phone}</small>`:''}</div>
+    </div>
+    ${telLimpio?`<a href="https://wa.me/54${telLimpio}" target="_blank"><button class="btn primary" style="margin-top:10px">💬 Escribirle por WhatsApp</button></a>`:''}`
 }
 
 async function cargarHistorialPagos(c){
@@ -725,6 +742,9 @@ async function admin(){
   const dash = dashboardRaw || {}
   const categoriaMap = Object.fromEntries(categorias.map(c=>[c.id,c]))
   const TIPO_CAT_LABEL = { fixed:'Fijo', variable:'Variable', income:'Ingreso' }
+  const { data: zoneDriversRaw } = await supabase.from('zone_drivers').select('zone,driver_user_id').order('zone')
+  const zoneDrivers = zoneDriversRaw || []
+  const repartidores = staff.filter(s=>s.role==='repartidor')
   const count=s=>orders.filter(x=>x.status===s).length
   const pendientesDePago = subs.filter(s=>s.payment_status==='pending')
   const rolLabel = {admin:'Administrador',campo:'Personal de campo',repartidor:'Repartidor'}
@@ -863,6 +883,14 @@ async function admin(){
         return `<div class="row"><span>${m.type==='expense'?'🔴':'🟢'} ${cat?cat.name:'(sin categoría)'} <br><small>${fecha}${m.description?' · '+m.description:''}</small>${m.attachment_url?` <br><a href="${m.attachment_url}" target="_blank" style="font-size:12px">Ver comprobante</a>`:''}</span><span><b>$${Number(m.amount||0).toLocaleString('es-AR')}</b></span></div>`
       }).join('') : '<p class="muted">Todavía no hay movimientos cargados.</p>'}
     </div>
+  </div>
+  <div class="card"><h3>🗺️ Repartidor por zona</h3>
+    <p class="muted">Asigná qué repartidor cubre cada zona. El cliente va a ver estos datos en su cuenta para poder contactarlo.</p>
+    ${zoneDrivers.map(z=>{
+      const asignado = staffMap[z.driver_user_id]
+      return `<div class="row"><span><b>Zona ${z.zone[0].toUpperCase()+z.zone.slice(1)}</b>${asignado?`<br><small>${asignado}</small>`:'<br><small class="muted">Sin asignar</small>'}</span><select data-zone-select="${z.zone}"><option value="">Sin asignar</option>${repartidores.map(r=>`<option value="${r.user_id}" ${r.user_id===z.driver_user_id?'selected':''}>${r.full_name||'(sin nombre)'}</option>`).join('')}</select></span></div>`
+    }).join('')}
+    <div id="err_zona" class="alert danger" style="display:none;margin-top:8px"></div>
   </div>`)
 
   document.querySelector('#btn_crear_staff').onclick = async ()=>{
@@ -1018,6 +1046,14 @@ async function admin(){
     if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
     render()
   }
+  document.querySelectorAll('[data-zone-select]').forEach(sel=>sel.onchange=async()=>{
+    const zone = sel.dataset.zoneSelect
+    const driver_user_id = sel.value || null
+    const box = document.querySelector('#err_zona')
+    const { error } = await supabase.from('zone_drivers').update({ driver_user_id, updated_at: new Date().toISOString() }).eq('zone', zone)
+    if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
+    render()
+  })
 }
 
 async function render(){
