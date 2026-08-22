@@ -1337,4 +1337,8 @@ async function init(){
     myRole = roleRow?.role || null
     staffProfile = roleRow || null
     if(!myRole){ session=null }
-    else if(!roleRow.profile_completed){ current = '
+    else if(!roleRow.profile_completed){ current = 'staff-profile-setup' }
+  }
+  render()
+}
+init()
