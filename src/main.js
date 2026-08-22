@@ -950,6 +950,10 @@ async function repartidor(){
   const rows = await q('orders','id,status,delivery_date,important_note,assigned_driver,customer_stage,customers(id,first_name,last_name,phone,neighborhood,street,street_number,zone,city)')
   const rowsDelDia = rows.filter(r=>r.delivery_date===fecha && (myRole==='admin' || r.assigned_driver===session?.user?.id))
 
+  const { data: miVehiculoRaw } = await supabase.from('vehicles').select('type,brand,model,color,plate').eq('assigned_to', session.user.id).eq('active', true).maybeSingle()
+  const miVehiculo = miVehiculoRaw || null
+  const miNombre = staffProfile?.full_name || 'tu repartidor'
+
   let tituloChico = fecha===hoy ? 'Entregas de hoy' : fecha===manana ? 'Entregas de mañana' : 'Entregas'
   const subtitulo = formatearFecha(fecha)
 
@@ -997,7 +1001,7 @@ async function repartidor(){
               const estadoLabel = r.customer_stage==='en_route' ? '🛵 En camino (avisado)' : r.customer_stage==='preparing' ? '🥚 Preparando' : ''
               return `<div style="margin-bottom:8px">
                 <div style="font-weight:700;color:#2F4D2A">${c.street_number||''} · Cliente: ${c.first_name||''} ${c.last_name||''}</div>
-                ${telLimpio?`<a href="tel:${telLimpio}" style="font-size:12px;color:#2F4D2A;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-top:2px">📞 ${c.phone}</a>`:`<div style="font-size:12px;color:#8A8570;margin-top:2px">Sin teléfono</div>`}
+                ${telLimpio?`<a href="tel:${telLimpio}" style="font-size:12px;color:#2F4D2A;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-top:4px;background:#F5EFE0;border-radius:8px;padding:5px 10px;font-weight:600">📞 Llamar · ${c.phone}</a>`:`<div style="font-size:12px;color:#8A8570;margin-top:2px">Sin teléfono</div>`}
                 ${estadoLabel?`<div style="font-size:11px;color:#B85C00;margin-top:2px">${estadoLabel}</div>`:''}
                 ${r.important_note?`<div class="alert warning" style="margin-top:6px">⚠️ ${r.important_note}</div>`:''}
                 <div style="display:flex;gap:6px;margin-top:8px">
@@ -1041,8 +1045,11 @@ async function repartidor(){
     const id = b.dataset.avisar
     // Solo un pedido puede estar "en camino" a la vez para este repartidor
     await supabase.from('orders').update({ customer_stage: null }).eq('assigned_driver', session.user.id).eq('customer_stage', 'en_route')
-    await supabase.from('orders').update({ customer_stage: 'en_route', en_route_at: new Date().toISOString() }).eq('id', id)
-    const mensaje = encodeURIComponent(`Hola ${b.dataset.nombre}! Soy tu repartidor de NÓMADES 🛵 Ya estoy yendo hacia tu casa, tu pedido llega en los próximos minutos.`)
+    const { error } = await supabase.from('orders').update({ customer_stage: 'en_route', en_route_at: new Date().toISOString() }).eq('id', id)
+    if(error){ alert('No se pudo actualizar el estado: '+error.message); return }
+    const datosVehiculo = miVehiculo ? ` en mi ${miVehiculo.type==='moto'?'moto':'camioneta'} ${miVehiculo.brand||''} ${miVehiculo.model||''}${miVehiculo.color?` color ${miVehiculo.color}`:''}, patente ${miVehiculo.plate}` : ''
+    const mensaje = encodeURIComponent(`Hola ${b.dataset.nombre}! Soy ${miNombre}, tu repartidor de NÓMADES 🛵 Ya estoy yendo hacia tu casa${datosVehiculo}. Tu pedido llega en los próximos minutos.`)
+    alert('✅ Estado actualizado a "Hacia tu casa". Ahora se abre WhatsApp con el aviso.')
     window.open(`https://wa.me/54${b.dataset.tel}?text=${mensaje}`, '_blank')
     render()
   })
@@ -1665,6 +1672,7 @@ async function admin(){
             <div class="grid two">
               <div class="field"><label>Marca</label><input id="ed_veh_marca_${v.id}" value="${v.brand||''}"/></div>
               <div class="field"><label>Modelo</label><input id="ed_veh_modelo_${v.id}" value="${v.model||''}"/></div>
+              <div class="field"><label>Color</label><input id="ed_veh_color_${v.id}" value="${v.color||''}"/></div>
               <div class="field"><label>Patente</label><input id="ed_veh_patente_${v.id}" value="${v.plate}"/></div>
               <div class="field"><label>Km actuales</label><input id="ed_veh_km_${v.id}" type="number" value="${v.current_km}"/></div>
               <div class="field"><label>Intervalo de service (km)</label><input id="ed_veh_intervalo_${v.id}" type="number" value="${v.service_interval_km}"/></div>
@@ -1700,6 +1708,7 @@ async function admin(){
         <div class="field"><label>Patente</label><input id="veh_new_patente" placeholder="Ej: AB123CD"/></div>
         <div class="field"><label>Marca</label><input id="veh_new_marca" placeholder="Ej: Honda"/></div>
         <div class="field"><label>Modelo</label><input id="veh_new_modelo" placeholder="Ej: Wave 110"/></div>
+        <div class="field"><label>Color</label><input id="veh_new_color" placeholder="Ej: Negro"/></div>
       </div>
       <div class="field"><label>Foto del vehículo</label><input type="file" id="veh_new_foto" accept="image/*"/></div>
       <div class="grid two">
@@ -2077,6 +2086,7 @@ async function admin(){
     const payload = {
       brand: document.querySelector(`#ed_veh_marca_${id}`).value.trim() || null,
       model: document.querySelector(`#ed_veh_modelo_${id}`).value.trim() || null,
+      color: document.querySelector(`#ed_veh_color_${id}`).value.trim() || null,
       plate: patente,
       current_km: Number(document.querySelector(`#ed_veh_km_${id}`).value) || 0,
       service_interval_km: Number(document.querySelector(`#ed_veh_intervalo_${id}`).value) || 3000,
@@ -2115,6 +2125,7 @@ async function admin(){
       plate: patente,
       brand: document.querySelector('#veh_new_marca').value.trim() || null,
       model: document.querySelector('#veh_new_modelo').value.trim() || null,
+      color: document.querySelector('#veh_new_color').value.trim() || null,
       photo_url,
       current_km: Number(document.querySelector('#veh_new_km').value) || 0,
       last_service_km: Number(document.querySelector('#veh_new_km').value) || 0,
