@@ -20,6 +20,34 @@ function logoSVG(size){
   return `<svg width="${size}" height="${size}" viewBox="0 0 140 140" role="img" aria-label="Escudo NÓMADES"><circle cx="70" cy="70" r="66" fill="none" stroke="#2F4D2A" stroke-width="1.5"/><path d="M20 70 Q30 40 55 30 Q40 50 38 70 Q40 90 55 110 Q30 100 20 70 Z" fill="#8FAE6B"/><path d="M120 70 Q110 40 85 30 Q100 50 102 70 Q100 90 85 110 Q110 100 120 70 Z" fill="#8FAE6B"/><ellipse cx="70" cy="72" rx="20" ry="26" fill="#F5EFE0" stroke="#2F4D2A" stroke-width="1.2"/><path d="M62 48 C66 40 74 40 76 48" stroke="#2F4D2A" stroke-width="1.2" fill="none"/><rect x="35" y="98" width="70" height="16" rx="2" fill="#2F4D2A"/><text x="70" y="109" text-anchor="middle" font-size="9" fill="#F5EFE0" font-family="sans-serif" letter-spacing="1">NÓMADES</text></svg>`
 }
 
+let leafletCargando = null
+function cargarLeaflet(){
+  if(window.L) return Promise.resolve()
+  if(leafletCargando) return leafletCargando
+  leafletCargando = new Promise((resolve, reject)=>{
+    const link = document.createElement('link')
+    link.rel = 'stylesheet'
+    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+    document.head.appendChild(link)
+    const script = document.createElement('script')
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+    script.onload = ()=>resolve()
+    script.onerror = ()=>reject(new Error('No se pudo cargar el mapa'))
+    document.head.appendChild(script)
+  })
+  return leafletCargando
+}
+
+async function geocodificarDireccion(direccion){
+  try{
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ar&q=${encodeURIComponent(direccion)}`
+    const res = await fetch(url, { headers: { 'Accept-Language': 'es' } })
+    const data = await res.json()
+    if(data && data[0]) return { lat: Number(data[0].lat), lon: Number(data[0].lon) }
+  }catch(e){}
+  return null
+}
+
 function layout(content){
   const nav = session ? (current==='staff-profile-setup' ? [['logout','Salir']] : [['inicio','Inicio'],...navStaffFor(myRole),['logout','Salir']]) : [['inicio','Inicio'],['cuenta','Mi cuenta']]
   app.innerHTML = `<div class="shell"><div class="top"><div class="brand" style="display:flex;align-items:center;gap:8px">NÓMADES <span class="muted" style="font-size:12px">Huevos de libre pastoreo</span></div><div class="nav">${nav.map(([k,l])=>`<button class="btn ${current===k?'primary':'ghost'}" data-nav="${k}">${l}</button>`).join('')}</div></div>${content}${!session?`<div style="text-align:center;margin-top:24px"><a href="#" id="staff_link" class="muted" style="font-size:12px">Acceso del equipo</a></div>`:''}</div>`
@@ -125,9 +153,11 @@ function cuentaPanel(){
   <div class="card" id="card_subs"><h3>Tus suscripciones</h3>${cuenta.subscriptions.length?cuenta.subscriptions.map(s=>`<div class="row"><span>${s.egg_quantity} huevos · ${FRECUENCIAS[s.frequency]||s.frequency}${s.status==='waitlist'?' · <span class="badge" style="background:#b3841f">🕒 Lista de espera</span>':''}</span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="badge">${s.payment_status==='paid'?'✅ Pago al día':'🟡 Pago pendiente'}</span><button class="btn ghost" data-cambiar-plan="${s.id}" style="font-size:12px;padding:6px 12px">✏️ Cambiar plan</button></span></div>`).join(''):'<p class="muted">No tenés suscripciones activas.</p>'}</div>
   <div class="card" id="card_pagos"><h3>💳 Historial de pagos</h3><p class="muted">Cargando…</p></div>
   <div class="card" id="card_datos"><h3>Tus datos</h3><p>🏠 ${tipoVia} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'} (CP ${c.postal_code||'-'})</p><p>📍 Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'}</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
+  <button class="btn ghost" id="btn_ver_mapa" style="margin-bottom:10px">🗺️ Ver mapa de suscriptores</button>
   <button class="btn ghost" id="btn_logout_cuenta">Cerrar sesión</button>`)
   document.querySelector('#btn_logout_cuenta').onclick = ()=>{ cuenta=null; current='inicio'; render() }
   document.querySelector('#btn_editar_datos').onclick = ()=>editarDatosForm(c)
+  document.querySelector('#btn_ver_mapa').onclick = ()=>mapaSuscriptores()
   document.querySelectorAll('[data-cambiar-plan]').forEach(b=>b.onclick = ()=>{
     const sub = cuenta.subscriptions.find(s=>s.id===b.dataset.cambiarPlan)
     if(sub) cambiarPlanForm(sub)
@@ -135,7 +165,55 @@ function cuentaPanel(){
   cargarHistorialPagos(c)
 }
 
-async function cargarHistorialPagos(c){
+async function mapaSuscriptores(){
+  const c = cuenta.customer
+  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><button class="btn ghost" id="btn_volver_cuenta" style="padding:6px 12px">← Volver</button><h2 style="margin:0">🗺️ Suscriptores NÓMADES</h2></div>
+  <p class="muted" id="mapa_estado">Cargando mapa…</p>
+  <div id="mapa_contenedor" style="height:360px;border-radius:12px;overflow:hidden;background:#eee"></div>`)
+  document.querySelector('#btn_volver_cuenta').onclick = ()=>{ current='cuenta'; render() }
+
+  try{
+    await cargarLeaflet()
+  }catch(e){
+    document.querySelector('#mapa_estado').textContent = 'No pudimos cargar el mapa. Revisá tu conexión e intentá de nuevo.'
+    return
+  }
+
+  // Si el cliente todavía no tiene coordenadas guardadas, las geocodificamos ahora con su dirección
+  if(!c.latitude || !c.longitude){
+    const direccion = `${c.street||''} ${c.street_number||''}, ${c.city||'Rosario'}, ${c.province||'Santa Fe'}, Argentina`
+    const geo = await geocodificarDireccion(direccion)
+    if(geo){
+      c.latitude = geo.lat; c.longitude = geo.lon
+      await supabase.rpc('customer_set_location', { p_dni: c.dni, p_customer_id: c.id, p_latitude: geo.lat, p_longitude: geo.lon })
+    }
+  }
+
+  const { data: puntos } = await supabase.rpc('public_subscribers_map')
+  const lista = puntos || []
+  const estado = document.querySelector('#mapa_estado')
+  estado.textContent = `Somos ${lista.length} suscriptor${lista.length===1?'':'es'} de huevos de libre pastoreo en la zona 🐔`
+
+  const centro = (c.latitude && c.longitude) ? [c.latitude, c.longitude] : [-32.9468, -60.6393]
+  const map = L.map('mapa_contenedor').setView(centro, c.latitude ? 14 : 12)
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+  }).addTo(map)
+
+  lista.forEach(p=>{
+    if(p.latitude==null || p.longitude==null) return
+    const esVos = c.latitude && c.longitude && Math.abs(p.latitude-c.latitude)<0.0001 && Math.abs(p.longitude-c.longitude)<0.0001
+    L.circleMarker([p.latitude, p.longitude], {
+      radius: esVos ? 10 : 6,
+      color: esVos ? '#E8833A' : '#2F4D2A',
+      fillColor: esVos ? '#E8833A' : '#8FAE6B',
+      fillOpacity: 0.9,
+      weight: 2
+    }).addTo(map).bindPopup(esVos ? '📍 Vos' : `${p.first_name||'Suscriptor'} · ${p.neighborhood||''}`)
+  })
+}
+
+
   const box = document.querySelector('#card_pagos')
   const { data } = await supabase.rpc('customer_payment_history', { p_dni: c.dni, p_customer_id: c.id })
   const pagos = data || []
@@ -263,6 +341,17 @@ const ZONAS = [
   { value: 'este', label: 'Este' },
   { value: 'oeste', label: 'Oeste' }
 ]
+const ZONA_COLORES = {
+  norte: { bg:'#E3EFDA', text:'#2E5C1E' },
+  sur:   { bg:'#FBE4CC', text:'#B85C00' },
+  oeste: { bg:'#EBDCF5', text:'#6A1B9A' },
+  este:  { bg:'#FBF0C7', text:'#8A6D00' }
+}
+function zonaBadge(zona){
+  const c = ZONA_COLORES[zona] || { bg:'#eee', text:'#666' }
+  const label = zona ? zona[0].toUpperCase()+zona.slice(1) : 'Sin zona'
+  return `<span style="background:${c.bg};color:${c.text};font-size:11px;font-weight:700;padding:2px 9px;border-radius:6px;white-space:nowrap">${label}</span>`
+}
 const TIPOS_VIA_OPCIONES = [
   { value: 'calle', label: 'Calle' },
   { value: 'avenida', label: 'Avenida' },
@@ -721,9 +810,11 @@ async function fetchAdminData(){
   const zoneDrivers = Object.fromEntries((zoneDriversRaw||[]).map(z=>[z.zone,z.driver_user_id]))
   const { data: neighDriversRaw } = await supabase.from('neighborhood_drivers').select('neighborhood,driver_user_id')
   const neighDrivers = neighDriversRaw || []
-  const { data: barriosRaw } = await supabase.from('customers').select('neighborhood').not('neighborhood','is',null)
+  const { data: barriosRaw } = await supabase.from('customers').select('neighborhood,zone').not('neighborhood','is',null)
   const barrios = [...new Set((barriosRaw||[]).map(b=>b.neighborhood).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es'))
-  const { data: pedidosAsignarRaw } = await supabase.from('orders').select('id,delivery_date,status,assigned_driver,assignment_locked,customers(first_name,last_name,neighborhood,zone)').in('status',['pending','assigned','rescheduled']).order('delivery_date')
+  const barrioZonaMap = {}
+  ;(barriosRaw||[]).forEach(b=>{ if(b.neighborhood && b.zone && !barrioZonaMap[b.neighborhood]) barrioZonaMap[b.neighborhood] = b.zone })
+  const { data: pedidosAsignarRaw } = await supabase.from('orders').select('id,delivery_date,status,assigned_driver,assignment_locked,egg_quantity,customers(first_name,last_name,neighborhood,zone,street,street_number),subscriptions(frequency,plan_breakdown)').in('status',['pending','assigned','rescheduled']).order('delivery_date')
   const pedidosAsignar = pedidosAsignarRaw || []
   const { data: pagosRaw } = await supabase.from('payments').select('id,amount,expected_method,method,reconciled,created_at,customers(first_name,last_name)').order('created_at',{ascending:false}).limit(30)
   const pagos = pagosRaw || []
@@ -736,12 +827,12 @@ async function fetchAdminData(){
   const movimientosFinanzas = entriesRaw || []
   const { data: dashboardRaw } = await supabase.rpc('finance_dashboard', {})
   const dash = dashboardRaw || {}
-  return { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash }
+  return { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash }
 }
 
 async function admin(){
   if(!adminData) adminData = await fetchAdminData()
-  const { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash } = adminData
+  const { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash } = adminData
   const capacidadBase = settingsMap.default_daily_capacity_maples || '300'
   const assignmentMode = settingsMap.assignment_mode || 'zone'
   const staffMap = Object.fromEntries(staff.map(s=>[s.user_id, s.full_name||'(sin nombre)']))
@@ -795,7 +886,7 @@ async function admin(){
     <div class="group" style="margin-top:12px"><h3 style="font-size:15px">Repartidor por barrio</h3>
       ${barrios.length?barrios.map(b=>{
         const actual = neighDrivers.find(n=>n.neighborhood===b)?.driver_user_id || ''
-        return `<div class="row"><span>${b}</span><select data-barrio-driver="${b}"><option value="">— Usa la regla de zona —</option>${repartidores.map(r=>`<option value="${r.user_id}" ${actual===r.user_id?'selected':''}>${r.full_name||'(sin nombre)'}</option>`).join('')}</select></div>`
+        return `<div class="row"><span>${b} ${zonaBadge(barrioZonaMap[b])}</span><select data-barrio-driver="${b}"><option value="">— Usa la regla de zona —</option>${repartidores.map(r=>`<option value="${r.user_id}" ${actual===r.user_id?'selected':''}>${r.full_name||'(sin nombre)'}</option>`).join('')}</select></div>`
       }).join(''):'<p class="muted">Todavía no hay barrios cargados (aparecen cuando hay clientes con barrio).</p>'}
     </div>
     <button class="btn ghost" id="btn_recalcular_asignaciones" style="margin-top:12px">🔄 Recalcular asignaciones automáticas ahora</button>
@@ -807,8 +898,20 @@ async function admin(){
         if(!pedidosFiltrados.length) return `<p class="muted">${adminAsignarFecha?'No hay pedidos pendientes para esa fecha.':'No hay pedidos pendientes para asignar.'}</p>`
         return pedidosFiltrados.map(p=>{
         const c=p.customers||{}
+        const sub=p.subscriptions||{}
         const asignadoNombre = staffMap[p.assigned_driver] || '(sin asignar)'
-        return `<div class="row"><span>${c.first_name||''} ${c.last_name||''}<br><small>${c.neighborhood||'-'} · ${formatearFecha(p.delivery_date)}</small><br><small>${p.assignment_locked?'🔒 Manual':'🔄 Automático'} → <b>${asignadoNombre}</b></small></span><span style="display:flex;flex-direction:column;gap:4px;align-items:flex-end"><select data-pedido-driver="${p.id}"><option value="">— Sin asignar —</option>${repartidores.map(r=>`<option value="${r.user_id}" ${p.assigned_driver===r.user_id?'selected':''}>${r.full_name||'(sin nombre)'}</option>`).join('')}</select>${p.assignment_locked?`<button class="btn ghost" data-destrabar="${p.id}" style="font-size:11px;padding:4px 10px">Volver a automático</button>`:''}</span></div>`
+        const freqLabel = FRECUENCIAS[sub.frequency]||sub.frequency||'-'
+        const planLabel = sub.plan_breakdown && Array.isArray(sub.plan_breakdown) && sub.plan_breakdown.length
+          ? sub.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')
+          : `${p.egg_quantity||'-'} huevos`
+        return `<div class="row"><span>
+            <b>${c.first_name||''} ${c.last_name||''}</b><br>
+            <small>🏘️ ${c.neighborhood||'-'}</small><br>
+            <small>📍 ${c.street||''} ${c.street_number||''}</small><br>
+            <small>${zonaBadge(c.zone)} · ${freqLabel}</small><br>
+            <small>🥚 ${planLabel}</small><br>
+            <small>${formatearFecha(p.delivery_date)} · ${p.assignment_locked?'🔒 Manual':'🔄 Automático'} → <b>${asignadoNombre}</b></small>
+          </span><span style="display:flex;flex-direction:column;gap:4px;align-items:flex-end"><select data-pedido-driver="${p.id}"><option value="">— Sin asignar —</option>${repartidores.map(r=>`<option value="${r.user_id}" ${p.assigned_driver===r.user_id?'selected':''}>${r.full_name||'(sin nombre)'}</option>`).join('')}</select>${p.assignment_locked?`<button class="btn ghost" data-destrabar="${p.id}" style="font-size:11px;padding:4px 10px">Volver a automático</button>`:''}</span></div>`
         }).join('')
       })()}
     </div>
@@ -1173,7 +1276,7 @@ async function adminDetalle(){
       const sub = (c.subscriptions||[]).find(s=>s.status==='active') || (c.subscriptions||[])[0]
       const plan = sub? `${sub.egg_quantity} huevos · ${FRECUENCIAS[sub.frequency]||sub.frequency}` : 'Sin plan activo'
       const pago = sub? (sub.payment_status==='paid'?'✅ Al día':'🟡 Pendiente') : ''
-      return `<div class="row"><span><b>${c.first_name||''} ${c.last_name||''}</b><br><small>${c.neighborhood||'-'} · ${plan}</small><br><small>📞 ${c.phone||'-'}</small></span><span class="badge">${pago}</span></div>`
+      return `<div class="row"><span><b>${c.first_name||''} ${c.last_name||''}</b><br><small>${c.neighborhood||'-'} ${zonaBadge(c.zone)} · ${plan}</small><br><small>📞 ${c.phone||'-'}</small></span><span class="badge">${pago}</span></div>`
     }
   } else if(tipo==='pend_entrega'){
     const { data } = await supabase.from('orders').select('id,delivery_date,status,quantity_maples,customers(first_name,last_name,neighborhood)').in('status',['pending','assigned','out_for_delivery']).order('delivery_date')
@@ -1237,5 +1340,4 @@ async function init(){
     else if(!roleRow.profile_completed){ current = 'staff-profile-setup' }
   }
   render()
-}
-init()
+      }
