@@ -165,6 +165,63 @@ function cuentaPanel(){
   cargarHistorialPagos(c)
 }
 
+async function initAdminMapa(){
+  const estado = document.querySelector('#admin_mapa_estado')
+  const contenedor = document.querySelector('#admin_mapa_contenedor')
+  const sinGeoBox = document.querySelector('#admin_mapa_sin_geo')
+  if(!contenedor) return
+
+  try{ await cargarLeaflet() }
+  catch(e){ if(estado) estado.textContent = 'No pudimos cargar el mapa. Revisá tu conexión.'; return }
+
+  const { data: clientesRaw } = await supabase.from('customers').select('id,first_name,last_name,phone,neighborhood,street,street_number,zone,latitude,longitude,status').neq('status','baja')
+  const clientes = clientesRaw || []
+  const conCoords = clientes.filter(c=>c.latitude!=null && c.longitude!=null)
+  const sinCoords = clientes.filter(c=>c.latitude==null || c.longitude==null)
+
+  if(estado) estado.textContent = `${conCoords.length} de ${clientes.length} cliente(s) ubicados en el mapa.`
+
+  const centro = conCoords.length ? [conCoords[0].latitude, conCoords[0].longitude] : [-32.9468, -60.6393]
+  const map = L.map('admin_mapa_contenedor').setView(centro, conCoords.length ? 12 : 12)
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+  }).addTo(map)
+
+  const grupo = []
+  conCoords.forEach(c=>{
+    const color = (ZONA_COLORES[c.zone]||{text:'#2F4D2A'}).text
+    const marker = L.marker([c.latitude, c.longitude], {
+      draggable: true,
+      icon: L.divIcon({ className:'', html:`<div style="width:16px;height:16px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 0 2px rgba(0,0,0,0.5)"></div>`, iconSize:[16,16], iconAnchor:[8,8] })
+    }).addTo(map)
+    marker.bindPopup(`<b>${c.first_name||''} ${c.last_name||''}</b><br>${c.neighborhood||''} · ${c.street||''} ${c.street_number||''}<br>📞 ${c.phone||'-'}`)
+    marker.on('dragend', async ()=>{
+      const pos = marker.getLatLng()
+      const { data, error } = await supabase.rpc('admin_set_customer_location', { p_customer_id: c.id, p_latitude: pos.lat, p_longitude: pos.lng })
+      if(error || !data?.ok){ alert('No se pudo guardar la nueva ubicación.'); return }
+      marker.bindPopup(`<b>${c.first_name||''} ${c.last_name||''}</b><br>📍 Ubicación actualizada`).openPopup()
+    })
+    grupo.push(marker)
+  })
+  if(grupo.length>1){ map.fitBounds(L.featureGroup(grupo).getBounds().pad(0.2)) }
+
+  if(sinGeoBox){
+    sinGeoBox.innerHTML = sinCoords.length ? `<h3 style="font-size:15px">Sin ubicar todavía (${sinCoords.length})</h3>${sinCoords.map(c=>`<div class="row"><span>${c.first_name||''} ${c.last_name||''}<br><small>${c.street||''} ${c.street_number||''}, ${c.neighborhood||''}</small></span><button class="btn ghost" data-geocodificar="${c.id}" style="font-size:12px">📍 Ubicar</button></div>`).join('')}` : ''
+    sinGeoBox.querySelectorAll('[data-geocodificar]').forEach(b=>b.onclick=async()=>{
+      const cli = sinCoords.find(c=>c.id===b.dataset.geocodificar)
+      if(!cli) return
+      b.textContent = 'Buscando…'
+      const direccion = `${cli.street||''} ${cli.street_number||''}, ${cli.neighborhood||''}, Rosario, Santa Fe, Argentina`
+      const geo = await geocodificarDireccion(direccion)
+      if(!geo){ b.textContent = 'No encontrado ✏️ arrastrá manualmente'; return }
+      const { data, error } = await supabase.rpc('admin_set_customer_location', { p_customer_id: cli.id, p_latitude: geo.lat, p_longitude: geo.lon })
+      if(error || !data?.ok){ b.textContent = 'Error'; return }
+      initAdminMapa()
+    })
+  }
+}
+
 async function mapaSuscriptores(){
   const c = cuenta.customer
   layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><button class="btn ghost" id="btn_volver_cuenta" style="padding:6px 12px">← Volver</button><h2 style="margin:0">🗺️ Suscriptores NÓMADES</h2></div>
@@ -871,6 +928,13 @@ async function admin(){
     }).join(''):'<p class="muted">Todavía no agregaste personal.</p>'}</div>
   </div></div>
   <div class="card" style="padding:0;overflow:hidden;margin-top:10px">
+  ${accHead('mapa','🗺️','Mapa de clientes')}
+    <div id="admin_mapa_estado" class="muted" style="margin-bottom:8px">Cargando mapa…</div>
+    <div id="admin_mapa_contenedor" style="height:340px;border-radius:12px;overflow:hidden;background:#eee"></div>
+    <p class="muted" style="font-size:12px;margin-top:8px">🟢 Norte · 🟠 Sur · 🟣 Oeste · 🟡 Este. Si un punto está mal ubicado, mantenelo apretado y arrastralo a la posición correcta — se guarda solo.</p>
+    <div id="admin_mapa_sin_geo" style="margin-top:12px"></div>
+  </div></div>
+  <div class="card" style="padding:0;overflow:hidden;margin-top:10px">
   ${accHead('asignacion','🚚','Asignación de repartidores')}
     <p class="muted">Elegí cómo se decide quién reparte cada pedido. Podés combinar el modo automático con reasignaciones manuales puntuales.</p>
     <div class="field"><label>Modo de asignación</label>
@@ -1058,6 +1122,7 @@ async function admin(){
   if(filtroFecha) filtroFecha.onchange = (e)=>{ adminAsignarFecha = e.target.value; render() }
   const btnLimpiarFecha = document.querySelector('#btn_limpiar_fecha_asignar')
   if(btnLimpiarFecha) btnLimpiarFecha.onclick = ()=>{ adminAsignarFecha = ''; render() }
+  if(AS('mapa')) initAdminMapa()
   document.querySelector('#btn_crear_staff').onclick = async ()=>{
     const full_name = document.querySelector('#staff_new_name').value.trim()
     const role = document.querySelector('#staff_new_role').value
