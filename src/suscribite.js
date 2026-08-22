@@ -15,7 +15,7 @@ const METODOS_PAGO = [
 const state = {
   step: 1,
   planes: [],
-  cliente: { first_name:'', last_name:'', dni:'', phone:'', email:'', street:'', street_number:'', street_type:'calle', neighborhood:'', city:'', province:'', country:'Argentina', postal_code:'', zone:'', logistics_note:'' },
+  cliente: { first_name:'', last_name:'', dni:'', phone:'', email:'', street:'', street_number:'', street_type:'calle', neighborhood:'', city:'', province:'', country:'Argentina', postal_code:'', zone:'', logistics_note:'', referral_code:'' },
   plan: { carrito: {}, frequency: 'weekly', payment_method: 'cash', preferred_weekday: null },
   tieneReferencia: false,
   referencia: { full_name:'', phone:'', dni:'', relationship:'' },
@@ -138,6 +138,7 @@ function paso1(){
       <div class="grid two">${ZONAS.map(z=>`<button type="button" class="btn ${c.zone===z.value?'primary':'ghost'}" data-zone="${z.value}">${z.label}</button>`).join('')}</div>
     </div>
     <div class="field"><label>Observación para la entrega (opcional)</label><textarea id="f_note" rows="2" placeholder="Ej: portón negro, timbre 3B, entregar después de las 18hs">${c.logistics_note}</textarea></div>
+    <div class="field"><label>¿Alguien te recomendó NÓMADES? Poné su código (opcional)</label><input id="f_referral" value="${c.referral_code}" placeholder="Ej: GAST042" style="text-transform:uppercase"/></div>
     <div id="err1" class="alert danger" style="display:none"></div>
     <button class="btn primary" id="next1" style="margin-top:10px">Siguiente →</button>
   </div>`
@@ -288,7 +289,8 @@ function exito(){
     return `<div class="card"><h2>🔥 ¡Anotado en la lista!</h2><p>Sos muy pedido — por ahora no queda lugar para tu plan de <b>${total} huevos</b> (${FRECUENCIAS.find(f=>f.value===state.plan.frequency)?.label.toLowerCase()}), pero ya quedaste anotado en <b>lista de espera</b>, en orden de llegada.</p><p>Apenas se libere un cupo te contactamos, y tu <b>primera entrega va con 50% de descuento</b> como agradecimiento por tu paciencia.</p></div>`
   }
   const fecha = d?.next_delivery_date ? new Date(d.next_delivery_date+'T00:00:00').toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long'}) : ''
-  return `<div class="card"><h2>✅ ¡Listo!</h2><p>Registramos tu suscripción a <b>${total} huevos</b> (${carritoResumen()}) con entrega <b>${FRECUENCIAS.find(f=>f.value===state.plan.frequency)?.label.toLowerCase()}</b>.</p>${fecha?`<p>Tu primera entrega sería el <b>${fecha}</b>.</p>`:''}<p class="muted">Nos vamos a contactar por WhatsApp o email para coordinar el pago y confirmar la primera entrega.</p></div>`
+  return `<div class="card"><h2>✅ ¡Listo!</h2><p>Registramos tu suscripción a <b>${total} huevos</b> (${carritoResumen()}) con entrega <b>${FRECUENCIAS.find(f=>f.value===state.plan.frequency)?.label.toLowerCase()}</b>.</p>${fecha?`<p>Tu primera entrega sería el <b>${fecha}</b>.</p>`:''}${d?.referral_applied?`<div class="alert info">🎁 ¡Usaste un código de recomendación! Tu primera entrega tiene <b>50% de descuento</b>.</div>`:''}<p class="muted">Nos vamos a contactar por WhatsApp o email para coordinar el pago y confirmar la primera entrega.</p></div>
+  <div class="card"><h3>📣 Recomendá NÓMADES</h3><p>Compartí tu código con amigos y familiares — cuando se suscriban con él, vos te ganás <b>1 entrega gratis</b>.</p><div class="alert info" style="text-align:center;font-size:22px;font-weight:bold;letter-spacing:2px">${d?.referral_code||''}</div></div>`
 }
 
 function render(){
@@ -307,6 +309,8 @@ function bind(){
     })
     const noteEl = document.querySelector('#f_note')
     if(noteEl) noteEl.oninput = ()=> state.cliente.logistics_note = noteEl.value
+    const referralEl = document.querySelector('#f_referral')
+    if(referralEl) referralEl.oninput = ()=> state.cliente.referral_code = referralEl.value.trim().toUpperCase()
     document.querySelectorAll('[data-zone]').forEach(b=> b.onclick = ()=>{ state.cliente.zone = b.dataset.zone; render() })
     document.querySelectorAll('[data-street-type]').forEach(b=> b.onclick = ()=>{ state.cliente.street_type = b.dataset.streetType; render() })
     const provinceEl = document.querySelector('#f_province')
@@ -373,7 +377,8 @@ async function enviar(){
       neighborhood: c.neighborhood.trim(), city: c.city,
       province: c.province, country: 'Argentina', postal_code: c.postal_code.trim() || '',
       zone: c.zone || '',
-      logistics_note: c.logistics_note.trim() || ''
+      logistics_note: c.logistics_note.trim() || '',
+      referral_code: (c.referral_code||'').trim().toUpperCase() || ''
     }
     let receiverPayload = null
     if(state.tieneReferencia){
