@@ -1030,9 +1030,9 @@ async function repartidor(){
   ${contenido}`)
 
   document.querySelector('#rep_ruta_fecha').onchange = (e)=>{ repRutaFecha = e.target.value; render() }
-  document.querySelector('#btn_ruta_dia_ant').onclick = ()=>{ const d=new Date(fecha+'T00:00:00'); d.setDate(d.getDate()-1); repRutaFecha=d.toISOString().slice(0,10); render() }
-  document.querySelector('#btn_ruta_dia_hoy').onclick = ()=>{ repRutaFecha = new Date().toISOString().slice(0,10); render() }
-  document.querySelector('#btn_ruta_dia_sig').onclick = ()=>{ const d=new Date(fecha+'T00:00:00'); d.setDate(d.getDate()+1); repRutaFecha=d.toISOString().slice(0,10); render() }
+  document.querySelector('#btn_ruta_dia_ant').onclick = ()=>{ alert('Botón detectado ✅'); try{ const d=new Date(fecha+'T00:00:00'); d.setDate(d.getDate()-1); repRutaFecha=d.toISOString().slice(0,10); render() }catch(err){ alert('Error al cambiar de día: '+(err.message||err)) } }
+  document.querySelector('#btn_ruta_dia_hoy').onclick = ()=>{ alert('Botón detectado ✅'); try{ repRutaFecha = new Date().toISOString().slice(0,10); render() }catch(err){ alert('Error al ir a hoy: '+(err.message||err)) } }
+  document.querySelector('#btn_ruta_dia_sig').onclick = ()=>{ alert('Botón detectado ✅'); try{ const d=new Date(fecha+'T00:00:00'); d.setDate(d.getDate()+1); repRutaFecha=d.toISOString().slice(0,10); render() }catch(err){ alert('Error al cambiar de día: '+(err.message||err)) } }
   document.querySelectorAll('[data-delivery]').forEach(b=>b.onclick=()=>openDelivery(b.dataset.delivery))
   document.querySelectorAll('[data-maps]').forEach(b=>b.onclick=()=>{
     window.open('https://www.google.com/maps/search/?api=1&query='+b.dataset.maps,'_blank')
@@ -1048,11 +1048,11 @@ async function repartidor(){
   })
   document.querySelector('#btn_ver_mapa_repartidor').onclick = ()=>mapaRepartidor()
   document.querySelector('#btn_sali_a_repartir').onclick = async ()=>{
-    if(!confirm('¿Marcar como "En reparto" todos tus pedidos pendientes de hoy?'))return
-    const hoyStr = new Date().toISOString().slice(0,10)
-    const { error } = await supabase.from('orders').update({ status: 'out_for_delivery', out_for_delivery_at: new Date().toISOString() }).eq('assigned_driver', session.user.id).eq('delivery_date', hoyStr).in('status',['pending','assigned'])
+    if(!confirm(`¿Marcar como "En reparto" todos tus pedidos pendientes del ${subtitulo}?`))return
+    const { data, error } = await supabase.from('orders').update({ status: 'out_for_delivery', out_for_delivery_at: new Date().toISOString() }).eq('assigned_driver', session.user.id).eq('delivery_date', fecha).in('status',['pending','assigned']).select('id')
     if(error){ alert('Error: '+error.message); return }
-    alert('✅ Marcado. Tus clientes de hoy ya ven "En reparto" en su cuenta.')
+    if(!data || !data.length){ alert(`⚠️ No había pedidos pendientes para marcar en el ${subtitulo}. Revisá que estés parado en la fecha correcta arriba.`); return }
+    alert(`✅ Se marcaron ${data.length} pedido(s) como "En reparto". Tus clientes de ese día ya lo ven en su cuenta.`)
     render()
   }
  } catch(err) {
