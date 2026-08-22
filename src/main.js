@@ -444,6 +444,18 @@ function zonaBadge(zona){
   const label = zona ? zona[0].toUpperCase()+zona.slice(1) : 'Sin zona'
   return `<span style="background:${c.bg};color:${c.text};font-size:11px;font-weight:700;padding:2px 9px;border-radius:6px;white-space:nowrap">${label}</span>`
 }
+
+// --- Sistema visual premium para el panel de administración ---
+function pCard(inner, extraStyle){ return `<div style="background:#FFFFFF;border-radius:14px;border:1px solid #E3DCC8;padding:14px 16px;margin-bottom:10px;${extraStyle||''}">${inner}</div>` }
+function pPill(text, bg, color){ return `<span style="background:${bg||'#EAF0DC'};color:${color||'#2F4D2A'};font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap;display:inline-block">${text}</span>` }
+function pAvatar(nombre, size){ const s=size||40; const inicial=(nombre||'?').trim().charAt(0).toUpperCase(); return `<div style="width:${s}px;height:${s}px;border-radius:50%;background:#2F4D2A;color:#F5EFE0;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:${Math.round(s*0.4)}px;flex-shrink:0">${inicial}</div>` }
+function pBar(pct, colorOk, colorWarn, warn){ const p=Math.max(0,Math.min(100,pct)); return `<div style="height:6px;background:#E3DCC8;border-radius:3px;overflow:hidden;margin-top:4px"><div style="height:100%;width:${p}%;background:${warn?(colorWarn||'#E8833A'):(colorOk||'#8FAE6B')};border-radius:3px"></div></div>` }
+function pBtn(icon, label, attrs, variant){
+  const styles = { primary:'background:#2F4D2A;color:#F5EFE0;border:none', ghost:'background:#FFFFFF;color:#2F4D2A;border:1px solid #E3DCC8', danger:'background:#FFFFFF;color:#B03A2E;border:1px solid #E3DCC8' }
+  return `<button ${attrs} style="flex:1;${styles[variant||'ghost']};border-radius:10px;padding:9px 4px;font-size:11px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:0">${icon}<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</span></button>`
+}
+function pBtnRow(buttons){ return `<div style="display:flex;gap:8px;margin-top:10px">${buttons.join('')}</div>` }
+
 const TIPOS_VIA_OPCIONES = [
   { value: 'calle', label: 'Calle' },
   { value: 'avenida', label: 'Avenida' },
@@ -807,6 +819,7 @@ async function repartidor(){
 let repMapaFecha = null
 let repMostrarProyeccion = false
 let statsVehiculoActual = null
+let vehiculoEditando = null
 
 async function verEstadisticasVehiculo(v){
   statsVehiculoActual = v
@@ -1151,8 +1164,8 @@ async function admin(){
   const pendientesDePago = subs.filter(s=>s.payment_status==='pending')
   const rolLabel = {admin:'Administrador',campo:'Personal de campo',repartidor:'Repartidor'}
   const AS = (id)=> adminOpenSection===id
-  const accHead = (id, icon, titulo, badge)=> `<button type="button" class="acc-header" data-acc="${id}" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:14px 16px;cursor:pointer;gap:10px"><span style="font-size:16px">${icon}</span><span style="flex:1;font-weight:600;font-size:15px">${titulo}</span>${badge?`<span class="badge">${badge}</span>`:''}<span class="muted" style="font-size:13px">${AS(id)?'▲':'▼'}</span></button><div style="display:${AS(id)?'block':'none'};padding:0 16px 16px 16px">`
-  const statCard = (id,label,value)=> `<div class="card" data-stat="${id}" style="cursor:pointer;flex:0 0 auto;min-width:104px;padding:10px 12px;display:flex;flex-direction:column;gap:3px"><span class="muted" style="font-size:11.5px;line-height:1.25">${label}</span><span style="font-size:19px;font-weight:700;line-height:1.1">${value}</span></div>`
+  const accHead = (id, icon, titulo, badge)=> `<button type="button" class="acc-header" data-acc="${id}" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:14px 16px;cursor:pointer;gap:10px;background:${AS(id)?'#F5EFE0':'transparent'}"><span style="width:32px;height:32px;border-radius:9px;background:#EAF0DC;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">${icon}</span><span style="flex:1;font-weight:700;font-size:14.5px;color:#2F4D2A">${titulo}</span>${badge?pPill(badge,'#FBE4CC','#B85C00'):''}<span style="font-size:13px;color:#8A8570">${AS(id)?'▲':'▼'}</span></button><div style="display:${AS(id)?'block':'none'};padding:4px 16px 16px 16px">`
+  const statCard = (id,label,value)=> `<div data-stat="${id}" style="cursor:pointer;flex:0 0 auto;min-width:96px;background:#2F4D2A;border-radius:14px;padding:10px 14px;display:flex;flex-direction:column;gap:2px"><span style="color:#C9D8B0;font-size:11px;line-height:1.25">${label}</span><span style="color:#F5EFE0;font-size:20px;font-weight:700;line-height:1.15">${value}</span></div>`
   layout(`<h2>Panel de administración</h2>
   <div style="overflow-x:auto;display:flex;gap:8px;padding-bottom:4px">
     ${statCard('clientes','Clientes',customers.length)}
@@ -1162,7 +1175,7 @@ async function admin(){
     ${statCard('incidencias','Incidencias',count('incident'))}
     ${statCard('reprogramados','Reprogramados',count('rescheduled'))}
   </div>
-  <div class="card" style="padding:0;overflow:hidden;margin-top:14px">
+  <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:14px">
   ${accHead('personal','👥','Gestión de personal')}
     <div class="grid two">
       <div class="field"><label>Nombre</label><input id="staff_new_name"/></div>
@@ -1173,17 +1186,26 @@ async function admin(){
     <div id="codigo_generado" style="margin-top:10px"></div>
     <div style="margin-top:16px">${staff.length?staff.map(s=>{
       const esVos = session && s.user_id === session.user.id
-      return `<div class="row"><span>${s.full_name||'(sin nombre)'} <span class="badge">${rolLabel[s.role]||s.role}</span>${esVos?' <span class="badge" style="background:var(--accent)">Vos</span>':''}</span><span>${esVos?'<span class="muted" style="font-size:12px">Para cambiar tu propio código, cerrá sesión y usá "Acceso del equipo" con tu código actual</span>':`<button class="btn ghost" data-reset="${s.user_id}">🔄 Nuevo código</button> <button class="btn ghost" data-revoke="${s.user_id}">❌ Revocar</button>`}</span></div>`
+      return pCard(`
+        <div style="display:flex;align-items:center;gap:10px">
+          ${pAvatar(s.full_name)}
+          <div style="flex:1">
+            <div style="font-weight:700;color:#2F4D2A">${s.full_name||'(sin nombre)'}</div>
+            <div style="display:flex;gap:6px;margin-top:3px">${pPill(rolLabel[s.role]||s.role)}${esVos?pPill('Vos','#2F4D2A','#F5EFE0'):''}</div>
+          </div>
+        </div>
+        ${esVos?`<p class="muted" style="font-size:12px;margin-top:10px">Para cambiar tu propio código, cerrá sesión y usá "Acceso del equipo" con tu código actual.</p>`:pBtnRow([pBtn('🔄','Nuevo código',`data-reset="${s.user_id}"`,'ghost'), pBtn('❌','Revocar',`data-revoke="${s.user_id}"`,'danger')])}
+      `)
     }).join(''):'<p class="muted">Todavía no agregaste personal.</p>'}</div>
   </div></div>
-  <div class="card" style="padding:0;overflow:hidden;margin-top:10px">
+  <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('mapa','🗺️','Mapa de clientes')}
     <div id="admin_mapa_estado" class="muted" style="margin-bottom:8px">Cargando mapa…</div>
     <div id="admin_mapa_contenedor" style="height:340px;border-radius:12px;overflow:hidden;background:#eee"></div>
     <p class="muted" style="font-size:12px;margin-top:8px">🟢 Norte · 🟠 Sur · 🟣 Oeste · 🟡 Este. Si un punto está mal ubicado, mantenelo apretado y arrastralo a la posición correcta — se guarda solo.</p>
     <div id="admin_mapa_sin_geo" style="margin-top:12px"></div>
   </div></div>
-  <div class="card" style="padding:0;overflow:hidden;margin-top:10px">
+  <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('asignacion','🚚','Asignación de repartidores')}
     <p class="muted">Elegí cómo se decide quién reparte cada pedido. Podés combinar el modo automático con reasignaciones manuales puntuales.</p>
     <div class="field"><label>Modo de asignación</label>
@@ -1230,7 +1252,7 @@ async function admin(){
       })()}
     </div>
   </div></div>
-  <div class="card" style="padding:0;overflow:hidden;margin-top:10px">
+  <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('vehiculos','🏍️','Vehículos y mantenimiento')}
     ${(()=>{
       const totalAlertas = (alertas.service?.length||0)+(alertas.vtv?.length||0)+(alertas.seguro?.length||0)+(alertas.carnet?.length||0)
@@ -1243,24 +1265,62 @@ async function admin(){
       html += '</div>'
       return html
     })()}
-    <div class="group" style="margin-top:12px"><h3 style="font-size:15px">Flota</h3>
+    <div style="margin-top:12px"><h3 style="font-size:15px;color:#2F4D2A">Flota</h3>
       ${vehiculos.length? vehiculos.map(v=>{
         const staffAsig = staff.find(s=>s.user_id===v.assigned_to)
         const proximoService = v.last_service_km + v.service_interval_km
         const faltan = proximoService - v.current_km
-        return `<div class="row" style="align-items:flex-start">
-          <span>${v.photo_url?`<img src="${v.photo_url}" style="width:64px;height:64px;object-fit:cover;border-radius:8px;margin-bottom:6px"/><br>`:''}
-            <b>${v.type==='moto'?'🏍️':'🚚'} ${v.brand||''} ${v.model||''}</b> <span class="badge">${v.plate}</span><br>
-            <small>${Math.round(v.current_km)} km · próximo service en ${Math.max(0,Math.round(faltan))} km${faltan<=500?' ⚠️':''}</small><br>
-            <small>Asignado a: ${staffAsig?.full_name||'— Sin asignar —'}</small><br>
-            <small>VTV: ${v.vtv_expiry||'-'} · Seguro: ${v.insurance_expiry||'-'}</small>
-          </span>
-          <span style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
-            <select data-vehiculo-asignar="${v.id}"><option value="">— Sin asignar —</option>${staff.filter(s=>s.role==='repartidor'||s.role==='admin').map(s=>`<option value="${s.user_id}" ${v.assigned_to===s.user_id?'selected':''}>${s.full_name||'(sin nombre)'}</option>`).join('')}</select>
-            <button class="btn ghost" data-marcar-service="${v.id}" style="font-size:11px;padding:4px 10px">✅ Service hecho</button>
-            <button class="btn ghost" data-ver-stats="${v.id}" style="font-size:11px;padding:4px 10px">📊 Estadísticas</button>
-          </span>
-        </div>`
+        const pctRecorrido = v.service_interval_km>0 ? Math.max(0,Math.min(100,((v.current_km-v.last_service_km)/v.service_interval_km)*100)) : 0
+        const alertaService = faltan<=500
+        const editando = vehiculoEditando === v.id
+        const vtvPronto = v.vtv_expiry && new Date(v.vtv_expiry) <= new Date(Date.now()+30*86400000)
+        const seguroPronto = v.insurance_expiry && new Date(v.insurance_expiry) <= new Date(Date.now()+30*86400000)
+        return pCard(`
+          ${v.photo_url?`<div style="position:relative;margin:-14px -16px 12px"><img src="${v.photo_url}" style="width:100%;height:150px;object-fit:cover;display:block;border-radius:14px 14px 0 0"/><div style="position:absolute;top:10px;left:10px;background:#2F4D2A;color:#F5EFE0;font-size:12px;font-weight:700;padding:4px 10px;border-radius:20px">${v.plate}</div></div>`:`<div style="margin-bottom:8px">${pPill(v.plate)}</div>`}
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px">
+            <span style="font-size:17px;font-weight:700;color:#2F4D2A">${v.brand||''} ${v.model||''}</span>
+            <span style="font-size:12px;color:#8A8570">${v.type==='moto'?'🏍️ Moto':'🚚 Camioneta'}</span>
+          </div>
+          <div style="font-size:12px;color:#8A8570;margin-bottom:12px">${staffAsig?`Asignada a ${staffAsig.full_name}`:'Sin asignar'}</div>
+          <div style="margin-bottom:12px">
+            <div style="display:flex;justify-content:space-between;font-size:12px;color:#5F5E5A;margin-bottom:4px">
+              <span>${Math.round(v.current_km)} km</span>
+              <span style="color:${alertaService?'#B85C00':'#2F4D2A'};font-weight:600">${alertaService?'⚠️ ':''}Próximo service en ${Math.max(0,Math.round(faltan))} km</span>
+            </div>
+            ${pBar(pctRecorrido, '#8FAE6B', '#E8833A', alertaService)}
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:8px">
+            <div style="flex:1;background:#F5EFE0;border-radius:10px;padding:8px 10px">
+              <div style="font-size:11px;color:#8A8570">VTV</div>
+              <div style="font-size:13px;font-weight:600;color:${vtvPronto?'#B85C00':'#2F4D2A'}">${v.vtv_expiry||'-'}${vtvPronto?' ⚠️':''}</div>
+            </div>
+            <div style="flex:1;background:#F5EFE0;border-radius:10px;padding:8px 10px">
+              <div style="font-size:11px;color:#8A8570">Seguro</div>
+              <div style="font-size:13px;font-weight:600;color:${seguroPronto?'#B85C00':'#2F4D2A'}">${v.insurance_expiry||'-'}${seguroPronto?' ⚠️':''}</div>
+            </div>
+          </div>
+          <select data-vehiculo-asignar="${v.id}" style="width:100%;margin-bottom:8px"><option value="">— Sin asignar —</option>${staff.filter(s=>s.role==='repartidor'||s.role==='admin').map(s=>`<option value="${s.user_id}" ${v.assigned_to===s.user_id?'selected':''}>${s.full_name||'(sin nombre)'}</option>`).join('')}</select>
+          ${pBtnRow([
+            pBtn('📊','Estadísticas',`data-ver-stats="${v.id}"`,'primary'),
+            pBtn('✏️',editando?'Cerrar':'Editar',`data-editar-vehiculo="${v.id}"`,'ghost'),
+            pBtn('✅','Service',`data-marcar-service="${v.id}"`,'ghost'),
+            pBtn('🗑️','Eliminar',`data-eliminar-vehiculo="${v.id}"`,'danger')
+          ])}
+          ${editando?`<div style="margin-top:12px;border-top:1px solid #E3DCC8;padding-top:12px">
+            <div class="grid two">
+              <div class="field"><label>Marca</label><input id="ed_veh_marca_${v.id}" value="${v.brand||''}"/></div>
+              <div class="field"><label>Modelo</label><input id="ed_veh_modelo_${v.id}" value="${v.model||''}"/></div>
+              <div class="field"><label>Patente</label><input id="ed_veh_patente_${v.id}" value="${v.plate}"/></div>
+              <div class="field"><label>Km actuales</label><input id="ed_veh_km_${v.id}" type="number" value="${v.current_km}"/></div>
+              <div class="field"><label>Intervalo de service (km)</label><input id="ed_veh_intervalo_${v.id}" type="number" value="${v.service_interval_km}"/></div>
+              <div class="field"><label>Vencimiento VTV</label><input id="ed_veh_vtv_${v.id}" type="date" value="${v.vtv_expiry||''}"/></div>
+              <div class="field"><label>Vencimiento seguro</label><input id="ed_veh_seguro_${v.id}" type="date" value="${v.insurance_expiry||''}"/></div>
+            </div>
+            <div class="field"><label>Cambiar foto (opcional)</label><input type="file" id="ed_veh_foto_${v.id}" accept="image/*"/></div>
+            <div id="err_editar_veh_${v.id}" class="alert danger" style="display:none"></div>
+            <button class="btn primary" data-guardar-vehiculo="${v.id}" style="width:100%">💾 Guardar cambios</button>
+          </div>`:''}
+        `)
       }).join('') : '<p class="muted">Todavía no cargaste vehículos.</p>'}
     </div>
     <div class="group" style="margin-top:16px"><h3 style="font-size:15px">➕ Agregar vehículo</h3>
@@ -1285,7 +1345,7 @@ async function admin(){
       ${staff.filter(s=>s.role==='repartidor'||s.role==='admin').map(s=>`<div class="row"><span>${s.full_name||'(sin nombre)'}</span><span style="display:flex;gap:6px;align-items:center"><input type="date" id="carnet_${s.user_id}" value="${s.license_expiry||''}" style="width:150px"/><button class="btn ghost" data-guardar-carnet="${s.user_id}" style="font-size:12px">💾</button></span></div>`).join('')}
     </div>
   </div></div>
-  <div class="card" style="padding:0;overflow:hidden;margin-top:10px">
+  <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('insumos','🧺','Compras e insumos')}
     <div class="grid two">
       <div class="field"><label>Producto</label><input id="prod_new_name" placeholder="Ej: Maíz"/></div>
@@ -1307,7 +1367,7 @@ async function admin(){
       }).join('') : '<p class="muted">Sin movimientos todavía.</p>'}
     </div>
   </div></div>
-  <div class="card" style="padding:0;overflow:hidden;margin-top:10px">
+  <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('tamanos','🥚','Tamaños de maple')}
     <p class="muted">Estos son los tamaños que el cliente puede combinar en su plan. Agregá, editá el precio o desactivá los que no quieras ofrecer, sin tocar código.</p>
     ${planPrices.length? planPrices.map(pp=>`<div class="row"><span><b>${pp.egg_quantity} huevos</b>${!pp.active?' · <span class="badge">Inactivo</span>':''}</span><span style="display:flex;gap:6px;align-items:center"><input type="number" min="0" step="1" value="${pp.price}" id="pp_price_${pp.id}" style="width:90px"/><button class="btn ghost" data-pp-save="${pp.id}">💾</button><button class="btn ghost" data-pp-toggle="${pp.id}" data-pp-active="${pp.active}">${pp.active?'Desactivar':'Activar'}</button></span></div>`).join('') : '<p class="muted">Todavía no cargaste tamaños.</p>'}
@@ -1318,7 +1378,7 @@ async function admin(){
     <button class="btn primary" id="btn_agregar_tamano">➕ Agregar tamaño</button>
     <div id="err_tamano" class="alert danger" style="display:none;margin-top:8px"></div>
   </div></div>
-  <div class="card" style="padding:0;overflow:hidden;margin-top:10px">
+  <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('capacidad','📅','Capacidad y lista de espera')}
     <div class="field"><label>Capacidad base diaria (en huevos), por si todavía no hay producción cargada para estimar</label><input id="cap_base" type="number" min="0" value="${capacidadBase}"/></div>
     <button class="btn ghost" id="btn_guardar_capacidad">Guardar capacidad base</button>
@@ -1331,7 +1391,7 @@ async function admin(){
       }).join('') : '<p class="muted">Nadie en lista de espera por ahora 🎉</p>'}
     </div>
   </div></div>
-  <div class="card" style="padding:0;overflow:hidden;margin-top:10px">
+  <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('cobros','💳','Datos para cobros digitales')}
     <p class="muted">Esto se le muestra al repartidor cuando un cliente paga digital, para que pueda copiarlo y compartirlo. Editalo cuando quieras (cambio de banco, de cuenta, etc.).</p>
     <div class="group"><h3 style="font-size:15px">🏦 Transferencia bancaria</h3>
@@ -1350,7 +1410,7 @@ async function admin(){
     </div>
     <button class="btn ghost" id="btn_guardar_pago_config">Guardar datos de cobro</button>
   </div></div>
-  <div class="card" style="padding:0;overflow:hidden;margin-top:10px">
+  <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('rendicion','🧾','Rendición y conciliación')}
     ${(()=>{
       const hoy = new Date().toISOString().slice(0,10)
@@ -1367,7 +1427,7 @@ async function admin(){
       }).join('') : '<p class="muted">Todavía no hay pagos registrados.</p>'}
     </div>
   </div></div>
-  <div class="card" style="padding:0;overflow:hidden;margin-top:10px">
+  <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('finanzas','💰','Finanzas')}
     <div class="grid two">
       <div class="card stat">Ventas (30 días)<b>$${Number(dash.ventas||0).toLocaleString('es-AR')}</b></div>
@@ -1441,6 +1501,45 @@ async function admin(){
   document.querySelectorAll('[data-ver-stats]').forEach(b=>b.onclick=()=>{
     const v = vehiculos.find(x=>x.id===b.dataset.verStats)
     verEstadisticasVehiculo(v)
+  })
+  document.querySelectorAll('[data-editar-vehiculo]').forEach(b=>b.onclick=()=>{
+    vehiculoEditando = vehiculoEditando===b.dataset.editarVehiculo ? null : b.dataset.editarVehiculo
+    render()
+  })
+  document.querySelectorAll('[data-eliminar-vehiculo]').forEach(b=>b.onclick=async()=>{
+    if(!confirm('¿Eliminar este vehículo? También se borra su historial de cargas de combustible. Esta acción no se puede deshacer.'))return
+    const { error } = await supabase.from('vehicles').delete().eq('id', b.dataset.eliminarVehiculo)
+    if(error){ alert('Error: '+error.message); return }
+    adminData = null; render()
+  })
+  document.querySelectorAll('[data-guardar-vehiculo]').forEach(b=>b.onclick=async()=>{
+    const id = b.dataset.guardarVehiculo
+    const box = document.querySelector(`#err_editar_veh_${id}`)
+    const patente = document.querySelector(`#ed_veh_patente_${id}`).value.trim()
+    if(!patente){ box.textContent='La patente no puede quedar vacía.'; box.style.display='block'; return }
+    let photo_url = undefined
+    const fotoFile = document.querySelector(`#ed_veh_foto_${id}`).files[0]
+    if(fotoFile){
+      const path = `${Date.now()}_${fotoFile.name}`
+      const { error: upErr } = await supabase.storage.from('vehicle-photos').upload(path, fotoFile)
+      if(upErr){ box.textContent='No se pudo subir la foto: '+upErr.message; box.style.display='block'; return }
+      const { data: pub } = supabase.storage.from('vehicle-photos').getPublicUrl(path)
+      photo_url = pub.publicUrl
+    }
+    const payload = {
+      brand: document.querySelector(`#ed_veh_marca_${id}`).value.trim() || null,
+      model: document.querySelector(`#ed_veh_modelo_${id}`).value.trim() || null,
+      plate: patente,
+      current_km: Number(document.querySelector(`#ed_veh_km_${id}`).value) || 0,
+      service_interval_km: Number(document.querySelector(`#ed_veh_intervalo_${id}`).value) || 3000,
+      vtv_expiry: document.querySelector(`#ed_veh_vtv_${id}`).value || null,
+      insurance_expiry: document.querySelector(`#ed_veh_seguro_${id}`).value || null
+    }
+    if(photo_url !== undefined) payload.photo_url = photo_url
+    const { error } = await supabase.from('vehicles').update(payload).eq('id', id)
+    if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
+    vehiculoEditando = null
+    adminData = null; render()
   })
   document.querySelector('#btn_crear_vehiculo').onclick = async ()=>{
     const box = document.querySelector('#err_vehiculo')
