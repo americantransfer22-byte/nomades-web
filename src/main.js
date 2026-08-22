@@ -144,15 +144,35 @@ function formatearFecha(fechaStr){
   return texto.charAt(0).toUpperCase()+texto.slice(1)
 }
 
+function fechasDelMesParaSuscripcion(fechaInicial, frecuencia){
+  if(!fechaInicial) return []
+  const hoy = new Date(); hoy.setHours(0,0,0,0)
+  const finMes = new Date(hoy.getFullYear(), hoy.getMonth()+1, 0)
+  let cursor = fechaInicial
+  const fechas = []
+  let i = 0
+  while(i<40){
+    const d = new Date(cursor+'T00:00:00')
+    if(d > finMes) break
+    if(d >= hoy) fechas.push(cursor)
+    cursor = proximaFechaProyectada(cursor, frecuencia)
+    i++
+  }
+  return fechas
+}
+
 function cuentaPanel(){
   const c = cuenta.customer
   const next = cuenta.next_order
   const tipoVia = TIPOS_VIA[c.street_type] || 'Calle'
   const hoy = new Date().toISOString().slice(0,10)
   const esHoy = next && next.delivery_date === hoy
+  const subActiva = cuenta.subscriptions.find(s=>s.status==='active') || cuenta.subscriptions[0]
+  const fechasMes = subActiva && next ? fechasDelMesParaSuscripcion(next.delivery_date, subActiva.frequency) : []
   layout(`<h2>👤 Hola, ${c.first_name}</h2>
   <div id="card_hoy_banner"></div>
   <div class="card"><h3>Tu próximo pedido</h3>${next?`<div class="row"><span>${formatearFecha(next.delivery_date)}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div><p>${next.quantity_maples||''} maple(s)</p>${next.payment_method?`<div class="alert info">💡 Recordá: el pago es en <b>${METODOS_PAGO_LABEL[next.payment_method]||next.payment_method}</b>.</div>`:''}`:'<p class="muted">No tenés entregas próximas.</p>'}</div>
+  ${fechasMes.length?`<div class="card"><h3>📅 Tus entregas este mes</h3>${fechasMes.map((f,i)=>`<div class="row"><span>${formatearFecha(f)}</span>${i===0?'<span class="badge">Confirmada</span>':'<span class="muted" style="font-size:12px">Estimada</span>'}</div>`).join('')}<p class="muted" style="font-size:12px;margin-top:8px">Solo la primera fecha está confirmada como pedido. Las demás son estimadas según tu frecuencia y pueden moverse un poco.</p></div>`:''}
   <div class="card" id="card_subs"><h3>Tus suscripciones</h3>${cuenta.subscriptions.length?cuenta.subscriptions.map(s=>`<div class="row"><span>${s.egg_quantity} huevos · ${FRECUENCIAS[s.frequency]||s.frequency}${s.status==='waitlist'?' · <span class="badge" style="background:#b3841f">🕒 Lista de espera</span>':''}</span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="badge">${s.payment_status==='paid'?'✅ Pago al día':'🟡 Pago pendiente'}</span><button class="btn ghost" data-cambiar-plan="${s.id}" style="font-size:12px;padding:6px 12px">✏️ Cambiar plan</button></span></div>`).join(''):'<p class="muted">No tenés suscripciones activas.</p>'}</div>
   <div class="card" id="card_pagos"><h3>💳 Historial de pagos</h3><p class="muted">Cargando…</p></div>
   <div class="card" id="card_repartidor"><h3>🚚 Tu repartidor</h3><p class="muted">Cargando…</p></div>
