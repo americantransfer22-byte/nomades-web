@@ -25,6 +25,7 @@ const state = {
   exitoData: null,
   localidades: [],
   localidadesLoading: false,
+  localidadesError: false,
   disponibilidad: null,
   disponibilidadLoading: false,
   alternativas: null
@@ -90,15 +91,20 @@ const PROVINCIAS = [
 ]
 
 async function cargarLocalidades(provincia){
-  state.localidadesLoading = true; state.localidades = []; render()
+  state.localidadesLoading = true; state.localidades = []; state.localidadesError = false; render()
   try{
     const url = `https://apis.datos.gob.ar/georef/api/localidades?provincia=${encodeURIComponent(provincia)}&campos=nombre&max=5000`
-    const res = await fetch(url)
+    const controller = new AbortController()
+    const timeoutId = setTimeout(()=>controller.abort(), 8000)
+    const res = await fetch(url, { signal: controller.signal })
+    clearTimeout(timeoutId)
     const data = await res.json()
     const nombres = [...new Set((data.localidades||[]).map(l=>l.nombre))].sort((a,b)=>a.localeCompare(b,'es'))
     state.localidades = nombres
+    if(!nombres.length) state.localidadesError = true
   }catch(e){
     state.localidades = []
+    state.localidadesError = true
   }
   state.localidadesLoading = false; render()
 }
@@ -131,7 +137,9 @@ function paso1(){
       <div class="field"><label>Localidad *</label><select id="f_city" ${!c.province || state.localidadesLoading ? 'disabled':''}>
         <option value="">${state.localidadesLoading?'Cargando localidades…':(c.province?'Seleccioná tu localidad':'Elegí primero la provincia')}</option>
         ${state.localidades.map(l=>`<option value="${l}" ${c.city===l?'selected':''}>${l}</option>`).join('')}
-      </select></div>
+      </select>
+      ${state.localidadesError && !state.localidadesLoading ? `<div class="alert danger" style="margin-top:6px;font-size:12px">No pudimos cargar las localidades (puede ser algo momentáneo del servicio del gobierno). <button type="button" class="btn ghost" id="btn_reintentar_localidades" style="margin-top:6px;padding:6px 12px;font-size:12px">🔄 Reintentar</button></div>` : ''}
+      </div>
       <div class="field"><label>Código postal</label><input id="f_postal_code" value="${c.postal_code}"/></div>
     </div>
     <div class="field"><label>Zona *</label>
@@ -322,6 +330,8 @@ function bind(){
     }
     const cityEl = document.querySelector('#f_city')
     if(cityEl) cityEl.onchange = ()=> state.cliente.city = cityEl.value
+    const btnReintentar = document.querySelector('#btn_reintentar_localidades')
+    if(btnReintentar) btnReintentar.onclick = ()=>{ if(c.province) cargarLocalidades(c.province) }
     document.querySelector('#next1').onclick = ()=>{
       const err = validarPaso1()
       const box = document.querySelector('#err1')
