@@ -937,6 +937,7 @@ async function pedidos(){
 let repRutaFecha = null
 
 async function repartidor(){
+ try{
   if(!repRutaFecha) repRutaFecha = new Date().toISOString().slice(0,10)
   const fecha = repRutaFecha
   const hoy = new Date().toISOString().slice(0,10)
@@ -1054,6 +1055,12 @@ async function repartidor(){
     alert('✅ Marcado. Tus clientes de hoy ya ven "En reparto" en su cuenta.')
     render()
   }
+ } catch(err) {
+  app.innerHTML = `<div class="shell"><div class="alert danger" style="margin-top:20px"><b>⚠️ Error al cargar la ruta</b><br>Mandale esto a Claude:<br><code style="font-size:11px;word-break:break-all">${(err && err.message) || err}</code></div><button class="btn ghost" id="btn_volver_error" style="margin-top:12px">← Volver a Inicio</button></div>`
+  const b = document.querySelector('#btn_volver_error')
+  if(b) b.onclick = ()=>{ current='inicio'; render() }
+  console.error(err)
+ }
 }
 
 let repMapaFecha = null
