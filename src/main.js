@@ -715,34 +715,97 @@ async function repartidor(){
   document.querySelector('#btn_ver_mapa_repartidor').onclick = ()=>mapaRepartidor()
 }
 
+let repMapaFecha = null
+let repMostrarProyeccion = false
+
+function proximaFechaProyectada(fecha, frecuencia){
+  const d = new Date(fecha+'T00:00:00')
+  if(frecuencia==='weekly') d.setDate(d.getDate()+7)
+  else if(frecuencia==='biweekly') d.setDate(d.getDate()+14)
+  else if(frecuencia==='monthly') d.setMonth(d.getMonth()+1)
+  else d.setDate(d.getDate()+7)
+  return d.toISOString().slice(0,10)
+}
+
 async function mapaRepartidor(){
-  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><button class="btn ghost" id="btn_volver_repartidor" style="padding:6px 12px">← Volver</button><h2 style="margin:0">🗺️ Mapa de hoy</h2></div>
-  <div id="rep_mapa_estado" class="muted" style="margin-bottom:8px">Cargando mapa…</div>
+  if(!repMapaFecha) repMapaFecha = new Date().toISOString().slice(0,10)
+  const fechaLabel = formatearFecha(repMapaFecha)
+  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><button class="btn ghost" id="btn_volver_repartidor" style="padding:6px 12px">← Volver</button><h2 style="margin:0">🗺️ Mapa</h2></div>
+  <div class="field"><label>Fecha</label><input type="date" id="rep_mapa_fecha" value="${repMapaFecha}"/></div>
+  <div class="grid three" style="margin-bottom:10px">
+    <button class="btn ghost" id="btn_dia_ant">← Día anterior</button>
+    <button class="btn ghost" id="btn_dia_hoy">Hoy</button>
+    <button class="btn ghost" id="btn_dia_sig">Día siguiente →</button>
+  </div>
+  <p class="muted" style="margin-bottom:8px">${fechaLabel}</p>
+  <label class="row" style="cursor:pointer"><span>✨ Mostrar proyección de entregas futuras</span><input type="checkbox" id="rep_toggle_proyeccion" ${repMostrarProyeccion?'checked':''}/></label>
+  <div id="rep_mapa_estado" class="muted" style="margin:8px 0">Cargando mapa…</div>
   <div id="rep_mapa_contenedor" style="height:380px;border-radius:12px;overflow:hidden;background:#eee"></div>
   <div class="card" style="margin-top:12px">
-    <div class="row"><span>🔴 Falta entregar</span></div>
-    <div class="row"><span>🟢 Ya entregado</span></div>
-    <div class="row"><span>⚪ Otros clientes (no les toca hoy)</span></div>
+    <div class="row"><span>🔴 Falta entregar (pedido real)</span></div>
+    <div class="row"><span>🟢 Ya entregado (con hora)</span></div>
+    ${repMostrarProyeccion?'<div class="row"><span>🟣 Proyectado — todavía no es un pedido confirmado</span></div>':''}
+    <div class="row"><span>⚪ Otros clientes (no les tocaba esta fecha)</span></div>
   </div>`)
   document.querySelector('#btn_volver_repartidor').onclick = ()=>{ current='repartidor'; render() }
+  document.querySelector('#rep_mapa_fecha').onchange = (e)=>{ repMapaFecha = e.target.value; render() }
+  document.querySelector('#btn_dia_ant').onclick = ()=>{ const d=new Date(repMapaFecha+'T00:00:00'); d.setDate(d.getDate()-1); repMapaFecha=d.toISOString().slice(0,10); render() }
+  document.querySelector('#btn_dia_hoy').onclick = ()=>{ repMapaFecha = new Date().toISOString().slice(0,10); render() }
+  document.querySelector('#btn_dia_sig').onclick = ()=>{ const d=new Date(repMapaFecha+'T00:00:00'); d.setDate(d.getDate()+1); repMapaFecha=d.toISOString().slice(0,10); render() }
+  document.querySelector('#rep_toggle_proyeccion').onchange = (e)=>{ repMostrarProyeccion = e.target.checked; render() }
 
   try{ await cargarLeaflet() }
   catch(e){ document.querySelector('#rep_mapa_estado').textContent = 'No pudimos cargar el mapa. Revisá tu conexión.'; return }
 
-  const hoy = new Date().toISOString().slice(0,10)
-  const { data: ordersRaw } = await supabase.from('orders').select('id,status,delivery_date,assigned_driver,customers(id,first_name,last_name,phone,neighborhood,street,street_number,latitude,longitude)')
+  const fecha = repMapaFecha
+  const { data: ordersRaw } = await supabase.from('orders').select('id,status,delivery_date,delivered_at,assigned_driver,customers(id,first_name,last_name,phone,neighborhood,street,street_number,zone,latitude,longitude)')
   const orders = ordersRaw || []
-  const misPedidosHoy = orders.filter(o=>o.delivery_date===hoy && (myRole==='admin' || o.assigned_driver===session?.user?.id))
-  const idsClientesHoy = new Set(misPedidosHoy.map(o=>o.customers?.id).filter(Boolean))
-  const { data: todosClientesRaw } = await supabase.from('customers').select('id,first_name,last_name,phone,neighborhood,street,street_number,latitude,longitude').neq('status','baja')
+  const misPedidos = orders.filter(o=>o.delivery_date===fecha && (myRole==='admin' || o.assigned_driver===session?.user?.id))
+  const idsClientesHoy = new Set(misPedidos.map(o=>o.customers?.id).filter(Boolean))
+  const { data: todosClientesRaw } = await supabase.from('customers').select('id,first_name,last_name,phone,neighborhood,street,street_number,zone,latitude,longitude').neq('status','baja')
   const todosClientes = todosClientesRaw || []
-  const otrosClientes = todosClientes.filter(c=>!idsClientesHoy.has(c.id) && c.latitude!=null && c.longitude!=null)
 
-  const pendientes = misPedidosHoy.filter(o=>['pending','assigned','out_for_delivery','rescheduled'].includes(o.status) && o.customers?.latitude!=null)
-  const entregados = misPedidosHoy.filter(o=>o.status==='delivered' && o.customers?.latitude!=null)
+  const pendientes = misPedidos.filter(o=>['pending','assigned','out_for_delivery','rescheduled'].includes(o.status) && o.customers?.latitude!=null)
+  const entregados = misPedidos.filter(o=>o.status==='delivered' && o.customers?.latitude!=null)
+
+  // Proyección: para suscripciones activas, calculamos si su próxima fecha (extendida según frecuencia) cae en el día elegido
+  let proyectados = []
+  if(repMostrarProyeccion){
+    const { data: subsRaw } = await supabase.from('subscriptions').select('id,customer_id,frequency,next_delivery_date,status').eq('status','active')
+    const subs = subsRaw || []
+    const clienteMap = Object.fromEntries(todosClientes.map(c=>[c.id,c]))
+    let zoneDrivers = {}, neighDrivers = {}, modo = 'zone'
+    if(myRole!=='admin'){
+      const [{data:zd},{data:nd},{data:fs}] = await Promise.all([
+        supabase.from('zone_drivers').select('zone,driver_user_id'),
+        supabase.from('neighborhood_drivers').select('neighborhood,driver_user_id'),
+        supabase.from('farm_settings').select('value').eq('key','assignment_mode').single()
+      ])
+      zoneDrivers = Object.fromEntries((zd||[]).map(z=>[z.zone,z.driver_user_id]))
+      neighDrivers = Object.fromEntries((nd||[]).map(n=>[n.neighborhood,n.driver_user_id]))
+      modo = fs?.value || 'zone'
+    }
+    const meCorresponde = (c)=>{
+      if(myRole==='admin') return true
+      if(modo==='neighborhood') return (neighDrivers[c.neighborhood] || zoneDrivers[c.zone]) === session?.user?.id
+      return zoneDrivers[c.zone] === session?.user?.id
+    }
+    subs.forEach(s=>{
+      if(!s.next_delivery_date || idsClientesHoy.has(s.customer_id)) return
+      let cursor = s.next_delivery_date, i=0
+      while(cursor < fecha && i<60){ cursor = proximaFechaProyectada(cursor, s.frequency); i++ }
+      if(cursor === fecha && cursor !== s.next_delivery_date){
+        const c = clienteMap[s.customer_id]
+        if(c && c.latitude!=null && meCorresponde(c)) proyectados.push(c)
+      }
+    })
+  }
+
+  const idsHoyYProyectados = new Set([...idsClientesHoy, ...proyectados.map(c=>c.id)])
+  const otrosClientes = todosClientes.filter(c=>!idsHoyYProyectados.has(c.id) && c.latitude!=null && c.longitude!=null)
 
   const estado = document.querySelector('#rep_mapa_estado')
-  estado.textContent = `Hoy: ${pendientes.length} por entregar, ${entregados.length} entregado(s).`
+  estado.textContent = `${pendientes.length} por entregar, ${entregados.length} entregado(s)${repMostrarProyeccion?`, ${proyectados.length} proyectado(s)`:''}.`
 
   const puntos = [...pendientes, ...entregados].map(o=>o.customers).filter(Boolean)
   const centro = puntos.length ? [puntos[0].latitude, puntos[0].longitude] : [-32.9468, -60.6393]
@@ -752,13 +815,18 @@ async function mapaRepartidor(){
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
   }).addTo(map)
 
-  const marcador = (c, color, radio)=> L.circleMarker([c.latitude, c.longitude], { radius: radio, color, fillColor: color, fillOpacity: 0.9, weight: 2 })
-    .bindPopup(`<b>${c.first_name||''} ${c.last_name||''}</b><br>${c.street||''} ${c.street_number||''}<br>📞 ${c.phone||'-'}`)
+  const marcador = (c, color, radio, popupExtra, dashArray)=> L.circleMarker([c.latitude, c.longitude], { radius: radio, color, fillColor: color, fillOpacity: dashArray?0.15:0.9, weight: 2, dashArray })
+    .bindPopup(`<b>${c.first_name||''} ${c.last_name||''}</b><br>${c.street||''} ${c.street_number||''}<br>📞 ${c.phone||'-'}${popupExtra||''}`)
 
   const grupo = []
   otrosClientes.forEach(c=>{ marcador(c, '#B4B2A9', 5).addTo(map) })
   pendientes.forEach(o=>{ const m = marcador(o.customers, '#D14A3D', 8).addTo(map); grupo.push(m) })
-  entregados.forEach(o=>{ const m = marcador(o.customers, '#3B6D11', 8).addTo(map); grupo.push(m) })
+  entregados.forEach(o=>{
+    const hora = o.delivered_at ? new Date(o.delivered_at).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : ''
+    const m = marcador(o.customers, '#3B6D11', 8, hora?`<br>✅ Entregado ${hora}`:'').addTo(map)
+    grupo.push(m)
+  })
+  proyectados.forEach(c=>{ const m = marcador(c, '#7F77DD', 7, '<br>🟣 Proyectado, todavía no confirmado', '4,4').addTo(map); grupo.push(m) })
 
   if(grupo.length>1){ map.fitBounds(L.featureGroup(grupo).getBounds().pad(0.25)) }
 }
