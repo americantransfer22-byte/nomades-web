@@ -607,16 +607,22 @@ async function cargarLocalidadesEdit(provincia, citySel){
   grp.innerHTML = `<label>Localidad</label><select id="ed_city" disabled><option>Cargando localidades…</option></select>`
   try{
     const url = `https://apis.datos.gob.ar/georef/api/localidades?provincia=${encodeURIComponent(provincia)}&campos=nombre&max=5000`
-    const res = await fetch(url)
+    const controller = new AbortController()
+    const timeoutId = setTimeout(()=>controller.abort(), 8000)
+    const res = await fetch(url, { signal: controller.signal })
+    clearTimeout(timeoutId)
     const data = await res.json()
     const nombres = [...new Set((data.localidades||[]).map(l=>l.nombre))].sort((a,b)=>a.localeCompare(b,'es'))
+    if(!nombres.length) throw new Error('sin resultados')
     grp.innerHTML = `<label>Localidad</label><select id="ed_city">
       <option value="">Seleccioná tu localidad</option>
       ${nombres.map(n=>`<option value="${n}" ${citySel===n?'selected':''}>${n}</option>`).join('')}
     </select>`
     document.querySelector('#ed_city').onchange = (e)=>{ citySelValue = e.target.value }
   }catch(e){
-    grp.innerHTML = `<label>Localidad</label><select id="ed_city"><option value="">No se pudo cargar</option></select>`
+    grp.innerHTML = `<label>Localidad</label><select id="ed_city" disabled><option value="">No se pudo cargar</option></select><button type="button" class="btn ghost" id="btn_reintentar_ed_city" style="margin-top:6px;padding:6px 12px;font-size:12px">🔄 Reintentar</button>`
+    const btn = document.querySelector('#btn_reintentar_ed_city')
+    if(btn) btn.onclick = ()=>cargarLocalidadesEdit(provincia, citySel)
   }
 }
 let citySelValue = ''
@@ -738,16 +744,22 @@ async function cargarLocalidadesStaff(provincia, citySel){
   grp.innerHTML = `<label>Localidad *</label><select id="sf_city" disabled><option>Cargando localidades…</option></select>`
   try{
     const url = `https://apis.datos.gob.ar/georef/api/localidades?provincia=${encodeURIComponent(provincia)}&campos=nombre&max=5000`
-    const res = await fetch(url)
+    const controller = new AbortController()
+    const timeoutId = setTimeout(()=>controller.abort(), 8000)
+    const res = await fetch(url, { signal: controller.signal })
+    clearTimeout(timeoutId)
     const data = await res.json()
     const nombres = [...new Set((data.localidades||[]).map(l=>l.nombre))].sort((a,b)=>a.localeCompare(b,'es'))
+    if(!nombres.length) throw new Error('sin resultados')
     grp.innerHTML = `<label>Localidad *</label><select id="sf_city">
       <option value="">Seleccioná tu localidad</option>
       ${nombres.map(n=>`<option value="${n}" ${citySel===n?'selected':''}>${n}</option>`).join('')}
     </select>`
     document.querySelector('#sf_city').onchange = (e)=>{ staffCitySelValue = e.target.value }
   }catch(e){
-    grp.innerHTML = `<label>Localidad *</label><select id="sf_city"><option value="">No se pudo cargar</option></select>`
+    grp.innerHTML = `<label>Localidad *</label><select id="sf_city" disabled><option value="">No se pudo cargar</option></select><button type="button" class="btn ghost" id="btn_reintentar_sf_city" style="margin-top:6px;padding:6px 12px;font-size:12px">🔄 Reintentar</button>`
+    const btn = document.querySelector('#btn_reintentar_sf_city')
+    if(btn) btn.onclick = ()=>cargarLocalidadesStaff(provincia, citySel)
   }
 }
 
@@ -1721,51 +1733,68 @@ let adminData = null // cache de datos del panel admin, para no re-consultar tod
 let adminAsignarFecha = '' // filtro de fecha para "Reasignar pedidos puntuales"
 
 async function fetchAdminData(){
-  const [orders,customers,subs,staff]=await Promise.all([q('orders','id,status,delivery_date,egg_quantity'),q('customers','id'),q('subscriptions','id,payment_status,created_at,customers(first_name,last_name)'),q('staff_roles','user_id,role,full_name,created_at')])
-  const productos = await q('products','id,name,unit_label,category,current_qty,active')
-  const { data: movimientosRaw } = await supabase.from('stock_movements').select('id,product_id,type,quantity,note,created_by,created_at').order('created_at',{ascending:false}).limit(20)
-  const movimientos = movimientosRaw || []
-  const { data: waitlistRaw } = await supabase.from('waitlist').select('id,customer_id,egg_quantity,frequency,position,created_at,customers(first_name,last_name,phone)').order('position')
-  const waitlist = waitlistRaw || []
-  const { data: settingsAllRaw } = await supabase.from('farm_settings').select('key,value').in('key',['default_daily_capacity_maples','transfer_cbu','transfer_alias','transfer_bank_name','transfer_holder_name','transfer_holder_doc','mp_alias','mp_wallet_name','mp_cbu','mp_holder_name','mp_holder_doc','assignment_mode'])
-  const settingsMap = Object.fromEntries((settingsAllRaw||[]).map(s=>[s.key,s.value]))
+  const [
+    orders, customers, subs, staff, productos,
+    movimientosRes, waitlistRes, settingsRes, zoneDriversRes, neighDriversRes,
+    barriosRes, pedidosAsignarRes, pagosRes, planPricesRes, catsRes,
+    entriesRes, dashRes, vehiculosRes, alertasRes, driverLedgerRes,
+    rankingRes, reviewsRes
+  ] = await Promise.all([
+    q('orders','id,status,delivery_date,egg_quantity'),
+    q('customers','id'),
+    q('subscriptions','id,payment_status,created_at,customers(first_name,last_name)'),
+    q('staff_roles','user_id,role,full_name,created_at'),
+    q('products','id,name,unit_label,category,current_qty,active'),
+    supabase.from('stock_movements').select('id,product_id,type,quantity,note,created_by,created_at').order('created_at',{ascending:false}).limit(20),
+    supabase.from('waitlist').select('id,customer_id,egg_quantity,frequency,position,created_at,customers(first_name,last_name,phone)').order('position'),
+    supabase.from('farm_settings').select('key,value').in('key',['default_daily_capacity_maples','transfer_cbu','transfer_alias','transfer_bank_name','transfer_holder_name','transfer_holder_doc','mp_alias','mp_wallet_name','mp_cbu','mp_holder_name','mp_holder_doc','assignment_mode']),
+    supabase.from('zone_drivers').select('zone,driver_user_id'),
+    supabase.from('neighborhood_drivers').select('neighborhood,driver_user_id'),
+    supabase.from('customers').select('neighborhood,zone').not('neighborhood','is',null),
+    supabase.from('orders').select('id,delivery_date,status,assigned_driver,assignment_locked,egg_quantity,customer_stage,customers(first_name,last_name,neighborhood,zone,street,street_number),subscriptions(frequency,plan_breakdown)').in('status',['pending','assigned','rescheduled']).order('delivery_date'),
+    supabase.from('payments').select('id,amount,expected_method,method,reconciled,created_at,customers(first_name,last_name)').order('created_at',{ascending:false}).limit(30),
+    supabase.from('plan_prices').select('id,egg_quantity,price,active').order('egg_quantity'),
+    supabase.from('finance_categories').select('id,name,type,active').order('name'),
+    supabase.from('finance_entries').select('id,category_id,type,amount,entry_date,description,attachment_url').order('entry_date',{ascending:false}).limit(30),
+    supabase.rpc('finance_dashboard', {}),
+    supabase.from('vehicles').select('id,type,brand,model,year,plate,photo_url,current_km,service_interval_km,last_service_km,vtv_expiry,insurance_expiry,assigned_to,active,mechanic_name,mechanic_phone,mechanic_appointment_phone,mechanic_address,mechanic_hours,mechanic_email,mechanic_tax_id').order('created_at'),
+    supabase.rpc('admin_vehicle_alerts', {}),
+    supabase.from('driver_ledger').select('id,driver_id,entry_date,amount,description,created_at').order('entry_date',{ascending:false}),
+    supabase.rpc('admin_customer_ranking', {}),
+    supabase.rpc('admin_reviews_list', {})
+  ])
+
+  const movimientos = movimientosRes.data || []
+  const waitlist = waitlistRes.data || []
+  const settingsMap = Object.fromEntries((settingsRes.data||[]).map(s=>[s.key,s.value]))
   const repartidores = staff.filter(s=>s.role==='repartidor')
-  const { data: zoneDriversRaw } = await supabase.from('zone_drivers').select('zone,driver_user_id')
-  const zoneDrivers = Object.fromEntries((zoneDriversRaw||[]).map(z=>[z.zone,z.driver_user_id]))
-  const { data: neighDriversRaw } = await supabase.from('neighborhood_drivers').select('neighborhood,driver_user_id')
-  const neighDrivers = neighDriversRaw || []
-  const { data: barriosRaw } = await supabase.from('customers').select('neighborhood,zone').not('neighborhood','is',null)
-  const barrios = [...new Set((barriosRaw||[]).map(b=>b.neighborhood).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es'))
+  const zoneDrivers = Object.fromEntries((zoneDriversRes.data||[]).map(z=>[z.zone,z.driver_user_id]))
+  const neighDrivers = neighDriversRes.data || []
+  const barriosRaw = barriosRes.data || []
+  const barrios = [...new Set(barriosRaw.map(b=>b.neighborhood).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es'))
   const barrioZonaMap = {}
-  ;(barriosRaw||[]).forEach(b=>{ if(b.neighborhood && b.zone && !barrioZonaMap[b.neighborhood]) barrioZonaMap[b.neighborhood] = b.zone })
-  const { data: pedidosAsignarRaw } = await supabase.from('orders').select('id,delivery_date,status,assigned_driver,assignment_locked,egg_quantity,customer_stage,customers(first_name,last_name,neighborhood,zone,street,street_number),subscriptions(frequency,plan_breakdown)').in('status',['pending','assigned','rescheduled']).order('delivery_date')
-  const pedidosAsignar = pedidosAsignarRaw || []
-  const { data: pagosRaw } = await supabase.from('payments').select('id,amount,expected_method,method,reconciled,created_at,customers(first_name,last_name)').order('created_at',{ascending:false}).limit(30)
-  const pagos = pagosRaw || []
+  barriosRaw.forEach(b=>{ if(b.neighborhood && b.zone && !barrioZonaMap[b.neighborhood]) barrioZonaMap[b.neighborhood] = b.zone })
+  const pedidosAsignar = pedidosAsignarRes.data || []
+  const pagos = pagosRes.data || []
   const productMap = Object.fromEntries(productos.map(p=>[p.id, p]))
-  const { data: planPricesRaw } = await supabase.from('plan_prices').select('id,egg_quantity,price,active').order('egg_quantity')
-  const planPrices = planPricesRaw || []
-  const { data: catsRaw } = await supabase.from('finance_categories').select('id,name,type,active').order('name')
-  const categorias = catsRaw || []
-  const { data: entriesRaw } = await supabase.from('finance_entries').select('id,category_id,type,amount,entry_date,description,attachment_url').order('entry_date',{ascending:false}).limit(30)
-  const movimientosFinanzas = entriesRaw || []
-  const { data: dashboardRaw } = await supabase.rpc('finance_dashboard', {})
-  const dash = dashboardRaw || {}
-  const { data: vehiculosRaw } = await supabase.from('vehicles').select('id,type,brand,model,year,plate,photo_url,current_km,service_interval_km,last_service_km,vtv_expiry,insurance_expiry,assigned_to,active,mechanic_name,mechanic_phone,mechanic_appointment_phone,mechanic_address,mechanic_hours,mechanic_email,mechanic_tax_id').order('created_at')
-  const vehiculos = vehiculosRaw || []
-  const { data: alertasVehiculos } = await supabase.rpc('admin_vehicle_alerts', {})
-  const alertas = alertasVehiculos || { service:[], vtv:[], seguro:[], carnet:[], pagos_pendientes:[] }
-  const { data: driverLedgerRaw } = await supabase.from('driver_ledger').select('id,driver_id,entry_date,amount,description,created_at').order('entry_date',{ascending:false})
-  const driverLedger = driverLedgerRaw || []
-  const { data: rankingRaw } = await supabase.rpc('admin_customer_ranking', {})
-  const ranking = rankingRaw || []
-  const { data: reviewsRaw } = await supabase.rpc('admin_reviews_list', {})
-  const reviews = reviewsRaw || []
+  const planPrices = planPricesRes.data || []
+  const categorias = catsRes.data || []
+  const movimientosFinanzas = entriesRes.data || []
+  const dash = dashRes.data || {}
+  const vehiculos = vehiculosRes.data || []
+  const alertas = alertasRes.data || { service:[], vtv:[], seguro:[], carnet:[], pagos_pendientes:[] }
+  const driverLedger = driverLedgerRes.data || []
+  const ranking = rankingRes.data || []
+  const reviews = reviewsRes.data || []
+
   return { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews }
 }
 
 async function admin(){
-  if(!adminData) adminData = await fetchAdminData()
+  if(!adminData){
+    layout(`<h2>Panel de administración</h2><div class="card" style="text-align:center;padding:30px 16px"><p class="muted">Cargando…</p></div>`)
+    adminData = await fetchAdminData()
+  }
   const { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews } = adminData
   const capacidadBase = settingsMap.default_daily_capacity_maples || '300'
   const assignmentMode = settingsMap.assignment_mode || 'zone'
