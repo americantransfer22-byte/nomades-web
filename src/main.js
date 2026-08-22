@@ -923,6 +923,7 @@ let repMapaFecha = null
 let repMostrarProyeccion = false
 let statsVehiculoActual = null
 let vehiculoEditando = null
+let mostrarFormNuevoVehiculo = false
 let historialVehiculoActual = null
 
 async function verHistorialVehiculo(v){
@@ -934,8 +935,15 @@ async function verHistorialVehiculo(v){
 async function vehiculoHistorial(){
   const v = historialVehiculoActual
   if(!v){ current='admin'; return render() }
-  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><button class="btn ghost" id="btn_volver_historial" style="padding:6px 12px">← Volver</button><h2 style="margin:0">📄 Historial de ${v.plate}</h2></div>
-  <button class="btn primary" id="btn_imprimir_historial" style="width:100%;margin-bottom:14px">🖨️ Imprimir / Guardar como PDF</button>
+  layout(`
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+    <button id="btn_volver_historial" style="background:none;border:none;font-size:20px;color:#2F4D2A;padding:4px">←</button>
+    <div>
+      <div style="font-size:11px;color:#8A8570;text-transform:uppercase;letter-spacing:0.5px">Historial</div>
+      <h2 style="margin:0;color:#2F4D2A">${v.plate}</h2>
+    </div>
+  </div>
+  <button id="btn_imprimir_historial" style="width:100%;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:12px;padding:12px 0;font-size:14px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:8px">🖨️ Imprimir / Guardar como PDF</button>
   <div id="historial_contenido"><p class="muted">Cargando…</p></div>`)
   document.querySelector('#btn_volver_historial').onclick = ()=>{ current='admin'; adminOpenSection='vehiculos'; render() }
   document.querySelector('#btn_imprimir_historial').onclick = ()=>window.print()
@@ -948,16 +956,34 @@ async function vehiculoHistorial(){
   const staffMap = Object.fromEntries((staffRaw||[]).map(s=>[s.user_id,s.full_name]))
   const box = document.querySelector('#historial_contenido')
   box.innerHTML = `
-    <div class="card">
-      <h3>${v.brand||''} ${v.model||''} — ${v.plate}</h3>
-      <p>Kilómetros actuales: ${Math.round(v.current_km)} km</p>
-    </div>
-    <div class="card"><h3>Historial de service y mantenimiento</h3>
-      ${servicios.length? servicios.map(s=>{
-        const fecha = new Date(s.service_date+'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})
-        return `<div class="row"><span><b>${fecha}</b> · ${Math.round(s.km||0)} km<br><small>${s.description||''}</small>${s.parts_used?`<br><small>🔩 ${s.parts_used}</small>`:''}<br><small>Responsable: ${staffMap[s.responsible_id]||'-'}</small></span><span>${s.cost?`$${Number(s.cost).toLocaleString('es-AR')}`:''}<br><small>${METODOS_PAGO_LABEL[s.payment_method]||s.payment_method||''}${s.paid_by==='admin'?' · Administración':''}</small></span></div>`
-      }).join('') : '<p class="muted">Sin registros todavía.</p>'}
-    </div>`
+    ${pCard(`
+      ${v.photo_url?`<div style="margin:-14px -16px 12px"><img src="${v.photo_url}" style="width:100%;height:140px;object-fit:cover;border-radius:14px 14px 0 0"/></div>`:''}
+      <div style="font-size:18px;font-weight:700;color:#2F4D2A">${v.brand||''} ${v.model||''}</div>
+      <div style="font-size:12px;color:#8A8570;margin-top:2px">${v.type==='moto'?'🏍️ Moto':'🚚 Camioneta'} · Patente ${v.plate}</div>
+      <div style="margin-top:10px;background:#F5EFE0;border-radius:10px;padding:8px 12px;display:inline-block">
+        <span style="font-size:12px;color:#8A8570">Kilómetros actuales</span><br>
+        <span style="font-size:16px;font-weight:700;color:#2F4D2A">${Math.round(v.current_km)} km</span>
+      </div>
+    `)}
+    <h3 style="font-size:15px;color:#2F4D2A;margin:18px 0 8px">Historial de service y mantenimiento</h3>
+    ${servicios.length? servicios.map(s=>{
+      const fecha = new Date(s.service_date+'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})
+      return pCard(`
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+          <div>
+            <div style="font-weight:700;color:#2F4D2A">${fecha}</div>
+            <div style="font-size:12px;color:#8A8570;margin-top:2px">${Math.round(s.km||0)} km</div>
+            ${s.description?`<div style="font-size:13px;color:#3A3A34;margin-top:6px">${s.description}</div>`:''}
+            ${s.parts_used?`<div style="font-size:12px;color:#8A8570;margin-top:3px">🔩 ${s.parts_used}</div>`:''}
+            <div style="font-size:12px;color:#8A8570;margin-top:3px">Responsable: ${staffMap[s.responsible_id]||'-'}</div>
+          </div>
+          <div style="text-align:right;white-space:nowrap">
+            ${s.cost?`<div style="font-weight:700;color:#2F4D2A">$${Number(s.cost).toLocaleString('es-AR')}</div>`:''}
+            <div style="font-size:11px;color:#8A8570;margin-top:2px">${METODOS_PAGO_LABEL[s.payment_method]||s.payment_method||''}${s.paid_by==='admin'?' · Admin':''}</div>
+          </div>
+        </div>
+      `, 'margin-bottom:8px')
+    }).join('') : '<p class="muted">Sin registros todavía.</p>'}`
 }
 
 async function verEstadisticasVehiculo(v){
@@ -969,30 +995,44 @@ async function verEstadisticasVehiculo(v){
 async function vehiculoStats(){
   const v = statsVehiculoActual
   if(!v){ current='admin'; return render() }
-  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><button class="btn ghost" id="btn_volver_stats" style="padding:6px 12px">← Volver</button><h2 style="margin:0">📊 ${v.plate}</h2></div>
-  <div id="stats_contenido" class="card"><p class="muted">Calculando…</p></div>`)
+  layout(`
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+    <button id="btn_volver_stats" style="background:none;border:none;font-size:20px;color:#2F4D2A;padding:4px">←</button>
+    <div>
+      <div style="font-size:11px;color:#8A8570;text-transform:uppercase;letter-spacing:0.5px">Estadísticas</div>
+      <h2 style="margin:0;color:#2F4D2A">${v.plate}</h2>
+    </div>
+  </div>
+  <div id="stats_contenido">${pCard('<p class="muted" style="margin:0">Calculando…</p>')}</div>`)
   document.querySelector('#btn_volver_stats').onclick = ()=>{ current='admin'; adminOpenSection='vehiculos'; render() }
 
   const { data } = await supabase.rpc('vehicle_stats', { p_vehicle_id: v.id })
   const box = document.querySelector('#stats_contenido')
   if(!data || data.cargas < 2){
-    box.innerHTML = `<p class="muted">Todavía no hay suficientes cargas registradas para calcular estadísticas (hacen falta al menos 2).</p>`
+    box.innerHTML = pCard('<p class="muted" style="margin:0">Todavía no hay suficientes cargas registradas para calcular estadísticas (hacen falta al menos 2).</p>')
     return
   }
+  const statMini = (label,value)=>`<div style="flex:1;background:#2F4D2A;border-radius:12px;padding:10px 8px;text-align:center"><div style="color:#C9D8B0;font-size:11px">${label}</div><div style="color:#F5EFE0;font-size:17px;font-weight:700">${value}</div></div>`
+  const rowStat = (label,value)=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #F0EBDD"><span style="font-size:13px;color:#5F5E5A">${label}</span><b style="color:#2F4D2A">${value}</b></div>`
   box.innerHTML = `
-    <h3>Kilómetros recorridos</h3>
-    <div class="grid three">
-      <div class="card stat">Por día<b>${data.km_por_dia ?? '-'}</b></div>
-      <div class="card stat">Por mes<b>${data.km_por_mes ?? '-'}</b></div>
-      <div class="card stat">Por año<b>${data.km_por_anio ?? '-'}</b></div>
+    <h3 style="font-size:15px;color:#2F4D2A;margin-bottom:8px">Kilómetros recorridos</h3>
+    <div style="display:flex;gap:8px">
+      ${statMini('Por día', data.km_por_dia ?? '-')}
+      ${statMini('Por mes', data.km_por_mes ?? '-')}
+      ${statMini('Por año', data.km_por_anio ?? '-')}
     </div>
-    <p class="muted" style="margin-top:8px">Calculado sobre ${data.km_totales} km en ${data.dias_totales} día(s), con ${data.cargas} carga(s) registradas.</p>
-    <h3 style="margin-top:16px">Rendimiento</h3>
-    <div class="row"><span>Kilómetros por litro</span><span><b>${data.km_por_litro ?? '-'} km/L</b></span></div>
-    <div class="row"><span>Costo por kilómetro</span><span><b>${data.costo_por_km?`$${Number(data.costo_por_km).toLocaleString('es-AR')}`:'-'}</b></span></div>
-    <div class="row"><span>Litros cargados (total)</span><span>${data.litros_totales ?? '-'}</span></div>
-    <div class="row"><span>Gasto en combustible (total)</span><span>$${Number(data.gasto_total||0).toLocaleString('es-AR')}</span></div>
-    ${data.por_mes?.length?`<h3 style="margin-top:16px">Últimos meses</h3>${data.por_mes.map(m=>`<div class="row"><span>${m.mes}</span><span>${Math.round(m.km)} km</span></div>`).join('')}`:''}
+    <p class="muted" style="font-size:12px;margin-top:8px">Calculado sobre ${data.km_totales} km en ${data.dias_totales} día(s), con ${data.cargas} carga(s) registradas.</p>
+    ${pCard(`
+      <h3 style="font-size:15px;color:#2F4D2A;margin:0 0 4px">Rendimiento</h3>
+      ${rowStat('Kilómetros por litro', `${data.km_por_litro ?? '-'} km/L`)}
+      ${rowStat('Costo por kilómetro', data.costo_por_km?`$${Number(data.costo_por_km).toLocaleString('es-AR')}`:'-')}
+      ${rowStat('Litros cargados (total)', data.litros_totales ?? '-')}
+      ${rowStat('Gasto en combustible (total)', `$${Number(data.gasto_total||0).toLocaleString('es-AR')}`)}
+    `, 'margin-top:14px')}
+    ${data.por_mes?.length?pCard(`
+      <h3 style="font-size:15px;color:#2F4D2A;margin:0 0 4px">Últimos meses</h3>
+      ${data.por_mes.map(m=>rowStat(m.mes, `${Math.round(m.km)} km`)).join('')}
+    `, 'margin-top:10px'):''}
   `
 }
 
@@ -1490,7 +1530,13 @@ async function admin(){
         `)
       }).join('') : '<p class="muted">Todavía no cargaste vehículos.</p>'}
     </div>
-    <div class="group" style="margin-top:16px"><h3 style="font-size:15px">➕ Agregar vehículo</h3>
+    <div style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;overflow:hidden;margin-top:16px">
+      <button type="button" id="btn_toggle_form_vehiculo" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:12px 14px;cursor:pointer;gap:10px;background:${mostrarFormNuevoVehiculo?'#F5EFE0':'transparent'}">
+        <span style="width:32px;height:32px;border-radius:9px;background:#EAF0DC;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">➕</span>
+        <span style="flex:1;font-weight:700;font-size:14.5px;color:#2F4D2A">Agregar vehículo</span>
+        <span style="font-size:13px;color:#8A8570">${mostrarFormNuevoVehiculo?'▲':'▼'}</span>
+      </button>
+      <div style="display:${mostrarFormNuevoVehiculo?'block':'none'};padding:10px 14px 14px">
       <div class="grid two">
         <div class="field"><label>Tipo</label><select id="veh_new_tipo"><option value="moto">Moto</option><option value="camioneta">Camioneta</option></select></div>
         <div class="field"><label>Patente</label><input id="veh_new_patente" placeholder="Ej: AB123CD"/></div>
@@ -1506,10 +1552,19 @@ async function admin(){
       </div>
       <div class="field"><label>Asignar a</label><select id="veh_new_asignado"><option value="">— Sin asignar —</option>${staff.filter(s=>s.role==='repartidor'||s.role==='admin').map(s=>`<option value="${s.user_id}">${s.full_name||'(sin nombre)'}</option>`).join('')}</select></div>
       <div id="err_vehiculo" class="alert danger" style="display:none"></div>
-      <button class="btn primary" id="btn_crear_vehiculo">➕ Agregar vehículo</button>
+      <button id="btn_crear_vehiculo" style="width:100%;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:11px 0;font-size:14px;font-weight:600;margin-top:4px">💾 Guardar vehículo</button>
+      </div>
     </div>
-    <div class="group" style="margin-top:16px"><h3 style="font-size:15px">Vencimiento de carnet por persona</h3>
-      ${staff.filter(s=>s.role==='repartidor'||s.role==='admin').map(s=>`<div class="row"><span>${s.full_name||'(sin nombre)'}</span><span style="display:flex;gap:6px;align-items:center"><input type="date" id="carnet_${s.user_id}" value="${s.license_expiry||''}" style="width:150px"/><button class="btn ghost" data-guardar-carnet="${s.user_id}" style="font-size:12px">💾</button></span></div>`).join('')}
+    <div style="margin-top:20px"><h3 style="font-size:15px;color:#2F4D2A">Vencimiento de carnet por persona</h3>
+      ${staff.filter(s=>s.role==='repartidor'||s.role==='admin').map(s=>pCard(`
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+          <div style="display:flex;align-items:center;gap:10px">${pAvatar(s.full_name,34)}<span style="font-weight:600;color:#2F4D2A">${s.full_name||'(sin nombre)'}</span></div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="date" id="carnet_${s.user_id}" value="${s.license_expiry||''}" style="width:140px"/>
+            <button data-guardar-carnet="${s.user_id}" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:9px;width:36px;height:36px;flex-shrink:0">💾</button>
+          </div>
+        </div>
+      `, 'margin-bottom:8px')).join('')}
     </div>
   </div></div>
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
@@ -1824,8 +1879,11 @@ async function admin(){
     }
     const { error } = await supabase.from('vehicles').insert(payload)
     if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
+    mostrarFormNuevoVehiculo = false
     adminData = null; render()
   }
+  const btnToggleFormVeh = document.querySelector('#btn_toggle_form_vehiculo')
+  if(btnToggleFormVeh) btnToggleFormVeh.onclick = ()=>{ mostrarFormNuevoVehiculo = !mostrarFormNuevoVehiculo; render() }
   document.querySelectorAll('[data-guardar-carnet]').forEach(b=>b.onclick=async()=>{
     const val = document.querySelector(`#carnet_${b.dataset.guardarCarnet}`).value
     const { error } = await supabase.from('staff_roles').update({ license_expiry: val || null }).eq('user_id', b.dataset.guardarCarnet)
