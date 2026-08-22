@@ -1003,6 +1003,10 @@ function proximaFechaProyectada(fecha, frecuencia){
   else if(frecuencia==='biweekly') d.setDate(d.getDate()+14)
   else if(frecuencia==='monthly') d.setMonth(d.getMonth()+1)
   else d.setDate(d.getDate()+7)
+  // las entregas son de lunes a viernes: si cae sábado o domingo, se corre al lunes
+  const dow = d.getDay() // 0=domingo, 6=sábado
+  if(dow===0) d.setDate(d.getDate()+1)
+  else if(dow===6) d.setDate(d.getDate()+2)
   return d.toISOString().slice(0,10)
 }
 
