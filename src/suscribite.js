@@ -51,7 +51,7 @@ function validarPaso1(){
   if(!c.street_number.trim()) return 'Falta la altura/número.'
   if(!c.neighborhood.trim()) return 'Falta el barrio.'
   if(!c.province) return 'Elegí tu provincia.'
-  if(!c.city) return 'Elegí tu localidad.'
+  if(!c.city || !c.city.trim()) return 'Elegí o escribí tu localidad.'
   if(!c.zone) return 'Elegí tu zona (Norte, Sur, Este u Oeste).'
   return ''
 }
@@ -131,9 +131,10 @@ function paso1(){
       <div class="grid three">${TIPOS_VIA.map(t=>`<button type="button" class="btn ${c.street_type===t.value?'primary':'ghost'}" data-street-type="${t.value}">${t.label}</button>`).join('')}</div>
     </div>
     <div class="grid two">
-      <div class="field"><label>Nombre de la calle *</label><input id="f_street" value="${c.street}"/></div>
-      <div class="field"><label>Altura/número *</label><input id="f_street_number" value="${c.street_number}"/></div>
+      <div class="field"><label>Nombre de la calle *</label><input id="f_street" value="${c.street}" placeholder="Ej: Larrea (sin el número)"/></div>
+      <div class="field"><label>Altura/número *</label><input id="f_street_number" value="${c.street_number}" placeholder="Ej: 375"/></div>
     </div>
+    <div id="aviso_numero_en_calle"></div>
     <div class="grid two">
       <div class="field"><label>Provincia *</label><select id="f_province">
         <option value="">Seleccioná tu provincia</option>
@@ -141,8 +142,7 @@ function paso1(){
       </select></div>
       <div class="field"><label>Localidad *</label>
       ${state.localidadesError && !state.localidadesLoading ? `
-        <input id="f_city_manual" value="${c.city||'Rosario'}" placeholder="Ej: Rosario"/>
-        <div class="alert danger" style="margin-top:6px;font-size:12px">No pudimos cargar el listado de localidades (puede ser algo momentáneo del servicio del gobierno) — escribila vos mismo por ahora. <button type="button" class="btn ghost" id="btn_reintentar_localidades" style="margin-top:6px;padding:6px 12px;font-size:12px">🔄 Reintentar listado</button></div>
+        <input id="f_city_manual" value="${c.city||'Rosario'}" placeholder="Escribí tu localidad"/>
       ` : `
         <select id="f_city" ${!c.province || state.localidadesLoading ? 'disabled':''}>
           <option value="">${state.localidadesLoading?'Cargando localidades…':(c.province?'Seleccioná tu localidad':'Elegí primero la provincia')}</option>
@@ -325,6 +325,22 @@ function bind(){
       const el = document.querySelector('#f_'+id)
       if(el) el.oninput = ()=> state.cliente[id] = el.value
     })
+    const streetEl = document.querySelector('#f_street')
+    if(streetEl) streetEl.onblur = ()=>{
+      const avisoBox = document.querySelector('#aviso_numero_en_calle')
+      if(!avisoBox) return
+      const match = streetEl.value.trim().match(/^(.*\S)\s+(\d{1,5}(?:\s*bis)?)$/i)
+      if(match && !state.cliente.street_number.trim()){
+        avisoBox.innerHTML = `<div class="alert info" style="margin-bottom:10px">Parece que escribiste el número (<b>${match[2]}</b>) junto con el nombre de la calle. <button type="button" class="btn ghost" id="btn_mover_numero" style="margin-top:6px;padding:6px 12px;font-size:12px">Pasarlo a "Altura/número"</button></div>`
+        document.querySelector('#btn_mover_numero').onclick = ()=>{
+          state.cliente.street = match[1]
+          state.cliente.street_number = match[2]
+          render()
+        }
+      } else {
+        avisoBox.innerHTML = ''
+      }
+    }
     const noteEl = document.querySelector('#f_note')
     if(noteEl) noteEl.oninput = ()=> state.cliente.logistics_note = noteEl.value
     const referralEl = document.querySelector('#f_referral')
@@ -342,8 +358,6 @@ function bind(){
     if(cityEl) cityEl.onchange = ()=> state.cliente.city = cityEl.value
     const cityManualEl = document.querySelector('#f_city_manual')
     if(cityManualEl) cityManualEl.oninput = ()=> state.cliente.city = cityManualEl.value
-    const btnReintentar = document.querySelector('#btn_reintentar_localidades')
-    if(btnReintentar) btnReintentar.onclick = ()=>{ if(c.province) cargarLocalidades(c.province) }
     document.querySelector('#next1').onclick = ()=>{
       const err = validarPaso1()
       const box = document.querySelector('#err1')
@@ -396,7 +410,7 @@ async function enviar(){
       first_name: c.first_name.trim(), last_name: c.last_name.trim(), dni: c.dni.trim(),
       phone: c.phone.trim(), email: c.email.trim() || '',
       street: c.street.trim(), street_number: c.street_number.trim(), street_type: c.street_type || 'calle',
-      neighborhood: c.neighborhood.trim(), city: c.city,
+      neighborhood: c.neighborhood.trim(), city: (c.city||'').trim(),
       province: c.province, country: 'Argentina', postal_code: c.postal_code.trim() || '',
       zone: c.zone || '',
       logistics_note: c.logistics_note.trim() || '',
