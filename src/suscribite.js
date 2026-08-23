@@ -15,7 +15,7 @@ const METODOS_PAGO = [
 const state = {
   step: 1,
   planes: [],
-  cliente: { first_name:'', last_name:'', dni:'', phone:'', email:'', street:'', street_number:'', street_type:'calle', neighborhood:'', city:'', province:'', country:'Argentina', postal_code:'', zone:'', logistics_note:'', referral_code:'' },
+  cliente: { first_name:'', last_name:'', dni:'', phone:'', email:'', street:'', street_number:'', street_type:'calle', neighborhood:'', city:'Rosario', province:'Santa Fe', country:'Argentina', postal_code:'', zone:'', logistics_note:'', referral_code:'' },
   plan: { carrito: {}, frequency: 'weekly', payment_method: 'cash', preferred_weekday: null },
   tieneReferencia: false,
   referencia: { full_name:'', phone:'', dni:'', relationship:'' },
@@ -102,6 +102,11 @@ async function cargarLocalidades(provincia){
     const nombres = [...new Set((data.localidades||[]).map(l=>l.nombre))].sort((a,b)=>a.localeCompare(b,'es'))
     state.localidades = nombres
     if(!nombres.length) state.localidadesError = true
+    else {
+      // La API devuelve los nombres en MAYÚSCULAS; si ya había una ciudad precargada (ej. "Rosario"), la hacemos coincidir
+      const match = nombres.find(n=>n.toLowerCase()===state.cliente.city.toLowerCase())
+      if(match) state.cliente.city = match
+    }
   }catch(e){
     state.localidades = []
     state.localidadesError = true
@@ -134,11 +139,16 @@ function paso1(){
         <option value="">Seleccioná tu provincia</option>
         ${PROVINCIAS.map(p=>`<option value="${p}" ${c.province===p?'selected':''}>${p}</option>`).join('')}
       </select></div>
-      <div class="field"><label>Localidad *</label><select id="f_city" ${!c.province || state.localidadesLoading ? 'disabled':''}>
-        <option value="">${state.localidadesLoading?'Cargando localidades…':(c.province?'Seleccioná tu localidad':'Elegí primero la provincia')}</option>
-        ${state.localidades.map(l=>`<option value="${l}" ${c.city===l?'selected':''}>${l}</option>`).join('')}
-      </select>
-      ${state.localidadesError && !state.localidadesLoading ? `<div class="alert danger" style="margin-top:6px;font-size:12px">No pudimos cargar las localidades (puede ser algo momentáneo del servicio del gobierno). <button type="button" class="btn ghost" id="btn_reintentar_localidades" style="margin-top:6px;padding:6px 12px;font-size:12px">🔄 Reintentar</button></div>` : ''}
+      <div class="field"><label>Localidad *</label>
+      ${state.localidadesError && !state.localidadesLoading ? `
+        <input id="f_city_manual" value="${c.city||'Rosario'}" placeholder="Ej: Rosario"/>
+        <div class="alert danger" style="margin-top:6px;font-size:12px">No pudimos cargar el listado de localidades (puede ser algo momentáneo del servicio del gobierno) — escribila vos mismo por ahora. <button type="button" class="btn ghost" id="btn_reintentar_localidades" style="margin-top:6px;padding:6px 12px;font-size:12px">🔄 Reintentar listado</button></div>
+      ` : `
+        <select id="f_city" ${!c.province || state.localidadesLoading ? 'disabled':''}>
+          <option value="">${state.localidadesLoading?'Cargando localidades…':(c.province?'Seleccioná tu localidad':'Elegí primero la provincia')}</option>
+          ${state.localidades.map(l=>`<option value="${l}" ${c.city===l?'selected':''}>${l}</option>`).join('')}
+        </select>
+      `}
       </div>
       <div class="field"><label>Código postal</label><input id="f_postal_code" value="${c.postal_code}"/></div>
     </div>
@@ -330,6 +340,8 @@ function bind(){
     }
     const cityEl = document.querySelector('#f_city')
     if(cityEl) cityEl.onchange = ()=> state.cliente.city = cityEl.value
+    const cityManualEl = document.querySelector('#f_city_manual')
+    if(cityManualEl) cityManualEl.oninput = ()=> state.cliente.city = cityManualEl.value
     const btnReintentar = document.querySelector('#btn_reintentar_localidades')
     if(btnReintentar) btnReintentar.onclick = ()=>{ if(c.province) cargarLocalidades(c.province) }
     document.querySelector('#next1').onclick = ()=>{
@@ -417,5 +429,6 @@ async function init(){
   const { data, error } = await supabase.from('plan_prices').select('egg_quantity,price').eq('active', true).order('egg_quantity')
   state.planes = (!error && data && data.length) ? data : [{egg_quantity:15,price:7000},{egg_quantity:30,price:12000}]
   render()
+  if(state.cliente.province) cargarLocalidades(state.cliente.province)
 }
 init()
