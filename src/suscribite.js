@@ -220,6 +220,17 @@ function precioCarrito(){
 function carritoResumen(){
   return Object.entries(state.plan.carrito).filter(([,q])=>q>0).map(([eggQty,qty])=>`${qty}×${eggQty}`).join(' + ')
 }
+function calcularDescuentoBilletera(precio){
+  const v = state.walletDiscountValue||0
+  if(!v) return 0
+  if(state.walletDiscountType==='fixed') return Math.min(v, precio)
+  return Math.round(precio * (v/100))
+}
+function precioFinal(){
+  const base = precioCarrito()
+  if(state.plan.payment_method!=='mp') return base
+  return Math.max(0, base - calcularDescuentoBilletera(base))
+}
 
 function paso2(){
   const p = state.plan
@@ -237,6 +248,19 @@ function paso2(){
     <div class="field"><label>¿Cómo preferís pagar?</label>
       <div class="grid three">${METODOS_PAGO.map(m=>`<button class="btn ${p.payment_method===m.value?'primary':'ghost'}" data-pay="${m.value}">${m.label}</button>`).join('')}</div>
     </div>
+    ${p.payment_method==='mp' && state.walletDiscountValue>0 ? `
+    <div class="alert info" style="background:#EAF0DC">
+      <div style="font-size:13px;color:#2E5C1E;font-weight:600">🎉 ${state.walletDiscountType==='fixed'?`$${state.walletDiscountValue.toLocaleString('es-AR')}`:`${state.walletDiscountValue}%`} de descuento por pagar con billetera</div>
+      <div style="margin-top:6px;display:flex;align-items:baseline;gap:8px">
+        <span style="font-size:13px;color:#8A8570;text-decoration:line-through">$${precioCarrito().toLocaleString('es-AR')}</span>
+        <span style="font-size:20px;font-weight:700;color:#2F4D2A">$${precioFinal().toLocaleString('es-AR')}</span>
+      </div>
+    </div>
+    <div class="alert info" style="display:flex;gap:8px;align-items:flex-start">
+      <span style="font-size:14px">📄</span>
+      <span style="font-size:12px;color:#5F5E5A;line-height:1.4">Tené a mano el comprobante de la transferencia el día de la entrega — el repartidor te lo va a pedir para confirmar el pago antes de dejarte el pedido.</span>
+    </div>
+    ` : ''}
     <div class="field"><label>¿Preferís algún día en particular para tu entrega? (opcional)</label>
       <div class="grid three">
         <button type="button" class="btn ${p.preferred_weekday===null?'primary':'ghost'}" data-dia="">Cualquiera (más rápido)</button>
@@ -288,7 +312,8 @@ function paso4(){
     <div class="row"><span>Barrio</span><span>${c.neighborhood} (Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'})</span></div>
     <div class="row"><span>Localidad</span><span>${c.city}, ${c.province}, Argentina</span></div>
     <div class="row"><span>Plan</span><span><b>${total} huevos</b> (${carritoResumen()}) · ${freqLabel}</span></div>
-    <div class="row"><span>Precio</span><span><b>$${precioCarrito().toLocaleString('es-AR')}</b></span></div>
+    <div class="row"><span>Precio</span><span>${p.payment_method==='mp' && state.walletDiscountValue>0 ? `<span class="muted" style="text-decoration:line-through;margin-right:6px">$${precioCarrito().toLocaleString('es-AR')}</span>` : ''}<b>$${precioFinal().toLocaleString('es-AR')}</b></span></div>
+    ${p.payment_method==='mp' && state.walletDiscountValue>0 ? `<div class="alert info" style="display:flex;gap:8px;align-items:flex-start"><span style="font-size:14px">📄</span><span style="font-size:12px;color:#5F5E5A;line-height:1.4">Tené a mano el comprobante de la transferencia el día de la entrega — el repartidor te lo va a pedir para confirmar el pago antes de dejarte el pedido.</span></div>` : ''}
     <div class="row"><span>Forma de pago</span><span>${payLabel}</span></div>
     <div class="row"><span>Persona de referencia</span><span>${state.tieneReferencia? (r.full_name+' ('+r.relationship+')') : 'No agregada'}</span></div>
     ${state.error?`<div class="alert danger">${state.error}</div>`:''}
@@ -442,6 +467,10 @@ async function enviar(){
 async function init(){
   const { data, error } = await supabase.from('plan_prices').select('egg_quantity,price').eq('active', true).order('egg_quantity')
   state.planes = (!error && data && data.length) ? data : [{egg_quantity:15,price:7000},{egg_quantity:30,price:12000}]
+  const { data: settingsRaw } = await supabase.from('farm_settings').select('key,value').in('key',['wallet_discount_type','wallet_discount_value'])
+  const settingsMap = Object.fromEntries((settingsRaw||[]).map(s=>[s.key,s.value]))
+  state.walletDiscountType = settingsMap.wallet_discount_type || 'percent'
+  state.walletDiscountValue = Number(settingsMap.wallet_discount_value)||0
   render()
   if(state.cliente.province) cargarLocalidades(state.cliente.province)
 }
