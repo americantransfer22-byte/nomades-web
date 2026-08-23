@@ -172,6 +172,51 @@ function fechasDelMesParaSuscripcion(fechaInicial, frecuencia){
   return fechas
 }
 
+let cuentaPollInterval = null
+
+function reproducirSonidoAviso(){
+  try{
+    const ctx = new (window.AudioContext || window.webkitAudioContext)()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain); gain.connect(ctx.destination)
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(880, ctx.currentTime)
+    gain.gain.setValueAtTime(0.15, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35)
+    osc.start(); osc.stop(ctx.currentTime + 0.35)
+    setTimeout(()=>{
+      const osc2 = ctx.createOscillator(); const gain2 = ctx.createGain()
+      osc2.connect(gain2); gain2.connect(ctx.destination)
+      osc2.type = 'sine'; osc2.frequency.setValueAtTime(1160, ctx.currentTime)
+      gain2.gain.setValueAtTime(0.15, ctx.currentTime)
+      gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35)
+      osc2.start(); osc2.stop(ctx.currentTime + 0.35)
+    }, 150)
+  }catch(e){ /* algunos navegadores bloquean audio sin interacción previa, no pasa nada si falla */ }
+}
+
+function iniciarPollingCuenta(){
+  if(cuentaPollInterval) clearInterval(cuentaPollInterval)
+  const firmaEstado = (data)=>{
+    const n = data?.next_order
+    return n ? `${n.status}|${n.customer_stage}|${n.out_for_delivery_at}|${n.en_route_at}` : ''
+  }
+  let ultimaFirma = firmaEstado(cuenta)
+  cuentaPollInterval = setInterval(async ()=>{
+    if(current!=='cuenta' || !cuenta){ clearInterval(cuentaPollInterval); cuentaPollInterval=null; return }
+    const { data } = await supabase.rpc('customer_login', { p_dni: cuenta.customer.dni })
+    if(!data?.found) return
+    const nuevaFirma = firmaEstado(data)
+    if(nuevaFirma !== ultimaFirma){
+      ultimaFirma = nuevaFirma
+      cuenta = data
+      reproducirSonidoAviso()
+      if(current==='cuenta') cuentaPanel()
+    }
+  }, 5000)
+}
+
 function cuentaPanel(){
   const c = cuenta.customer
   const next = cuenta.next_order
@@ -182,7 +227,7 @@ function cuentaPanel(){
   const fechasMes = subActiva && next ? fechasDelMesParaSuscripcion(next.delivery_date, subActiva.frequency) : []
   layout(`<h2>👤 Hola, ${c.first_name}</h2>
   <div id="card_hoy_banner"></div>
-  <div class="card"><h3>Tu próximo pedido</h3>${next?`<div class="row"><span>${formatearFecha(next.delivery_date)}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div><p>${(next.plan_breakdown && Array.isArray(next.plan_breakdown) && next.plan_breakdown.length) ? next.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')+' huevos' : `${next.egg_quantity||0} huevos`}</p>${next.payment_method?`<div class="alert info">💡 Recordá: el pago es en <b>${METODOS_PAGO_LABEL[next.payment_method]||next.payment_method}</b>.</div>`:''}`:'<p class="muted">No tenés entregas próximas.</p>'}</div>
+  <div class="card"><h3>Tu próximo pedido</h3>${next?`<div class="row"><span>${formatearFecha(next.delivery_date)}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div><p>${(next.plan_breakdown && Array.isArray(next.plan_breakdown) && next.plan_breakdown.length) ? next.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')+' huevos' : `${next.egg_quantity||0} huevos`}</p>${next.payment_method?`<div class="alert info">💡 Recordá: el pago es en <b>${METODOS_PAGO_LABEL[next.payment_method]||next.payment_method}</b>.</div>`:''}${next.payment_method==='mp'?`<div class="alert info" style="margin-top:6px">📄 Tené a mano el comprobante de tu pago — el repartidor te lo va a pedir para confirmar antes de dejarte el pedido.</div>`:''}`:'<p class="muted">No tenés entregas próximas.</p>'}</div>
   ${next && (next.customer_stage || next.status==='out_for_delivery') ? barraEstadoPedido(next.customer_stage, next.status, next.out_for_delivery_at, next.en_route_at) : ''}
   ${fechasMes.length?`<div class="card"><h3>📅 Tus entregas este mes</h3>${fechasMes.map((f,i)=>`<div class="row"><span>${formatearFecha(f)}</span>${i===0?'<span class="badge">Confirmada</span>':'<span class="muted" style="font-size:12px">Estimada</span>'}</div>`).join('')}<p class="muted" style="font-size:12px;margin-top:8px">Solo la primera fecha está confirmada como pedido. Las demás son estimadas según tu frecuencia y pueden moverse un poco.</p></div>`:''}
   <div class="card" id="card_subs"><h3>Tus suscripciones</h3>${cuenta.subscriptions.length?cuenta.subscriptions.map(s=>{
@@ -215,7 +260,7 @@ function cuentaPanel(){
     <button class="btn primary" id="btn_enviar_review" style="width:100%">Enviar reseña</button>
   </div>
   <button class="btn ghost" id="btn_logout_cuenta">Cerrar sesión</button>`)
-  document.querySelector('#btn_logout_cuenta').onclick = ()=>{ cuenta=null; current='inicio'; render() }
+  document.querySelector('#btn_logout_cuenta').onclick = ()=>{ if(cuentaPollInterval){clearInterval(cuentaPollInterval);cuentaPollInterval=null} cuenta=null; current='inicio'; render() }
   document.querySelector('#btn_editar_datos').onclick = ()=>editarDatosForm(c)
   document.querySelector('#btn_ver_mapa').onclick = ()=>mapaSuscriptores()
   let ratingSel = 0
@@ -262,6 +307,7 @@ function cuentaPanel(){
   })
   cargarHistorialPagos(c)
   cargarRepartidor(c, esHoy)
+  if(!cuentaPollInterval) iniciarPollingCuenta()
 }
 
 async function cargarRepartidor(c, esHoy){
@@ -581,6 +627,12 @@ function descargarCSV(nombreArchivo, columnas, filas){
   a.href = url; a.download = nombreArchivo
   document.body.appendChild(a); a.click(); document.body.removeChild(a)
   URL.revokeObjectURL(url)
+}
+function calcularDescuentoBilletera(precio, tipo, valor){
+  const v = Number(valor)||0
+  if(!v) return 0
+  if(tipo==='fixed') return Math.min(v, precio)
+  return Math.round(precio * (v/100))
 }
 function horaAR(iso){
   if(!iso) return ''
@@ -1645,11 +1697,14 @@ async function openDelivery(id){
   if(errDet || !detalle || detalle.error) return alert('No se pudo cargar el pedido')
   const r = detalle.order, c = detalle.customer, sub = detalle.subscription || {}
   const credito = detalle.credit
-  const { data: settingsRaw } = await supabase.from('farm_settings').select('key,value').in('key',['transfer_cbu','transfer_alias','transfer_bank_name','transfer_holder_name','transfer_holder_doc','mp_alias','mp_wallet_name','mp_cbu','mp_holder_name','mp_holder_doc'])
+  const { data: settingsRaw } = await supabase.from('farm_settings').select('key,value').in('key',['transfer_cbu','transfer_alias','transfer_bank_name','transfer_holder_name','transfer_holder_doc','mp_alias','mp_wallet_name','mp_cbu','mp_holder_name','mp_holder_doc','wallet_discount_type','wallet_discount_value'])
   const cfg = Object.fromEntries((settingsRaw||[]).map(s=>[s.key,s.value]))
   const montoOriginal = sub.price_at_signup || 0
-  const montoDefault = credito ? Math.max(0, montoOriginal - credito.discount_amount) : montoOriginal
+  const descuentoBilletera = sub.payment_method==='mp' ? calcularDescuentoBilletera(montoOriginal, cfg.wallet_discount_type, cfg.wallet_discount_value) : 0
+  const montoTrasBilletera = montoOriginal - descuentoBilletera
+  const montoDefault = credito ? Math.max(0, montoTrasBilletera - credito.discount_amount) : montoTrasBilletera
   layout(`<h2>Detalle de entrega</h2>${r.important_note?`<div class="alert warning"><b>⚠️ OBSERVACIÓN IMPORTANTE</b><br>${r.important_note}</div>`:''}
+  ${descuentoBilletera>0?`<div class="alert info">💳 Paga por billetera virtual — tiene <b>$${descuentoBilletera.toLocaleString('es-AR')} de descuento</b> ya restado. Pedile el comprobante antes de confirmar.</div>`:''}
   ${credito?`<div class="alert info">🎁 Este cliente tiene <b>$${Number(credito.discount_amount).toLocaleString('es-AR')} de descuento</b> por recomendar a alguien. Ya está restado del monto a cobrar.</div>`:''}
   <div class="grid two">
     <div class="card">
@@ -1657,7 +1712,7 @@ async function openDelivery(id){
       <p>${c.first_name||''} ${c.last_name||''}</p>
       <p>📞 ${c.phone||'-'}</p>
       <p>📦 ${FRECUENCIAS[sub.frequency]||sub.frequency||'-'} · ${sub.egg_quantity||'-'} huevos${sub.plan_breakdown?` (${sub.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')})`:''}</p>
-      <p>💰 A cobrar: <b>$${Number(montoDefault).toLocaleString('es-AR')}</b>${credito?` <span class="muted" style="text-decoration:line-through">$${Number(montoOriginal).toLocaleString('es-AR')}</span>`:''}</p>
+      <p>💰 A cobrar: <b>$${Number(montoDefault).toLocaleString('es-AR')}</b>${(descuentoBilletera>0||credito)?` <span class="muted" style="text-decoration:line-through">$${Number(montoOriginal).toLocaleString('es-AR')}</span>`:''}</p>
       <p>💳 Método configurado: <b>${METODOS_PAGO_LABEL[sub.payment_method]||sub.payment_method||'-'}</b></p>
       <button class="btn ghost" onclick="window.open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent('${(c.street||'')+' '+(c.street_number||'')+' '+(c.neighborhood||'')}'),'_blank')">📍 Google Maps</button>
     </div>
@@ -1772,7 +1827,7 @@ async function fetchAdminData(){
     q('products','id,name,unit_label,category,current_qty,active'),
     supabase.from('stock_movements').select('id,product_id,type,quantity,note,created_by,created_at').order('created_at',{ascending:false}).limit(20),
     supabase.from('waitlist').select('id,customer_id,egg_quantity,frequency,position,created_at,customers(first_name,last_name,phone)').order('position'),
-    supabase.from('farm_settings').select('key,value').in('key',['default_daily_capacity_maples','transfer_cbu','transfer_alias','transfer_bank_name','transfer_holder_name','transfer_holder_doc','mp_alias','mp_wallet_name','mp_cbu','mp_holder_name','mp_holder_doc','assignment_mode']),
+    supabase.from('farm_settings').select('key,value').in('key',['default_daily_capacity_maples','transfer_cbu','transfer_alias','transfer_bank_name','transfer_holder_name','transfer_holder_doc','mp_alias','mp_wallet_name','mp_cbu','mp_holder_name','mp_holder_doc','assignment_mode','wallet_discount_type','wallet_discount_value']),
     supabase.from('zone_drivers').select('zone,driver_user_id'),
     supabase.from('neighborhood_drivers').select('neighborhood,driver_user_id'),
     supabase.from('customers').select('neighborhood,zone').not('neighborhood','is',null),
@@ -2200,6 +2255,24 @@ async function admin(){
       </div>
     </div>
     <button id="btn_guardar_pago_config" style="width:100%;margin-top:14px;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:11px 0;font-size:14px;font-weight:600">💾 Guardar datos de cobro</button>
+    <div style="background:#F5EFE0;border-radius:12px;overflow:hidden;margin-top:14px">
+      <button type="button" data-sub-acc="descuento" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:11px 12px;cursor:pointer;gap:8px">
+        <span style="font-size:15px">🎉</span>
+        <span style="flex:1;font-weight:700;font-size:13.5px;color:#2F4D2A">Descuento por billetera virtual</span>
+        <span style="font-size:12px;color:#8A8570">${cobrosSubSeccion==='descuento'?'▲':'▼'}</span>
+      </button>
+      <div style="display:${cobrosSubSeccion==='descuento'?'block':'none'};padding:4px 12px 12px">
+        <p class="muted" style="font-size:12px">Se resta sola del precio cuando el cliente elige pagar por billetera virtual — así reducimos el efectivo que anda circulando con los repartidores.</p>
+        <div class="field"><label>Tipo de descuento</label>
+          <div class="grid two">
+            <button type="button" id="btn_desc_percent" class="btn ${(settingsMap.wallet_discount_type||'percent')==='percent'?'primary':'ghost'}">Porcentaje</button>
+            <button type="button" id="btn_desc_fixed" class="btn ${settingsMap.wallet_discount_type==='fixed'?'primary':'ghost'}">Monto fijo</button>
+          </div>
+        </div>
+        <div class="field"><label id="lbl_desc_valor">Valor (%)</label><input id="cfg_wallet_discount_value" type="number" min="0" step="0.1" value="${settingsMap.wallet_discount_value||'0'}"/></div>
+        <button id="btn_guardar_descuento" style="width:100%;margin-top:6px;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:10px 0;font-size:13px;font-weight:600">💾 Guardar descuento</button>
+      </div>
+    </div>
   </div></div>
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('rendicion','🧾','Rendición y conciliación')}
@@ -2677,6 +2750,27 @@ async function admin(){
     }
     adminData = null
     alert('Datos de cobro guardados ✅')
+  }
+  let walletDiscTipoSel = settingsMap.wallet_discount_type || 'percent'
+  const pintarDescTipo = ()=>{
+    const bp = document.querySelector('#btn_desc_percent'), bf = document.querySelector('#btn_desc_fixed'), lbl = document.querySelector('#lbl_desc_valor')
+    if(bp) bp.className = 'btn '+(walletDiscTipoSel==='percent'?'primary':'ghost')
+    if(bf) bf.className = 'btn '+(walletDiscTipoSel==='fixed'?'primary':'ghost')
+    if(lbl) lbl.textContent = walletDiscTipoSel==='percent' ? 'Valor (%)' : 'Valor ($)'
+  }
+  const btnDescPercent = document.querySelector('#btn_desc_percent')
+  if(btnDescPercent) btnDescPercent.onclick = ()=>{ walletDiscTipoSel='percent'; pintarDescTipo() }
+  const btnDescFixed = document.querySelector('#btn_desc_fixed')
+  if(btnDescFixed) btnDescFixed.onclick = ()=>{ walletDiscTipoSel='fixed'; pintarDescTipo() }
+  pintarDescTipo()
+  const btnGuardarDescuento = document.querySelector('#btn_guardar_descuento')
+  if(btnGuardarDescuento) btnGuardarDescuento.onclick = async ()=>{
+    const valor = document.querySelector('#cfg_wallet_discount_value').value
+    await supabase.from('farm_settings').update({ value: walletDiscTipoSel }).eq('key','wallet_discount_type')
+    await supabase.from('farm_settings').update({ value: valor }).eq('key','wallet_discount_value')
+    adminData = null
+    alert('Descuento guardado ✅')
+    render()
   }
   document.querySelectorAll('[data-conciliar]').forEach(chk=>chk.onchange=async()=>{
     const { error } = await supabase.from('payments').update({ reconciled: chk.checked }).eq('id', chk.dataset.conciliar)
