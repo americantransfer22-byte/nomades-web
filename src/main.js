@@ -342,9 +342,10 @@ async function initAdminMapa(){
       b.textContent = 'Buscando…'
       const direccion = `${cli.street||''} ${cli.street_number||''}, ${cli.neighborhood||''}, Rosario, Santa Fe, Argentina`
       const geo = await geocodificarDireccion(direccion)
-      if(!geo){ b.textContent = 'No encontrado ✏️ arrastrá manualmente'; return }
-      const { data, error } = await supabase.rpc('admin_set_customer_location', { p_customer_id: cli.id, p_latitude: geo.lat, p_longitude: geo.lon })
+      const coords = geo || { lat: -32.9468, lon: -60.6393 }
+      const { data, error } = await supabase.rpc('admin_set_customer_location', { p_customer_id: cli.id, p_latitude: coords.lat, p_longitude: coords.lon })
       if(error || !data?.ok){ b.textContent = 'Error'; return }
+      if(!geo) alert(`No pudimos encontrar automáticamente la dirección de ${cli.first_name||'este cliente'}. Puse un punto en el centro de Rosario — arrastralo con el dedo hasta la ubicación correcta.`)
       initAdminMapa()
     })
   }
@@ -549,6 +550,26 @@ function pBtn(icon, label, attrs, variant){
   return `<button ${attrs} style="flex:1;${styles[variant||'ghost']};border-radius:10px;padding:9px 4px;font-size:11px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:0">${icon}<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</span></button>`
 }
 function pBtnRow(buttons){ return `<div style="display:flex;gap:8px;margin-top:10px">${buttons.join('')}</div>` }
+function attachAvisoNumeroEnCalle(streetElId, numberElId, avisoBoxId){
+  const streetEl = document.querySelector('#'+streetElId)
+  const avisoBox = document.querySelector('#'+avisoBoxId)
+  if(!streetEl || !avisoBox) return
+  streetEl.onblur = ()=>{
+    const numberEl = document.querySelector('#'+numberElId)
+    const match = streetEl.value.trim().match(/^(.*\S)\s+(\d{1,5}(?:\s*bis)?)$/i)
+    if(match && numberEl && !numberEl.value.trim()){
+      avisoBox.innerHTML = `<div class="alert info" style="margin-bottom:10px">Parece que escribiste el número (<b>${match[2]}</b>) junto con el nombre de la calle. <button type="button" class="btn ghost" id="btn_mover_numero_${streetElId}" style="margin-top:6px;padding:6px 12px;font-size:12px">Pasarlo a "Número"</button></div>`
+      const btn = document.querySelector('#btn_mover_numero_'+streetElId)
+      if(btn) btn.onclick = ()=>{
+        streetEl.value = match[1]
+        numberEl.value = match[2]
+        avisoBox.innerHTML = ''
+      }
+    } else {
+      avisoBox.innerHTML = ''
+    }
+  }
+}
 function descargarCSV(nombreArchivo, columnas, filas){
   const escapar = v => `"${String(v==null?'':v).replace(/"/g,'""')}"`
   const encabezado = columnas.map(c=>escapar(c.label)).join(';')
@@ -637,7 +658,8 @@ function editarDatosForm(c){
     <div class="field"><label>Teléfono</label><input id="ed_phone" value="${c.phone||''}"/></div>
     <div class="field"><label>Email</label><input id="ed_email" value="${c.email||''}"/></div>
     <div class="field"><label>Tipo de vía</label><div class="grid three" id="ed_via_group">${TIPOS_VIA_OPCIONES.map(t=>`<button type="button" class="btn ${viaSel===t.value?'primary':'ghost'}" data-via="${t.value}">${t.label}</button>`).join('')}</div></div>
-    <div class="field"><label>Nombre de la calle</label><input id="ed_street" value="${c.street||''}"/></div>
+    <div class="field"><label>Nombre de la calle</label><input id="ed_street" value="${c.street||''}" placeholder="Ej: Larrea (sin el número)"/></div>
+    <div id="aviso_numero_ed"></div>
     <div class="field"><label>Número</label><input id="ed_street_number" value="${c.street_number||''}"/></div>
     <div class="field"><label>Barrio</label><input id="ed_neighborhood" value="${c.neighborhood||''}"/></div>
     <div class="field"><label>Código postal</label><input id="ed_postal_code" value="${c.postal_code||''}"/></div>
@@ -660,6 +682,7 @@ function editarDatosForm(c){
     viaSel = b.dataset.via
     document.querySelectorAll('#ed_via_group [data-via]').forEach(x=> x.className = 'btn ' + (x.dataset.via===viaSel?'primary':'ghost'))
   })
+  attachAvisoNumeroEnCalle('ed_street','ed_street_number','aviso_numero_ed')
   document.querySelector('#ed_province').onchange = (e)=>{
     citySelValue = ''
     if(e.target.value) cargarLocalidadesEdit(e.target.value, '')
@@ -1058,6 +1081,7 @@ async function clientes(){
               <div class="field"><label>Código postal</label><input id="cl_postal_${c.id}" value="${detalle.customer.postal_code||''}"/></div>
               <div class="field"><label>Zona</label><select id="cl_zone_${c.id}">${ZONAS.map(z=>`<option value="${z.value}" ${detalle.customer.zone===z.value?'selected':''}>${z.label}</option>`).join('')}</select></div>
             </div>
+            <div id="aviso_numero_cl_${c.id}"></div>
             <div id="err_cliente_${c.id}" class="alert danger" style="display:none"></div>
             <button data-guardar-cliente="${c.id}" style="width:100%;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:10px 0;font-size:13px;font-weight:600;margin-top:4px">💾 Guardar cambios</button>
           </div>
@@ -1105,6 +1129,7 @@ async function clientes(){
     }
     render()
   })
+  if(clienteExpandido) attachAvisoNumeroEnCalle(`cl_street_${clienteExpandido}`, `cl_street_number_${clienteExpandido}`, `aviso_numero_cl_${clienteExpandido}`)
   document.querySelectorAll('[data-guardar-cliente]').forEach(b=>b.onclick=async()=>{
     const id = b.dataset.guardarCliente
     const box = document.querySelector(`#err_cliente_${id}`)
