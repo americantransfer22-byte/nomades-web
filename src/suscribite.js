@@ -325,6 +325,31 @@ function paso4(){
   </div>`
 }
 
+function mostrarConfetiSuscribite(mensaje){
+  const overlay = document.createElement('div')
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(20,20,18,0.35);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  const colores = ['#2F4D2A','#E8833A','#8FAE6B','#F5B301']
+  let piezas = ''
+  for(let i=0;i<24;i++){
+    const izquierda = Math.random()*100
+    const demora = Math.random()*0.4
+    const color = colores[i%colores.length]
+    piezas += `<div style="position:absolute;top:-10px;left:${izquierda}%;width:8px;height:8px;background:${color};border-radius:2px;animation:nomCaer2 1.1s ease-in ${demora}s forwards"></div>`
+  }
+  overlay.innerHTML = `<div style="position:relative;background:#FFFFFF;border-radius:16px;padding:26px 20px;max-width:340px;width:100%;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,0.18);overflow:hidden">
+    <div style="position:absolute;inset:0;pointer-events:none">${piezas}</div>
+    <div style="position:relative">
+      <div style="font-size:30px;margin-bottom:8px">🎉</div>
+      <div style="font-size:15px;font-weight:700;color:#2F4D2A;line-height:1.4;margin-bottom:18px">${mensaje}</div>
+      <button id="confeti_cerrar" style="width:100%;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:11px 0;font-size:14px;font-weight:600">¡Genial!</button>
+    </div>
+  </div>
+  <style>@keyframes nomCaer2{from{transform:translateY(0) rotate(0deg);opacity:1}to{transform:translateY(220px) rotate(220deg);opacity:0}}</style>`
+  document.body.appendChild(overlay)
+  const cerrar = ()=>{ if(overlay.parentNode) document.body.removeChild(overlay) }
+  overlay.querySelector('#confeti_cerrar').onclick = cerrar
+  overlay.onclick = (e)=>{ if(e.target===overlay) cerrar() }
+}
 function exito(){
   const d = state.exitoData
   const total = totalCarrito()
@@ -332,6 +357,7 @@ function exito(){
     return `<div class="card"><h2>🔥 ¡Anotado en la lista!</h2><p>Sos muy pedido — por ahora no queda lugar para tu plan de <b>${total} huevos</b> (${FRECUENCIAS.find(f=>f.value===state.plan.frequency)?.label.toLowerCase()}), pero ya quedaste anotado en <b>lista de espera</b>, en orden de llegada.</p><p>Apenas se libere un cupo te contactamos, y tu <b>primera entrega va con 50% de descuento</b> como agradecimiento por tu paciencia.</p></div>`
   }
   const fecha = d?.next_delivery_date ? new Date(d.next_delivery_date+'T00:00:00').toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long'}) : ''
+  setTimeout(()=>mostrarConfetiSuscribite('¡Listo! Ya sos parte de NÓMADES.'), 300)
   return `<div class="card"><h2>✅ ¡Listo!</h2><p>Registramos tu suscripción a <b>${total} huevos</b> (${carritoResumen()}) con entrega <b>${FRECUENCIAS.find(f=>f.value===state.plan.frequency)?.label.toLowerCase()}</b>.</p>${fecha?`<p>Tu primera entrega sería el <b>${fecha}</b>.</p>`:''}${d?.referral_applied?`<div class="alert info">🎁 ¡Usaste un código de recomendación! Tu primera entrega tiene <b>50% de descuento</b>.</div>`:''}${d?.referral_bloqueado?`<div class="alert info">Ese código de recomendación no está disponible en este momento, pero tu suscripción quedó registrada igual.</div>`:''}<p class="muted">Nos vamos a contactar por WhatsApp o email para coordinar el pago y confirmar la primera entrega.</p></div>
   <div class="card"><h3>📣 Recomendá NÓMADES</h3><p>Compartí tu código con amigos y familiares — cuando alguien se suscriba con él y reciba y pague su primera entrega, vos te ganás <b>$1.000 de descuento</b> en tu próximo pedido.</p><div class="alert info" style="text-align:center;font-size:22px;font-weight:bold;letter-spacing:2px">${d?.referral_code||''}</div></div>`
 }
