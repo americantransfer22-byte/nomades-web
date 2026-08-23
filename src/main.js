@@ -202,16 +202,22 @@ function iniciarPollingCuenta(){
     const n = data?.next_order
     return n ? `${n.status}|${n.customer_stage}|${n.out_for_delivery_at}|${n.en_route_at}` : ''
   }
+  const idsDisponibles = (data)=> (data?.credits||[]).filter(c=>c.status==='available').map(c=>c.id).sort().join(',')
   let ultimaFirma = firmaEstado(cuenta)
+  let ultimosDisponibles = idsDisponibles(cuenta)
   cuentaPollInterval = setInterval(async ()=>{
     if(current!=='cuenta' || !cuenta){ clearInterval(cuentaPollInterval); cuentaPollInterval=null; return }
     const { data } = await supabase.rpc('customer_login', { p_dni: cuenta.customer.dni })
     if(!data?.found) return
     const nuevaFirma = firmaEstado(data)
-    if(nuevaFirma !== ultimaFirma){
+    const nuevosDisponibles = idsDisponibles(data)
+    const huboNuevoCredito = nuevosDisponibles !== ultimosDisponibles && nuevosDisponibles.split(',').filter(Boolean).length > ultimosDisponibles.split(',').filter(Boolean).length
+    if(nuevaFirma !== ultimaFirma || huboNuevoCredito){
       ultimaFirma = nuevaFirma
+      ultimosDisponibles = nuevosDisponibles
       cuenta = data
-      reproducirSonidoAviso()
+      if(huboNuevoCredito) mostrarConfeti('¡Ganaste $1.000 de descuento por recomendar! Se aplica solo en tu próximo pedido.')
+      else reproducirSonidoAviso()
       if(current==='cuenta') cuentaPanel()
     }
   }, 5000)
@@ -227,7 +233,7 @@ function cuentaPanel(){
   const fechasMes = subActiva && next ? fechasDelMesParaSuscripcion(next.delivery_date, subActiva.frequency) : []
   layout(`<h2>👤 Hola, ${c.first_name}</h2>
   <div id="card_hoy_banner"></div>
-  <div class="card"><h3>Tu próximo pedido</h3>${next?`<div class="row"><span>${formatearFecha(next.delivery_date)}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div><p>${(next.plan_breakdown && Array.isArray(next.plan_breakdown) && next.plan_breakdown.length) ? next.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')+' huevos' : `${next.egg_quantity||0} huevos`}</p>${next.payment_method?`<div class="alert info">💡 Recordá: el pago es en <b>${METODOS_PAGO_LABEL[next.payment_method]||next.payment_method}</b>.</div>`:''}${next.payment_method==='mp'?`<div class="alert info" style="margin-top:6px">📄 Tené a mano el comprobante de tu pago — el repartidor te lo va a pedir para confirmar antes de dejarte el pedido.</div>`:''}`:'<p class="muted">No tenés entregas próximas.</p>'}</div>
+  <div class="card"><h3>Tu próximo pedido</h3>${next?`<div class="row"><span>${formatearFecha(next.delivery_date)}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div><p>${(next.plan_breakdown && Array.isArray(next.plan_breakdown) && next.plan_breakdown.length) ? next.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')+' huevos' : `${next.egg_quantity||0} huevos`}</p>${next.payment_method?`<div class="alert info">💡 Recordá: el pago es en <b>${METODOS_PAGO_LABEL[next.payment_method]||next.payment_method}</b>.</div>`:''}${next.payment_method==='mp'?`<div class="alert info" style="margin-top:6px">📄 Tené a mano el comprobante de tu pago — el repartidor te lo va a pedir para confirmar antes de dejarte el pedido.</div>`:''}`:estadoVacio('No tenés entregas próximas todavía.')}</div>
   ${next && (next.customer_stage || next.status==='out_for_delivery') ? barraEstadoPedido(next.customer_stage, next.status, next.out_for_delivery_at, next.en_route_at) : ''}
   ${fechasMes.length?`<div class="card"><h3>📅 Tus entregas este mes</h3>${fechasMes.map((f,i)=>`<div class="row"><span>${formatearFecha(f)}</span>${i===0?'<span class="badge">Confirmada</span>':'<span class="muted" style="font-size:12px">Estimada</span>'}</div>`).join('')}<p class="muted" style="font-size:12px;margin-top:8px">Solo la primera fecha está confirmada como pedido. Las demás son estimadas según tu frecuencia y pueden moverse un poco.</p></div>`:''}
   <div class="card" id="card_subs"><h3>Tus suscripciones</h3>${cuenta.subscriptions.length?cuenta.subscriptions.map(s=>{
@@ -238,7 +244,7 @@ function cuentaPanel(){
       ${s.status==='active'?`<button class="btn ghost" data-cambiar-plan="${s.id}" style="font-size:12px;padding:6px 12px">✏️ Cambiar plan</button><button class="btn ghost" data-pausar="${s.id}" style="font-size:12px;padding:6px 12px">⏸️ Pausar</button>`:''}
       ${s.status==='paused'?`<button class="btn primary" data-reanudar="${s.id}" style="font-size:12px;padding:6px 12px">▶️ Reanudar</button>`:''}
     </span></div>`
-  }).join(''):'<p class="muted">No tenés suscripciones activas.</p>'}</div>
+  }).join(''):estadoVacio('No tenés suscripciones activas todavía.')}</div>
   <div class="card" id="card_pagos"><h3>💳 Historial de pagos</h3><p class="muted">Cargando…</p></div>
   <div class="card"><h3>📣 Recomendá NÓMADES</h3><p class="muted">Compartí tu código — cuando alguien se suscriba con él y reciba y pague su primera entrega, vos te ganás <b>$1.000 de descuento</b> en tu próximo pedido. Cada código sirve una sola vez: apenas se usa, se genera uno nuevo para que compartas.</p>
     ${(()=>{
@@ -280,7 +286,7 @@ function cuentaPanel(){
     if(!ratingSel){ box.textContent='Tocá las estrellas para elegir un puntaje.'; box.style.display='block'; return }
     const { data, error } = await supabase.rpc('customer_add_review', { p_dni: c.dni, p_customer_id: c.id, p_order_id: null, p_rating: ratingSel, p_comment: document.querySelector('#review_comment').value.trim() })
     if(error || !data?.ok){ box.textContent = data?.error || 'No se pudo enviar.'; box.style.display='block'; return }
-    alert('¡Gracias por tu reseña! 🙌')
+    mostrarAlerta('¡Gracias por tu reseña! 🙌')
     cuentaPanel()
   }
   document.querySelectorAll('[data-cambiar-plan]').forEach(b=>b.onclick = ()=>{
@@ -291,16 +297,16 @@ function cuentaPanel(){
     const fecha = prompt('¿Hasta qué fecha querés pausar? (opcional, formato AAAA-MM-DD). Dejá vacío si no sabés todavía.')
     if(fecha===null) return
     const { data, error } = await supabase.rpc('customer_pause_subscription', { p_dni: c.dni, p_customer_id: c.id, p_subscription_id: b.dataset.pausar, p_resume_date: fecha||null })
-    if(error || !data?.ok){ alert('No se pudo pausar: '+(data?.error||error?.message||'')); return }
-    alert('⏸️ Suscripción pausada. No te vamos a entregar ni cobrar hasta que la reanudes.')
+    if(error || !data?.ok){ mostrarAlerta('No se pudo pausar: '+(data?.error||error?.message||'')); return }
+    mostrarAlerta('⏸️ Suscripción pausada. No te vamos a entregar ni cobrar hasta que la reanudes.')
     const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
     if(fresh?.found) cuenta = fresh
     cuentaPanel()
   })
   document.querySelectorAll('[data-reanudar]').forEach(b=>b.onclick = async ()=>{
     const { data, error } = await supabase.rpc('customer_resume_subscription', { p_dni: c.dni, p_customer_id: c.id, p_subscription_id: b.dataset.reanudar })
-    if(error || !data?.ok){ alert('No se pudo reanudar: '+(data?.error||error?.message||'')); return }
-    alert(data.next_delivery_date ? `▶️ Suscripción reanudada. Próxima entrega: ${formatearFecha(data.next_delivery_date)}` : '▶️ Suscripción reanudada.')
+    if(error || !data?.ok){ mostrarAlerta('No se pudo reanudar: '+(data?.error||error?.message||'')); return }
+    mostrarAlerta(data.next_delivery_date ? `▶️ Suscripción reanudada. Próxima entrega: ${formatearFecha(data.next_delivery_date)}` : '▶️ Suscripción reanudada.')
     const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
     if(fresh?.found) cuenta = fresh
     cuentaPanel()
@@ -373,7 +379,7 @@ async function initAdminMapa(){
     marker.on('dragend', async ()=>{
       const pos = marker.getLatLng()
       const { data, error } = await supabase.rpc('admin_set_customer_location', { p_customer_id: c.id, p_latitude: pos.lat, p_longitude: pos.lng })
-      if(error || !data?.ok){ alert('No se pudo guardar la nueva ubicación.'); return }
+      if(error || !data?.ok){ mostrarAlerta('No se pudo guardar la nueva ubicación.'); return }
       marker.bindPopup(`<b>${c.first_name||''} ${c.last_name||''}</b><br>📍 Ubicación actualizada`).openPopup()
     })
     grupo.push(marker)
@@ -391,7 +397,7 @@ async function initAdminMapa(){
       const coords = geo || { lat: -32.9468, lon: -60.6393 }
       const { data, error } = await supabase.rpc('admin_set_customer_location', { p_customer_id: cli.id, p_latitude: coords.lat, p_longitude: coords.lon })
       if(error || !data?.ok){ b.textContent = 'Error'; return }
-      if(!geo) alert(`No pudimos encontrar automáticamente la dirección de ${cli.first_name||'este cliente'}. Puse un punto en el centro de Rosario — arrastralo con el dedo hasta la ubicación correcta.`)
+      if(!geo) mostrarAlerta(`No pudimos encontrar automáticamente la dirección de ${cli.first_name||'este cliente'}. Puse un punto en el centro de Rosario — arrastralo con el dedo hasta la ubicación correcta.`)
       initAdminMapa()
     })
   }
@@ -548,7 +554,7 @@ async function cambiarPlanForm(sub){
       if(error || !data?.ok){ errBox.textContent='No pudimos hacer el cambio. Probá de nuevo.'; errBox.style.display='block'; return }
       const { data: fresh } = await supabase.rpc('customer_login', { p_dni: cuenta.customer.dni })
       if(fresh?.found) cuenta = fresh
-      alert(data.status==='active' ? '✅ Plan actualizado. Próxima entrega: '+data.next_delivery_date : '🕒 Quedaste en lista de espera para la ampliación de tu plan.')
+      mostrarAlerta(data.status==='active' ? '✅ Plan actualizado. Próxima entrega: '+data.next_delivery_date : '🕒 Quedaste en lista de espera para la ampliación de tu plan.')
       cuentaPanel()
     }
   }
@@ -615,6 +621,82 @@ function attachAvisoNumeroEnCalle(streetElId, numberElId, avisoBoxId){
       avisoBox.innerHTML = ''
     }
   }
+}
+function mostrarAlerta(mensaje){
+  return new Promise((resolve)=>{
+    const overlay = document.createElement('div')
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(20,20,18,0.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;animation:nomFadeIn 0.15s ease'
+    overlay.innerHTML = `<div style="background:#FFFFFF;border-radius:16px;padding:24px 20px;max-width:340px;width:100%;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,0.18);animation:nomPop 0.18s ease">
+      <div style="width:44px;height:44px;border-radius:50%;background:#EAF0DC;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:20px;color:#2F4D2A">✓</div>
+      <div style="font-size:14px;color:#2F4D2A;line-height:1.5;margin-bottom:18px;white-space:pre-line">${mensaje}</div>
+      <button id="nom_modal_ok" style="width:100%;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:11px 0;font-size:14px;font-weight:600">Entendido</button>
+    </div>`
+    document.body.appendChild(overlay)
+    const cerrar = ()=>{ if(overlay.parentNode) document.body.removeChild(overlay); resolve() }
+    overlay.querySelector('#nom_modal_ok').onclick = cerrar
+    overlay.onclick = (e)=>{ if(e.target===overlay) cerrar() }
+  })
+}
+function mostrarConfirmacion(mensaje){
+  return new Promise((resolve)=>{
+    const overlay = document.createElement('div')
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(20,20,18,0.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;animation:nomFadeIn 0.15s ease'
+    overlay.innerHTML = `<div style="background:#FFFFFF;border-radius:16px;padding:24px 20px;max-width:340px;width:100%;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,0.18);animation:nomPop 0.18s ease">
+      <div style="width:44px;height:44px;border-radius:50%;background:#FBE4CC;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:20px;color:#B85C00">?</div>
+      <div style="font-size:14px;color:#2F4D2A;line-height:1.5;margin-bottom:18px;white-space:pre-line">${mensaje}</div>
+      <div style="display:flex;gap:8px">
+        <button id="nom_modal_cancel" style="flex:1;background:#FFFFFF;color:#2F4D2A;border:1px solid #E3DCC8;border-radius:10px;padding:11px 0;font-size:14px;font-weight:600">Cancelar</button>
+        <button id="nom_modal_ok" style="flex:1;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:11px 0;font-size:14px;font-weight:600">Confirmar</button>
+      </div>
+    </div>`
+    document.body.appendChild(overlay)
+    const cerrar = (v)=>{ if(overlay.parentNode) document.body.removeChild(overlay); resolve(v) }
+    overlay.querySelector('#nom_modal_cancel').onclick = ()=>cerrar(false)
+    overlay.querySelector('#nom_modal_ok').onclick = ()=>cerrar(true)
+    overlay.onclick = (e)=>{ if(e.target===overlay) cerrar(false) }
+  })
+}
+function mostrarConfeti(mensaje){
+  const overlay = document.createElement('div')
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(20,20,18,0.35);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;animation:nomFadeIn 0.15s ease'
+  const colores = ['#2F4D2A','#E8833A','#8FAE6B','#F5B301']
+  let piezas = ''
+  for(let i=0;i<24;i++){
+    const izquierda = Math.random()*100
+    const demora = Math.random()*0.4
+    const color = colores[i%colores.length]
+    piezas += `<div style="position:absolute;top:-10px;left:${izquierda}%;width:8px;height:8px;background:${color};border-radius:2px;animation:nomCaer 1.1s ease-in ${demora}s forwards"></div>`
+  }
+  overlay.innerHTML = `<div style="position:relative;background:#FFFFFF;border-radius:16px;padding:26px 20px;max-width:340px;width:100%;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,0.18);overflow:hidden;animation:nomPop 0.18s ease">
+    <div style="position:absolute;inset:0;pointer-events:none">${piezas}</div>
+    <div style="position:relative">
+      <div style="font-size:30px;margin-bottom:8px">🎉</div>
+      <div style="font-size:15px;font-weight:700;color:#2F4D2A;line-height:1.4;margin-bottom:18px;white-space:pre-line">${mensaje}</div>
+      <button id="nom_modal_ok" style="width:100%;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:11px 0;font-size:14px;font-weight:600">¡Genial!</button>
+    </div>
+  </div>`
+  document.body.appendChild(overlay)
+  const cerrar = ()=>{ if(overlay.parentNode) document.body.removeChild(overlay) }
+  overlay.querySelector('#nom_modal_ok').onclick = cerrar
+  overlay.onclick = (e)=>{ if(e.target===overlay) cerrar() }
+}
+function estadoVacio(mensaje, icono){
+  return `<div style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;padding:28px 16px;text-align:center">
+    <svg width="60" height="60" viewBox="0 0 72 72" style="margin:0 auto 10px;display:block"><circle cx="36" cy="40" r="22" fill="#EAF0DC"/><ellipse cx="36" cy="38" rx="12" ry="15" fill="#F5EFE0" stroke="#2F4D2A" stroke-width="1.5"/><circle cx="31" cy="34" r="2" fill="#2F4D2A"/><circle cx="41" cy="34" r="2" fill="#2F4D2A"/><path d="M31 43 Q36 47 41 43" stroke="#2F4D2A" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+    <div style="font-size:13px;color:#8A8570">${mensaje}</div>
+  </div>`
+}
+if(!document.querySelector('#nom_anim_styles')){
+  const styleTag = document.createElement('style')
+  styleTag.id = 'nom_anim_styles'
+  styleTag.textContent = `
+    @keyframes nomFadeIn{from{opacity:0}to{opacity:1}}
+    @keyframes nomPop{from{opacity:0;transform:scale(0.94)}to{opacity:1;transform:scale(1)}}
+    @keyframes nomCaer{from{transform:translateY(0) rotate(0deg);opacity:1}to{transform:translateY(220px) rotate(220deg);opacity:0}}
+    .acc-body{overflow:hidden;transition:max-height 0.25s ease,padding 0.25s ease}
+    .acc-arrow{display:inline-block;transition:transform 0.2s ease}
+  `
+  document.head.appendChild(styleTag)
 }
 function descargarCSV(nombreArchivo, columnas, filas){
   const escapar = v => `"${String(v==null?'':v).replace(/"/g,'""')}"`
@@ -1031,7 +1113,7 @@ async function miVehiculo(){
     }
     const { error } = await supabase.from('vehicle_services').insert(payload)
     if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
-    alert('Service guardado ✅')
+    mostrarAlerta('Service guardado ✅')
     render()
   }
 
@@ -1049,8 +1131,8 @@ async function miVehiculo(){
     const { data: pub } = supabase.storage.from('fuel-receipts').getPublicUrl(path)
     const { data, error } = await supabase.rpc('driver_log_fuel', { p_vehicle_id: vehiculo.id, p_km: km, p_amount: monto, p_liters: litros, p_receipt_url: pub.publicUrl })
     if(error || !data?.ok){ box.textContent = data?.error || 'No se pudo guardar la carga.'; box.style.display='block'; return }
-    if(data.alerta_service) alert(`⛽ Carga guardada ✅\n\n⚠️ Atención: faltan ${Math.round(data.faltan_km)} km para el próximo service.`)
-    else alert('⛽ Carga guardada ✅')
+    if(data.alerta_service) mostrarAlerta(`⛽ Carga guardada ✅\n\n⚠️ Atención: faltan ${Math.round(data.faltan_km)} km para el próximo service.`)
+    else mostrarAlerta('⛽ Carga guardada ✅')
     render()
   }
 }
@@ -1085,15 +1167,15 @@ async function campo(){
     const maples = Math.round((eggs/30)*10)/10
     const { error } = await supabase.from('production').insert({ production_date:date, eggs_count:eggs, maples_count:maples, losses_count:losses, notes: notes||null })
     if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
-    alert('Registro guardado ✅'); render()
+    mostrarAlerta('Registro guardado ✅'); render()
   }
   document.querySelectorAll('[data-usar]').forEach(b=>b.onclick=async()=>{
     const id=b.dataset.usar
     const qty=Number(document.querySelector(`#uso_qty_${id}`).value)
-    if(!qty||qty<=0){ alert('Ingresá una cantidad válida.'); return }
+    if(!qty||qty<=0){ mostrarAlerta('Ingresá una cantidad válida.'); return }
     const { error } = await supabase.from('stock_movements').insert({ product_id:id, type:'consumo', quantity:qty, created_by: session.user.id })
-    if(error){ alert('No se pudo registrar: '+error.message); return }
-    alert('Uso registrado ✅'); render()
+    if(error){ mostrarAlerta('No se pudo registrar: '+error.message); return }
+    mostrarAlerta('Uso registrado ✅'); render()
   })
 }
 
@@ -1161,7 +1243,7 @@ async function clientes(){
         `}
       </div>
     </div>`
-  }).join('') : '<p class="muted">Sin datos todavía.</p>'}`)
+  }).join('') : estadoVacio('Todavía no hay clientes cargados.')}`)
 
   document.querySelector('#btn_exportar_clientes').onclick = ()=>{
     descargarCSV('clientes_nomades.csv', [
@@ -1200,13 +1282,13 @@ async function clientes(){
     const { error } = await supabase.from('customers').update(payload).eq('id', id)
     if(error){ box.textContent = 'No se pudo guardar: '+error.message; box.style.display='block'; return }
     delete clienteDetalleCache[id]
-    alert('✅ Datos del cliente actualizados.')
+    mostrarAlerta('✅ Datos del cliente actualizados.')
     render()
   })
   document.querySelectorAll('[data-usar-credito]').forEach(b=>b.onclick=async()=>{
-    if(!confirm('¿Marcar este crédito como usado?'))return
+    if(!(await mostrarConfirmacion('¿Marcar este crédito como usado?')))return
     const { error } = await supabase.from('customer_credits').update({ status: 'used' }).eq('id', b.dataset.usarCredito)
-    if(error){ alert('Error: '+error.message); return }
+    if(error){ mostrarAlerta('Error: '+error.message); return }
     clienteDetalleCache = {}
     render()
   })
@@ -1265,7 +1347,7 @@ async function pedidos(){
         `}
       </div>
     </div>`
-  }).join('') : '<p class="muted">No hay pedidos cargados.</p>'}
+  }).join('') : estadoVacio('Todavía no hay pedidos cargados.')}
   <p class="muted" style="margin-top:10px">Para reasignar repartidores, andá a Administración → 🚚 Asignación de repartidores.</p>`)
 
   document.querySelector('#btn_exportar_pedidos').onclick = ()=>{
@@ -1370,7 +1452,7 @@ async function repartidor(){
         `).join('')}
       `, 'margin-bottom:10px')
     }).join('')
-    if(!contenido) contenido = pCard(`<p class="muted" style="margin:0">No hay entregas pendientes para este día (puede que ya estén todas entregadas).</p>`)
+    if(!contenido) contenido = estadoVacio('No hay entregas pendientes para este día (puede que ya estén todas entregadas).')
   }
 
   layout(`<h2>🚚 ${tituloChico}</h2>
@@ -1394,23 +1476,23 @@ async function repartidor(){
     // Solo un pedido puede estar "en camino" a la vez para ese repartidor
     await supabase.from('orders').update({ customer_stage: null }).eq('assigned_driver', driverId).eq('customer_stage', 'en_route')
     const { error } = await supabase.from('orders').update({ customer_stage: 'en_route', en_route_at: new Date().toISOString() }).eq('id', id)
-    if(error){ alert('No se pudo actualizar el estado: '+error.message); return }
+    if(error){ mostrarAlerta('No se pudo actualizar el estado: '+error.message); return }
     const datosVehiculo = miVehiculo ? ` en mi ${miVehiculo.type==='moto'?'moto':'camioneta'} ${miVehiculo.brand||''} ${miVehiculo.model||''}${miVehiculo.color?` color ${miVehiculo.color}`:''}, patente ${miVehiculo.plate}` : ''
     const mensaje = encodeURIComponent(`Hola ${b.dataset.nombre}! Soy ${miNombre}, tu repartidor de NÓMADES 🛵 Ya estoy yendo hacia tu casa${datosVehiculo}. Tu pedido llega en los próximos minutos.`)
-    alert('✅ Estado actualizado a "Hacia tu casa". Ahora se abre WhatsApp con el aviso.')
+    mostrarAlerta('✅ Estado actualizado a "Hacia tu casa". Ahora se abre WhatsApp con el aviso.')
     window.open(`https://wa.me/54${b.dataset.tel}?text=${mensaje}`, '_blank')
     render()
   })
   document.querySelector('#btn_ver_mapa_repartidor').onclick = ()=>mapaRepartidor()
   document.querySelector('#btn_sali_a_repartir').onclick = async ()=>{
     const esAdmin = myRole==='admin'
-    if(!confirm(`¿Marcar como "En reparto" ${esAdmin?'todos los pedidos pendientes de todos los repartidores':'todos tus pedidos pendientes'} del ${subtitulo}?`))return
+    if(!(await mostrarConfirmacion(`¿Marcar como "En reparto" ${esAdmin?'todos los pedidos pendientes de todos los repartidores':'todos tus pedidos pendientes'} del ${subtitulo}?`)))return
     let query = supabase.from('orders').update({ status: 'out_for_delivery', out_for_delivery_at: new Date().toISOString() }).eq('delivery_date', fecha).in('status',['pending','assigned'])
     if(!esAdmin) query = query.eq('assigned_driver', session.user.id)
     const { data, error } = await query.select('id')
-    if(error){ alert('Error: '+error.message); return }
-    if(!data || !data.length){ alert(`⚠️ No había pedidos pendientes para marcar en el ${subtitulo}. Revisá que estés parado en la fecha correcta arriba.`); return }
-    alert(`✅ Se marcaron ${data.length} pedido(s) como "En reparto". Los clientes de ese día ya lo ven en su cuenta.`)
+    if(error){ mostrarAlerta('Error: '+error.message); return }
+    if(!data || !data.length){ mostrarAlerta(`⚠️ No había pedidos pendientes para marcar en el ${subtitulo}. Revisá que estés parado en la fecha correcta arriba.`); return }
+    mostrarAlerta(`✅ Se marcaron ${data.length} pedido(s) como "En reparto". Los clientes de ese día ya lo ven en su cuenta.`)
     render()
   }
  } catch(err) {
@@ -1694,7 +1776,7 @@ async function historialRepartidor(){
 
 async function openDelivery(id){
   const { data: detalle, error: errDet } = await supabase.rpc('delivery_detail', { p_order_id: id })
-  if(errDet || !detalle || detalle.error) return alert('No se pudo cargar el pedido')
+  if(errDet || !detalle || detalle.error) return mostrarAlerta('No se pudo cargar el pedido')
   const r = detalle.order, c = detalle.customer, sub = detalle.subscription || {}
   const credito = detalle.credit
   const { data: settingsRaw } = await supabase.from('farm_settings').select('key,value').in('key',['transfer_cbu','transfer_alias','transfer_bank_name','transfer_holder_name','transfer_holder_doc','mp_alias','mp_wallet_name','mp_cbu','mp_holder_name','mp_holder_doc','wallet_discount_type','wallet_discount_value'])
@@ -1795,7 +1877,7 @@ async function openDelivery(id){
     const {data, error}=await supabase.rpc('confirm_delivery',{p_order_id:id,p_receiver_id:receiverId,p_actual_method:metodoSel,p_amount:monto,p_receipt_url:comprobanteUrl||null})
     if(error || !data?.ok){ errBox.textContent='No se pudo confirmar: '+(error?.message||data?.error||''); errBox.style.display='block'; return }
     if(credito) await supabase.rpc('confirm_delivery_use_credit', { p_credit_id: credito.id })
-    alert('Entrega confirmada ✅'); current='repartidor'; render()
+    mostrarAlerta('Entrega confirmada ✅'); current='repartidor'; render()
   }
   document.querySelector('#failed').onclick=async()=>{
     const motivos = ['Ausente','No responde','DNI no autorizado','Dirección incorrecta','Cliente no pudo pagar','Otro']
@@ -1803,9 +1885,9 @@ async function openDelivery(id){
     const reason = motivos[Number(idx)-1]
     if(!reason)return
     const {error}=await supabase.from('delivery_attempts').insert({order_id:id,status:'failed',failure_reason:reason,driver_id:session.user.id})
-    if(error)return alert(error.message)
+    if(error)return mostrarAlerta(error.message)
     await supabase.from('orders').update({status:'incident'}).eq('id',id)
-    alert('Incidencia registrada'); current='repartidor'; render()
+    mostrarAlerta('Incidencia registrada'); current='repartidor'; render()
   }
 }
 
@@ -1887,7 +1969,7 @@ async function admin(){
   const pendientesDePago = subs.filter(s=>s.payment_status==='pending')
   const rolLabel = {admin:'Administrador',campo:'Personal de campo',repartidor:'Repartidor'}
   const AS = (id)=> adminOpenSection===id
-  const accHead = (id, icon, titulo, badge)=> `<button type="button" class="acc-header" data-acc="${id}" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:14px 16px;cursor:pointer;gap:10px;background:${AS(id)?'#F5EFE0':'transparent'}"><span style="width:32px;height:32px;border-radius:9px;background:#EAF0DC;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">${icon}</span><span style="flex:1;font-weight:700;font-size:14.5px;color:#2F4D2A">${titulo}</span>${badge?pPill(badge,'#FBE4CC','#B85C00'):''}<span style="font-size:13px;color:#8A8570">${AS(id)?'▲':'▼'}</span></button><div style="display:${AS(id)?'block':'none'};padding:4px 16px 16px 16px">`
+  const accHead = (id, icon, titulo, badge)=> `<button type="button" class="acc-header" data-acc="${id}" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:14px 16px;cursor:pointer;gap:10px;background:${AS(id)?'#F5EFE0':'transparent'}"><span style="width:32px;height:32px;border-radius:9px;background:#EAF0DC;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">${icon}</span><span style="flex:1;font-weight:700;font-size:14.5px;color:#2F4D2A">${titulo}</span>${badge?pPill(badge,'#FBE4CC','#B85C00'):''}<span style="font-size:13px;color:#8A8570">${AS(id)?'▲':'▼'}</span></button><div class="acc-body" style="max-height:${AS(id)?'6000px':'0'};padding:${AS(id)?'4px 16px 16px 16px':'0 16px'}">`
   const statCard = (id,label,value)=> `<div data-stat="${id}" style="cursor:pointer;flex:0 0 auto;min-width:96px;background:#2F4D2A;border-radius:14px;padding:10px 14px;display:flex;flex-direction:column;gap:2px"><span style="color:#C9D8B0;font-size:11px;line-height:1.25">${label}</span><span style="color:#F5EFE0;font-size:20px;font-weight:700;line-height:1.15">${value}</span></div>`
 
   const resumenDia = (()=>{
@@ -2471,8 +2553,24 @@ async function admin(){
   </div></div>`)
 
   document.querySelectorAll('[data-acc]').forEach(b=>b.onclick=()=>{
-    adminOpenSection = adminOpenSection===b.dataset.acc ? null : b.dataset.acc
-    render()
+    const abriendo = adminOpenSection!==b.dataset.acc
+    const body = b.nextElementSibling
+    const arrow = b.querySelector('span:last-child')
+    if(body && body.classList.contains('acc-body')){
+      if(abriendo){
+        body.style.padding = '4px 16px 16px 16px'
+        body.style.maxHeight = '6000px'
+        if(arrow) arrow.textContent = '▲'
+        b.style.background = '#F5EFE0'
+      } else {
+        body.style.maxHeight = '0'
+        body.style.padding = '0 16px'
+        if(arrow) arrow.textContent = '▼'
+        b.style.background = 'transparent'
+      }
+    }
+    adminOpenSection = abriendo ? b.dataset.acc : null
+    setTimeout(render, 260)
   })
   document.querySelectorAll('[data-stat]').forEach(b=>b.onclick=()=>{
     adminDetalleTipo = b.dataset.stat
@@ -2486,18 +2584,18 @@ async function admin(){
   if(AS('mapa')) initAdminMapa()
   document.querySelectorAll('[data-vehiculo-asignar]').forEach(sel=>sel.onchange=async()=>{
     const { error } = await supabase.from('vehicles').update({ assigned_to: sel.value || null }).eq('id', sel.dataset.vehiculoAsignar)
-    if(error){ alert('Error: '+error.message); return }
+    if(error){ mostrarAlerta('Error: '+error.message); return }
     adminData = null; render()
   })
   document.querySelectorAll('[data-marcar-service]').forEach(b=>b.onclick=async()=>{
-    if(!confirm('¿Marcar el service como realizado hoy? Se reinicia el contador de kilómetros.'))return
+    if(!(await mostrarConfirmacion('¿Marcar el service como realizado hoy? Se reinicia el contador de kilómetros.')))return
     const { data, error } = await supabase.rpc('admin_marcar_service', { p_vehicle_id: b.dataset.marcarService })
-    if(error || !data?.ok){ alert('No se pudo actualizar.'); return }
+    if(error || !data?.ok){ mostrarAlerta('No se pudo actualizar.'); return }
     adminData = null; render()
   })
   document.querySelectorAll('[data-pagar-service]').forEach(b=>b.onclick=async()=>{
     const { data, error } = await supabase.rpc('admin_marcar_service_pagado', { p_service_id: b.dataset.pagarService })
-    if(error || !data?.ok){ alert('No se pudo actualizar.'); return }
+    if(error || !data?.ok){ mostrarAlerta('No se pudo actualizar.'); return }
     adminData = null; render()
   })
   document.querySelectorAll('[data-ver-stats]').forEach(b=>b.onclick=()=>{
@@ -2513,9 +2611,9 @@ async function admin(){
     render()
   })
   document.querySelectorAll('[data-eliminar-vehiculo]').forEach(b=>b.onclick=async()=>{
-    if(!confirm('¿Eliminar este vehículo? También se borra su historial de cargas de combustible. Esta acción no se puede deshacer.'))return
+    if(!(await mostrarConfirmacion('¿Eliminar este vehículo? También se borra su historial de cargas de combustible. Esta acción no se puede deshacer.')))return
     const { error } = await supabase.from('vehicles').delete().eq('id', b.dataset.eliminarVehiculo)
-    if(error){ alert('Error: '+error.message); return }
+    if(error){ mostrarAlerta('Error: '+error.message); return }
     adminData = null; render()
   })
   document.querySelectorAll('[data-guardar-vehiculo]').forEach(b=>b.onclick=async()=>{
@@ -2597,8 +2695,8 @@ async function admin(){
   document.querySelectorAll('[data-guardar-carnet]').forEach(b=>b.onclick=async()=>{
     const val = document.querySelector(`#carnet_${b.dataset.guardarCarnet}`).value
     const { error } = await supabase.from('staff_roles').update({ license_expiry: val || null }).eq('user_id', b.dataset.guardarCarnet)
-    if(error){ alert('Error: '+error.message); return }
-    adminData = null; alert('Guardado ✅')
+    if(error){ mostrarAlerta('Error: '+error.message); return }
+    adminData = null; mostrarAlerta('Guardado ✅')
   })
   document.querySelector('#btn_crear_staff').onclick = async ()=>{
     const full_name = document.querySelector('#staff_new_name').value.trim()
@@ -2612,27 +2710,27 @@ async function admin(){
     adminData = null; render()
   }
   document.querySelectorAll('[data-revoke]').forEach(b=>b.onclick=async()=>{
-    if(!confirm('¿Revocar el acceso de esta persona? No va a poder entrar más con su código actual.'))return
+    if(!(await mostrarConfirmacion('¿Revocar el acceso de esta persona? No va a poder entrar más con su código actual.')))return
     const { error } = await supabase.functions.invoke('manage-staff', { body: { action:'revoke', user_id:b.dataset.revoke } })
-    if(error){ alert('Error: '+error.message); return }
+    if(error){ mostrarAlerta('Error: '+error.message); return }
     adminData = null; render()
   })
   document.querySelectorAll('[data-reset]').forEach(b=>b.onclick=async()=>{
     const custom_code = prompt('Escribí el nuevo código para esta persona (o dejalo vacío para generar uno automático):') || ''
     const { data, error } = await supabase.functions.invoke('manage-staff', { body: { action:'reset', user_id:b.dataset.reset, custom_code } })
-    if(error){ alert('Error: '+error.message); return }
-    alert('Nuevo código: '+data.code+'\n\nCopialo ahora, no se vuelve a mostrar.')
+    if(error){ mostrarAlerta('Error: '+error.message); return }
+    mostrarAlerta('Nuevo código: '+data.code+'\n\nCopialo ahora, no se vuelve a mostrar.')
   })
   document.querySelectorAll('#modo_asig_group [data-modo]').forEach(b=>b.onclick=async()=>{
     const { data, error } = await supabase.rpc('admin_set_assignment_mode', { p_mode: b.dataset.modo })
-    if(error || !data?.ok){ alert('No se pudo cambiar el modo: '+(error?.message||data?.error||'')); return }
+    if(error || !data?.ok){ mostrarAlerta('No se pudo cambiar el modo: '+(error?.message||data?.error||'')); return }
     adminData = null; render()
   })
   document.querySelectorAll('[data-zona-driver]').forEach(sel=>sel.onchange=async()=>{
     const zona = sel.dataset.zonaDriver
     const driver = sel.value || null
     const { error } = await supabase.from('zone_drivers').update({ driver_user_id: driver, updated_at: new Date().toISOString() }).eq('zone', zona)
-    if(error){ alert('Error: '+error.message); return }
+    if(error){ mostrarAlerta('Error: '+error.message); return }
     adminData = null
   })
   document.querySelectorAll('[data-barrio-driver]').forEach(sel=>sel.onchange=async()=>{
@@ -2640,37 +2738,37 @@ async function admin(){
     const driver = sel.value || null
     if(driver){
       const { error } = await supabase.from('neighborhood_drivers').upsert({ neighborhood: barrio, driver_user_id: driver, updated_at: new Date().toISOString() })
-      if(error){ alert('Error: '+error.message); return }
+      if(error){ mostrarAlerta('Error: '+error.message); return }
     } else {
       const { error } = await supabase.from('neighborhood_drivers').delete().eq('neighborhood', barrio)
-      if(error){ alert('Error: '+error.message); return }
+      if(error){ mostrarAlerta('Error: '+error.message); return }
     }
     adminData = null
   })
   document.querySelector('#btn_recalcular_asignaciones').onclick = async ()=>{
     const { data, error } = await supabase.rpc('recalc_all_order_drivers', {})
-    if(error){ alert('Error: '+error.message); return }
+    if(error){ mostrarAlerta('Error: '+error.message); return }
     adminData = null
-    alert(`✅ Se recalcularon ${data} pedido(s).`); render()
+    mostrarAlerta(`✅ Se recalcularon ${data} pedido(s).`); render()
   }
   document.querySelectorAll('[data-pedido-driver]').forEach(sel=>sel.onchange=async()=>{
     const { data, error } = await supabase.rpc('admin_assign_driver', { p_order_id: sel.dataset.pedidoDriver, p_driver_user_id: sel.value || null })
-    if(error || !data?.ok){ alert('No se pudo asignar: '+(error?.message||data?.error||'')); return }
+    if(error || !data?.ok){ mostrarAlerta('No se pudo asignar: '+(error?.message||data?.error||'')); return }
     adminData = null; render()
   })
   document.querySelectorAll('[data-destrabar]').forEach(b=>b.onclick=async()=>{
     const { data, error } = await supabase.rpc('admin_unlock_driver', { p_order_id: b.dataset.destrabar })
-    if(error || !data?.ok){ alert('No se pudo destrabar: '+(error?.message||data?.error||'')); return }
+    if(error || !data?.ok){ mostrarAlerta('No se pudo destrabar: '+(error?.message||data?.error||'')); return }
     adminData = null; render()
   })
   document.querySelectorAll('[data-marcar-preparando]').forEach(b=>b.onclick=async()=>{
     const { error } = await supabase.from('orders').update({ customer_stage: 'preparing' }).eq('id', b.dataset.marcarPreparando)
-    if(error){ alert('Error: '+error.message); return }
+    if(error){ mostrarAlerta('Error: '+error.message); return }
     adminData = null; render()
   })
   document.querySelectorAll('[data-quitar-preparando]').forEach(b=>b.onclick=async()=>{
     const { error } = await supabase.from('orders').update({ customer_stage: null }).eq('id', b.dataset.quitarPreparando)
-    if(error){ alert('Error: '+error.message); return }
+    if(error){ mostrarAlerta('Error: '+error.message); return }
     adminData = null; render()
   })
   document.querySelector('#btn_crear_producto').onclick = async ()=>{
@@ -2687,9 +2785,9 @@ async function admin(){
     const id = b.dataset.comprar
     const qtyInput = document.querySelector(`#compra_qty_${id}`)
     const qty = Number(qtyInput.value)
-    if(!qty || qty<=0){ alert('Ingresá una cantidad válida.'); return }
+    if(!qty || qty<=0){ mostrarAlerta('Ingresá una cantidad válida.'); return }
     const { error } = await supabase.from('stock_movements').insert({ product_id:id, type:'compra', quantity:qty, created_by: session?.user?.id || null })
-    if(error){ alert('Error: '+error.message); return }
+    if(error){ mostrarAlerta('Error: '+error.message); return }
     adminData = null; render()
   })
   document.querySelector('#btn_guardar_capacidad').onclick = async ()=>{
@@ -2701,26 +2799,26 @@ async function admin(){
     adminData = null; render()
   }
   document.querySelectorAll('[data-promover]').forEach(b=>b.onclick=async()=>{
-    if(!confirm('¿Activar a esta persona? Va a pasar de la lista de espera a suscripción activa, con 50% de descuento en su primera entrega.'))return
+    if(!(await mostrarConfirmacion('¿Activar a esta persona? Va a pasar de la lista de espera a suscripción activa, con 50% de descuento en su primera entrega.')))return
     const { data, error } = await supabase.rpc('promote_waitlist_entry', { p_waitlist_id: b.dataset.promover })
-    if(error || !data?.ok){ alert('No se pudo activar: '+(data?.error||error?.message||'')); return }
+    if(error || !data?.ok){ mostrarAlerta('No se pudo activar: '+(data?.error||error?.message||'')); return }
     adminData = null
-    alert('Activado ✅ Próxima entrega: '+data.next_delivery_date)
+    mostrarAlerta('Activado ✅ Próxima entrega: '+data.next_delivery_date)
     render()
   })
   document.querySelectorAll('[data-pp-save]').forEach(b=>b.onclick=async()=>{
     const id = b.dataset.ppSave
     const price = Number(document.querySelector(`#pp_price_${id}`).value)
-    if(!price || price<=0){ alert('Ingresá un precio válido.'); return }
+    if(!price || price<=0){ mostrarAlerta('Ingresá un precio válido.'); return }
     const { error } = await supabase.from('plan_prices').update({ price }).eq('id', id)
-    if(error){ alert('Error: '+error.message); return }
+    if(error){ mostrarAlerta('Error: '+error.message); return }
     adminData = null; render()
   })
   document.querySelectorAll('[data-pp-toggle]').forEach(b=>b.onclick=async()=>{
     const id = b.dataset.ppToggle
     const activeNow = b.dataset.ppActive === 'true'
     const { error } = await supabase.from('plan_prices').update({ active: !activeNow }).eq('id', id)
-    if(error){ alert('Error: '+error.message); return }
+    if(error){ mostrarAlerta('Error: '+error.message); return }
     adminData = null; render()
   })
   document.querySelector('#btn_agregar_tamano').onclick = async ()=>{
@@ -2749,7 +2847,7 @@ async function admin(){
       await supabase.from('farm_settings').update({ value }).eq('key', key)
     }
     adminData = null
-    alert('Datos de cobro guardados ✅')
+    mostrarAlerta('Datos de cobro guardados ✅')
   }
   let walletDiscTipoSel = settingsMap.wallet_discount_type || 'percent'
   const pintarDescTipo = ()=>{
@@ -2769,12 +2867,12 @@ async function admin(){
     await supabase.from('farm_settings').update({ value: walletDiscTipoSel }).eq('key','wallet_discount_type')
     await supabase.from('farm_settings').update({ value: valor }).eq('key','wallet_discount_value')
     adminData = null
-    alert('Descuento guardado ✅')
+    mostrarAlerta('Descuento guardado ✅')
     render()
   }
   document.querySelectorAll('[data-conciliar]').forEach(chk=>chk.onchange=async()=>{
     const { error } = await supabase.from('payments').update({ reconciled: chk.checked }).eq('id', chk.dataset.conciliar)
-    if(error){ alert('Error: '+error.message); chk.checked=!chk.checked; return }
+    if(error){ mostrarAlerta('Error: '+error.message); chk.checked=!chk.checked; return }
     adminData = null
   })
   const rendFechaInput = document.querySelector('#rend_fecha')
@@ -2786,16 +2884,16 @@ async function admin(){
   document.querySelectorAll('[data-guardar-pago]').forEach(b=>b.onclick=async()=>{
     const id = b.dataset.guardarPago
     const val = Number(document.querySelector(`#pago_monto_${id}`).value)
-    if(!val || val<=0){ alert('Ingresá un monto válido.'); return }
+    if(!val || val<=0){ mostrarAlerta('Ingresá un monto válido.'); return }
     const { error } = await supabase.from('payments').update({ amount: val }).eq('id', id)
-    if(error){ alert('Error: '+error.message); return }
+    if(error){ mostrarAlerta('Error: '+error.message); return }
     pagoEditando = null
     adminData = null; render()
   })
   document.querySelectorAll('[data-eliminar-pago]').forEach(b=>b.onclick=async()=>{
-    if(!confirm('¿Eliminar este pago? No se puede deshacer.'))return
+    if(!(await mostrarConfirmacion('¿Eliminar este pago? No se puede deshacer.')))return
     const { error } = await supabase.from('payments').delete().eq('id', b.dataset.eliminarPago)
-    if(error){ alert('Error: '+error.message); return }
+    if(error){ mostrarAlerta('Error: '+error.message); return }
     adminData = null; render()
   })
   const btnToggleDif = document.querySelector('#btn_toggle_form_diferencia')
@@ -2822,15 +2920,15 @@ async function admin(){
     render()
   })
   document.querySelectorAll('[data-eliminar-ledger]').forEach(b=>b.onclick=async()=>{
-    if(!confirm('¿Eliminar este movimiento de la cuenta corriente?'))return
+    if(!(await mostrarConfirmacion('¿Eliminar este movimiento de la cuenta corriente?')))return
     const { error } = await supabase.from('driver_ledger').delete().eq('id', b.dataset.eliminarLedger)
-    if(error){ alert('Error: '+error.message); return }
+    if(error){ mostrarAlerta('Error: '+error.message); return }
     adminData = null; render()
   })
   document.querySelectorAll('[data-destacar-review]').forEach(b=>b.onclick=async()=>{
     const featuredNow = b.dataset.featured === 'true'
     const { error } = await supabase.from('reviews').update({ featured: !featuredNow }).eq('id', b.dataset.destacarReview)
-    if(error){ alert('Error: '+error.message); return }
+    if(error){ mostrarAlerta('Error: '+error.message); return }
     adminData = null; render()
   })
   const btnToggleFormCat = document.querySelector('#btn_toggle_form_categoria')
@@ -2843,16 +2941,16 @@ async function admin(){
   if(btnCrearCategoria) btnCrearCategoria.onclick = async ()=>{
     const name = document.querySelector('#cat_new_name').value.trim()
     const type = document.querySelector('#cat_new_type').value
-    if(!name){ alert('Ponele un nombre a la categoría.'); return }
+    if(!name){ mostrarAlerta('Ponele un nombre a la categoría.'); return }
     const { error } = await supabase.from('finance_categories').insert({ name, type, active: true })
-    if(error){ alert('Error: '+error.message); return }
+    if(error){ mostrarAlerta('Error: '+error.message); return }
     mostrarFormNuevaCategoria = false
     adminData = null; render()
   }
   document.querySelectorAll('[data-cat-toggle]').forEach(b=>b.onclick=async()=>{
     const activeNow = b.dataset.catActive === 'true'
     const { error } = await supabase.from('finance_categories').update({ active: !activeNow }).eq('id', b.dataset.catToggle)
-    if(error){ alert('Error: '+error.message); return }
+    if(error){ mostrarAlerta('Error: '+error.message); return }
     adminData = null; render()
   })
   let finTipoSel = 'expense'
