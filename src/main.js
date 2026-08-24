@@ -51,8 +51,9 @@ async function geocodificarDireccion(direccion){
 }
 
 function layout(content){
-  const nav = session ? (current==='staff-profile-setup' ? [['logout','Salir']] : [...navStaffFor(myRole),['logout','Salir']]) : [['inicio','Inicio'],['cuenta','Mi cuenta']]
-  app.innerHTML = `<div class="shell"><div class="top"><div class="brand" style="display:flex;align-items:center;gap:8px">NÓMADES <span class="muted" style="font-size:12px">Huevos de libre pastoreo</span></div><div class="nav">${nav.map(([k,l])=>`<button class="btn ${current===k?'primary':'ghost'}" data-nav="${k}">${l}</button>`).join('')}</div></div>${content}${!session?`<div style="text-align:center;margin-top:24px"><a href="#" id="staff_link" class="muted" style="font-size:12px">Acceso del equipo</a></div>`:''}</div>`
+  const esMayorista = current==='mayorista-login' || current==='mayorista-panel'
+  const nav = esMayorista ? [] : session ? (current==='staff-profile-setup' ? [['logout','Salir']] : [...navStaffFor(myRole),['logout','Salir']]) : [['inicio','Inicio'],['cuenta','Mi cuenta']]
+  app.innerHTML = `<div class="shell"><div class="top"><div class="brand" style="display:flex;align-items:center;gap:8px">NÓMADES <span class="muted" style="font-size:12px">${esMayorista?'Portal mayoristas':'Huevos de libre pastoreo'}</span></div><div class="nav">${nav.map(([k,l])=>`<button class="btn ${current===k?'primary':'ghost'}" data-nav="${k}">${l}</button>`).join('')}</div></div>${content}${(!session && !esMayorista)?`<div style="text-align:center;margin-top:24px"><a href="#" id="staff_link" class="muted" style="font-size:12px">Acceso del equipo</a></div>`:''}</div>`
   document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=async ()=>{
     if(b.dataset.nav==='logout'){ await supabase.auth.signOut(); session=null; myRole=null; current='inicio'; return render() }
     if(b.dataset.nav==='admin'){ adminData = null; adminOpenSection = null }
@@ -126,7 +127,7 @@ async function cargarResenasHome(){
 async function cargarPreciosHome(){
   const cont = document.querySelector('#planes_home')
   if(!cont) return
-  const { data, error } = await supabase.from('plan_prices').select('egg_quantity,price').eq('active', true).order('egg_quantity')
+  const { data, error } = await supabase.from('plan_prices').select('egg_quantity,price').eq('active', true).eq('customer_type','minorista').order('egg_quantity')
   const planes = (!error && data && data.length) ? data : [{egg_quantity:15,price:7000},{egg_quantity:30,price:12000}]
   cont.innerHTML = planes.map(p => `<div><img src="./img/maple${p.egg_quantity}.jpg" alt="Maple de ${p.egg_quantity} huevos" style="width:100%;border-radius:12px 12px 0 0;display:block"/><div class="card" style="border-radius:0 0 12px 12px;text-align:center"><b>${p.egg_quantity} huevos</b><br>$${Number(p.price).toLocaleString('es-AR')}</div></div>`).join('')
 }
@@ -232,6 +233,7 @@ function iniciarPollingCuenta(){
 }
 
 function cuentaPanel(){
+  panelVolver = cuentaPanel
   const scrollPrevioCuenta = window.scrollY
   const c = cuenta.customer
   const next = cuenta.next_order
@@ -240,6 +242,8 @@ function cuentaPanel(){
   const esHoy = next && next.delivery_date === hoy
   const subActiva = cuenta.subscriptions.find(s=>s.status==='active') || cuenta.subscriptions[0]
   const fechasMes = subActiva && next ? fechasDelMesParaSuscripcion(next.delivery_date, subActiva.frequency) : []
+  const manana = new Date(); manana.setDate(manana.getDate()+1); const mananaStr = manana.toISOString().slice(0,10)
+  const bloqueado24hs = !!(next && next.delivery_date <= mananaStr)
   layout(`<h2>👤 Hola, ${c.first_name}</h2>
   <div id="card_hoy_banner"></div>
   <div class="card"><h3>Tu próximo pedido</h3>${next?(()=>{
@@ -257,7 +261,7 @@ function cuentaPanel(){
       ${productosConfirmados.map(({mi,p})=>`<div class="row">
         <span style="display:flex;align-items:center;gap:8px">
           ${p.photo_url?`<img src="${p.photo_url}" style="width:32px;height:32px;border-radius:6px;object-fit:cover;flex-shrink:0"/>`:`<div style="width:32px;height:32px;border-radius:6px;background:#F5EFE0;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">🛒</div>`}
-          <span style="font-size:13px">${p.name}</span>
+          <span style="font-size:13px">${p.name}${mi.source==='phone'?'<br><span style="font-size:10px;color:#B85C00;font-weight:600">📞 Cargado por teléfono</span>':''}</span>
         </span>
         <span style="display:flex;align-items:center;gap:6px">
           <button data-ajustar-interes="${mi.id}" data-nueva="${mi.quantity-1}" data-stock-max="${p.stock===null?'':p.stock}" style="width:24px;height:24px;border-radius:6px;background:#F5EFE0;color:#2F4D2A;border:none;font-size:13px;font-weight:700">−</button>
@@ -313,6 +317,7 @@ function cuentaPanel(){
       if(!nuevos.length) return ''
       return `<div style="background:#EAF0DC;border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#2E5C1E;font-weight:600">🆕 ${nuevos.length} producto${nuevos.length===1?'':'s'} nuevo${nuevos.length===1?'':'s'} este mes</div>`
     })()}
+    ${bloqueado24hs?`<div style="background:#FBE4CC;border-radius:10px;padding:12px;margin-bottom:10px;display:flex;gap:8px;align-items:flex-start"><span style="font-size:16px">⏰</span><span style="font-size:12.5px;color:#7A4A0E;line-height:1.5">Tu próxima entrega es en menos de 24 horas — ya no lo sumamos solo desde acá. Elegí igual lo que querés y lo mandás por WhatsApp, nosotros te lo cargamos a mano.</span></div>`:''}
     <p class="muted" style="margin-bottom:10px">Sumalos a tu próxima entrega — se pagan junto con tu pedido, sin recargo extra.</p>
     ${(()=>{
       const items = Object.entries(carritoProductos).filter(([,q])=>q>0).map(([id,q])=>({ p: (cuenta.catalogo||[]).find(pr=>pr.id===id), q })).filter(x=>x.p)
@@ -395,7 +400,9 @@ function cuentaPanel(){
           <button data-carrito-eliminar="${p.id}" style="width:26px;height:26px;border-radius:7px;background:#FFFFFF;color:#B03A2E;border:1px solid #E3DCC8;font-size:13px">🗑️</button>
         </span></div>`).join('')}
       <div class="alert info" style="margin-top:10px;text-align:center;font-size:15px;font-weight:700">Total: $${total.toLocaleString('es-AR')}</div>
-      <button id="btn_confirmar_carrito" style="width:100%;margin-top:10px;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:11px 0;font-size:14px;font-weight:600">Confirmar productos</button>
+      ${bloqueado24hs
+        ? `<button id="btn_enviar_whatsapp_pedido" style="width:100%;margin-top:10px;background:#25D366;color:#fff;border:none;border-radius:10px;padding:11px 0;font-size:14px;font-weight:600">💬 Enviar por WhatsApp</button>`
+        : `<button id="btn_confirmar_carrito" style="width:100%;margin-top:10px;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:11px 0;font-size:14px;font-weight:600">Confirmar productos</button>`}
     </div>`
   })()}
   <button class="btn ghost" id="btn_ver_mapa" style="margin-bottom:10px">🗺️ Ver mapa de suscriptores</button>
@@ -481,6 +488,18 @@ function cuentaPanel(){
     const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
     if(fresh?.found) cuenta = fresh
     cuentaPanel()
+  }
+  const btnEnviarWhatsappPedido = document.querySelector('#btn_enviar_whatsapp_pedido')
+  if(btnEnviarWhatsappPedido) btnEnviarWhatsappPedido.onclick = async ()=>{
+    const itemsCarrito = Object.entries(carritoProductos).filter(([,q])=>q>0).map(([id,q])=>({ p: (cuenta.catalogo||[]).find(pr=>pr.id===id), q })).filter(x=>x.p)
+    if(!itemsCarrito.length){ mostrarAlerta('Elegí al menos un producto primero.'); return }
+    const { data: settingsRaw } = await supabase.from('farm_settings').select('value').eq('key','whatsapp_pedidos_urgentes').maybeSingle()
+    const numero = (settingsRaw?.value||'').replace(/\D/g,'')
+    if(!numero){ mostrarAlerta('Todavía no está configurado el número de WhatsApp. Avisale a NÓMADES.'); return }
+    const fechaTexto = cuenta.next_order?.delivery_date ? formatearFecha(cuenta.next_order.delivery_date) : 'tu próxima entrega'
+    const lineas = itemsCarrito.map(({p,q})=>`• ${q}× ${p.name}`).join('\n')
+    const mensaje = `Hola, quiero sumar esto a mi entrega:\nDNI: ${c.dni} — ${c.first_name} ${c.last_name}\nEntrega: ${fechaTexto}\n\n${lineas}\n\n¿Se puede sumar? Gracias`
+    window.open(`https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`, '_blank')
   }
   document.querySelectorAll('[data-cancelar-interes]').forEach(b=>b.onclick=async()=>{
     const confirmado = await mostrarConfirmacion('¿Cancelar este producto? Ya no te lo vamos a llevar.')
@@ -721,6 +740,8 @@ async function cargarHistorialPagos(c){
 }
 
 let planesDisponibles = []
+let planesDisponiblesTipo = null
+let panelVolver = null
 
 function totalCarrito(carrito){
   return Object.entries(carrito).reduce((sum,[eggQty,qty])=>sum + Number(eggQty)*qty, 0)
@@ -736,11 +757,14 @@ function carritoResumen(carrito){
 }
 
 async function cambiarPlanForm(sub){
+  const volver = panelVolver || cuentaPanel
+  const tipoCliente = cuenta?.customer?.customer_type === 'mayorista' ? 'mayorista' : 'minorista'
   const box = document.querySelector('#card_subs')
   box.innerHTML = `<h3>Cambiar plan</h3><p class="muted">Cargando opciones…</p>`
-  if(!planesDisponibles.length){
-    const { data } = await supabase.from('plan_prices').select('egg_quantity,price').eq('active', true).order('egg_quantity')
+  if(!planesDisponibles.length || planesDisponiblesTipo !== tipoCliente){
+    const { data } = await supabase.from('plan_prices').select('egg_quantity,price').eq('active', true).eq('customer_type', tipoCliente).order('egg_quantity')
     planesDisponibles = data || [{egg_quantity:15,price:7000},{egg_quantity:30,price:12000}]
+    planesDisponiblesTipo = tipoCliente
   }
   const carrito = {}
   planesDisponibles.forEach(p=>{ carrito[p.egg_quantity] = 0 })
@@ -795,7 +819,7 @@ async function cambiarPlanForm(sub){
     document.querySelectorAll('[data-freq]').forEach(b=>b.onclick=async()=>{ freqSel=b.dataset.freq; disponibilidad=null; render2(); await consultar() })
     document.querySelectorAll('[data-dia]').forEach(b=>b.onclick=async()=>{ diaSel=b.dataset.dia?Number(b.dataset.dia):null; disponibilidad=null; render2(); await consultar() })
     document.querySelectorAll('[data-alt-dia]').forEach(b=>b.onclick=async()=>{ diaSel=Number(b.dataset.altDia); disponibilidad=null; render2(); await consultar() })
-    document.querySelector('#btn_cancelar_cambio').onclick = ()=>cuentaPanel()
+    document.querySelector('#btn_cancelar_cambio').onclick = ()=>volver()
     document.querySelector('#btn_confirmar_cambio').onclick = async ()=>{
       const errBox = document.querySelector('#err_cambio')
       const total2 = totalCarrito(carrito)
@@ -810,7 +834,7 @@ async function cambiarPlanForm(sub){
       const { data: fresh } = await supabase.rpc('customer_login', { p_dni: cuenta.customer.dni })
       if(fresh?.found) cuenta = fresh
       mostrarAlerta(data.status==='active' ? '✅ Plan actualizado. Próxima entrega: '+data.next_delivery_date : '🕒 Quedaste en lista de espera para la ampliación de tu plan.')
-      cuentaPanel()
+      volver()
     }
   }
   const consultar = async ()=>{
@@ -1189,6 +1213,7 @@ async function cargarLocalidadesEdit(provincia, citySel){
 let citySelValue = ''
 
 function editarDatosForm(c){
+  const volver = panelVolver || cuentaPanel
   let zonaSel = c.zone || ''
   let viaSel = c.street_type || 'calle'
   citySelValue = c.city || ''
@@ -1228,7 +1253,7 @@ function editarDatosForm(c){
     if(e.target.value) cargarLocalidadesEdit(e.target.value, '')
   }
   if(c.province) cargarLocalidadesEdit(c.province, c.city || '')
-  document.querySelector('#btn_cancelar_edit').onclick = ()=>cuentaPanel()
+  document.querySelector('#btn_cancelar_edit').onclick = ()=>volver()
   document.querySelector('#btn_guardar_datos').onclick = async ()=>{
     const errBox = document.querySelector('#err_edit')
     const nuevoDni = document.querySelector('#ed_dni').value.trim()
@@ -1251,7 +1276,7 @@ function editarDatosForm(c){
     const { data, error } = await supabase.rpc('customer_update', payload)
     if(error || !data?.ok){ errBox.textContent = data?.error || 'No pudimos guardar los cambios. Probá de nuevo.'; errBox.style.display='block'; return }
     Object.assign(c, { dni: payload.p_new_dni||c.dni, phone: payload.p_phone||c.phone, email: payload.p_email||c.email, street: payload.p_street||c.street, street_number: payload.p_street_number||c.street_number, neighborhood: payload.p_neighborhood||c.neighborhood, zone: payload.p_zone||c.zone, street_type: payload.p_street_type||c.street_type, city: payload.p_city||c.city, province: payload.p_province||c.province, country: payload.p_country||c.country, postal_code: payload.p_postal_code||c.postal_code })
-    cuentaPanel()
+    volver()
   }
 }
 
@@ -1545,6 +1570,122 @@ async function miVehiculo(){
   }
 }
 
+function mayoristaLogin(){
+  layout(`<h2>🏭 Acceso mayoristas</h2><div class="card">
+    <p class="muted">Ingresá con el DNI de tu cuenta mayorista NÓMADES.</p>
+    <div class="field"><label>DNI</label><input id="dni_mayorista" inputmode="numeric" placeholder="Sin puntos"/></div>
+    <div id="err_mayorista_login" class="alert danger" style="display:none"></div>
+    <button class="btn primary" id="btn_dni_mayorista" style="width:100%">Entrar</button>
+  </div>`)
+  document.querySelector('#btn_dni_mayorista').onclick = async ()=>{
+    const dni = document.querySelector('#dni_mayorista').value.trim()
+    const box = document.querySelector('#err_mayorista_login')
+    if(!/^\d{7,8}$/.test(dni)){ box.textContent='Ingresá un DNI válido (7 u 8 números, sin puntos).'; box.style.display='block'; return }
+    const { data, error } = await supabase.rpc('customer_login', { p_dni: dni })
+    if(error || !data?.found){ box.textContent='No encontramos ese DNI.'; box.style.display='block'; return }
+    if(data.customer.customer_type !== 'mayorista'){ box.textContent='Este DNI no está registrado como cuenta mayorista. Si te parece un error, consultá con NÓMADES.'; box.style.display='block'; return }
+    cuenta = data
+    current = 'mayorista-panel'
+    render()
+  }
+}
+
+let mayoristaCarrito = {}
+async function mayoristaPanel(){
+  panelVolver = mayoristaPanel
+  if(!cuenta){ current='mayorista-login'; render(); return }
+  const c = cuenta.customer
+  const next = cuenta.next_order
+  const hoy = new Date().toISOString().slice(0,10)
+  const esHoy = next && next.delivery_date === hoy
+  const { data: planesRaw } = await supabase.from('plan_prices').select('egg_quantity,price').eq('active', true).eq('customer_type','mayorista').order('egg_quantity')
+  const planes = planesRaw || []
+  const { data: catalogoMayorista } = await supabase.rpc('mayorista_catalogo', {})
+  const productosMayoristas = catalogoMayorista || []
+  const subActiva = cuenta.subscriptions.find(s=>s.status==='active')
+  let frecuenciaSel = subActiva?.frequency || 'weekly'
+  let metodoSel = subActiva?.payment_method || 'transfer'
+  if(subActiva && !Object.keys(mayoristaCarrito).length){
+    (subActiva.plan_breakdown||[]).forEach(b=>{ mayoristaCarrito[b.size] = b.qty })
+  }
+  const totalCant = ()=>Object.entries(mayoristaCarrito).reduce((s,[q,c])=>s+Number(q)*c,0)
+  const totalPrecio = ()=>Object.entries(mayoristaCarrito).reduce((s,[q,c])=>{ const pl=planes.find(p=>String(p.egg_quantity)===q); return s+(pl?Number(pl.price):0)*c }, 0)
+
+  const dibujar = ()=>{
+    layout(`<h2>🏭 Hola, ${c.first_name}</h2>
+    <div id="card_hoy_banner"></div>
+    <div class="card" id="card_repartidor"><h3>🚚 Tu repartidor</h3>${skeletonBloque(2)}</div>
+    ${next && (next.customer_stage || next.status==='out_for_delivery') ? barraEstadoPedido(next.customer_stage, next.status, next.out_for_delivery_at, next.en_route_at) : ''}
+    <div class="card" id="card_subs"><h3>Tu pedido de huevos</h3>
+      ${subActiva?`<p class="muted">Próxima entrega: ${subActiva.next_delivery_date?formatearFecha(subActiva.next_delivery_date):'-'}${subActiva.status==='paused'?' · <span class="badge" style="background:#8A8570">⏸️ Pausada</span>':''}${subActiva.status==='paused'&&subActiva.paused_until?` (hasta ${formatearFecha(subActiva.paused_until)})`:''}</p>`:'<p class="muted">Todavía no tenés un pedido activo — armalo abajo.</p>'}
+      ${planes.length? planes.map(pl=>`<div class="row"><span>${pl.egg_quantity} huevos <small class="muted">$${Number(pl.price).toLocaleString('es-AR')}</small></span><span style="display:flex;align-items:center;gap:8px"><button type="button" data-may-menos="${pl.egg_quantity}" class="btn ghost" style="padding:6px 14px">−</button><b>${mayoristaCarrito[pl.egg_quantity]||0}</b><button type="button" data-may-mas="${pl.egg_quantity}" class="btn ghost" style="padding:6px 14px">+</button></span></div>`).join('') : '<p class="muted">Todavía no hay tamaños mayoristas cargados — consultá con NÓMADES.</p>'}
+      <div class="alert info" style="margin-top:8px"><b>Total: ${totalCant()} huevos</b> · $${totalPrecio().toLocaleString('es-AR')}</div>
+      <div class="field" style="margin-top:10px"><label>Frecuencia</label><div class="grid three">${Object.entries(FRECUENCIAS).map(([v,l])=>`<button type="button" data-may-frecuencia="${v}" class="btn ${frecuenciaSel===v?'primary':'ghost'}">${l}</button>`).join('')}</div></div>
+      <div class="field"><label>Forma de pago</label><div class="grid three">
+        <button type="button" data-may-metodo="cash" class="btn ${metodoSel==='cash'?'primary':'ghost'}">Efectivo</button>
+        <button type="button" data-may-metodo="transfer" class="btn ${metodoSel==='transfer'?'primary':'ghost'}">Transferencia</button>
+        <button type="button" data-may-metodo="mp" class="btn ${metodoSel==='mp'?'primary':'ghost'}">Mercado Pago</button>
+      </div></div>
+      <div id="err_mayorista" class="alert danger" style="display:none"></div>
+      <button class="btn primary" id="btn_confirmar_mayorista" style="width:100%;margin-top:10px">${subActiva?'Actualizar pedido':'Confirmar pedido'}</button>
+      ${subActiva && subActiva.status==='active'?`<button class="btn ghost" data-pausar="${subActiva.id}" style="width:100%;margin-top:8px">⏸️ Pausar pedidos</button>`:''}
+      ${subActiva && subActiva.status==='paused'?`<button class="btn primary" data-reanudar="${subActiva.id}" style="width:100%;margin-top:8px">▶️ Reanudar</button>`:''}
+    </div>
+    ${productosMayoristas.length?`<div class="card"><h3>🛒 Otros productos (precio mayorista)</h3>
+      ${productosMayoristas.map(p=>`<div class="row"><span>${p.name}<br><small class="muted">$${Number(p.price).toLocaleString('es-AR')} · ${p.unit_label||'unidad'}</small></span><button data-may-producto="${p.id}" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:8px 14px;font-size:12px;font-weight:600">Sumar</button></div>`).join('')}
+    </div>`:''}
+    ${cuenta.historial_entregas && cuenta.historial_entregas.length ? `<div class="card"><h3>📦 Historial de entregas</h3>${cuenta.historial_entregas.map(h=>`<div class="row"><span>${formatearFecha(h.delivery_date)}</span><span>${h.egg_quantity||0} huevos</span></div>`).join('')}</div>`:''}
+    <div class="card" id="card_pagos"><h3>💳 Historial de pagos</h3>${skeletonBloque(3)}</div>
+    <div class="card" id="card_datos"><h3>Tus datos</h3><p>🪪 DNI ${c.dni||'-'}</p><p>🏠 ${TIPOS_VIA[c.street_type]||'Calle'} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'} (CP ${c.postal_code||'-'})</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
+    <button class="btn ghost" id="btn_logout_mayorista">Cerrar sesión</button>`)
+    cargarRepartidor(c, esHoy)
+    cargarHistorialPagos(c)
+    const btnEditar = document.querySelector('#btn_editar_datos')
+    if(btnEditar) btnEditar.onclick = ()=>editarDatosForm(c)
+    document.querySelectorAll('[data-pausar]').forEach(b=>b.onclick = async ()=>{
+      const fecha = prompt('¿Hasta qué fecha querés pausar? (opcional, formato AAAA-MM-DD). Dejá vacío si no sabés todavía.')
+      if(fecha===null) return
+      const { data, error } = await supabase.rpc('customer_pause_subscription', { p_dni: c.dni, p_customer_id: c.id, p_subscription_id: b.dataset.pausar, p_resume_date: fecha||null })
+      if(error || !data?.ok){ mostrarAlerta('No se pudo pausar: '+(data?.error||error?.message||'')); return }
+      mostrarAlerta('⏸️ Pedidos pausados. No te vamos a entregar ni cobrar hasta que los reanudes.')
+      const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
+      if(fresh?.found) cuenta = fresh
+      mayoristaPanel()
+    })
+    document.querySelectorAll('[data-reanudar]').forEach(b=>b.onclick = async ()=>{
+      const { data, error } = await supabase.rpc('customer_resume_subscription', { p_dni: c.dni, p_customer_id: c.id, p_subscription_id: b.dataset.reanudar })
+      if(error || !data?.ok){ mostrarAlerta('No se pudo reanudar: '+(data?.error||error?.message||'')); return }
+      mostrarAlerta(data.next_delivery_date ? `▶️ Reanudado. Próxima entrega: ${formatearFecha(data.next_delivery_date)}` : '▶️ Reanudado.')
+      const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
+      if(fresh?.found) cuenta = fresh
+      mayoristaPanel()
+    })
+    document.querySelectorAll('[data-may-mas]').forEach(b=>b.onclick=()=>{ mayoristaCarrito[b.dataset.mayMas]=(mayoristaCarrito[b.dataset.mayMas]||0)+1; dibujar() })
+    document.querySelectorAll('[data-may-menos]').forEach(b=>b.onclick=()=>{ if(mayoristaCarrito[b.dataset.mayMenos]>0) mayoristaCarrito[b.dataset.mayMenos]--; dibujar() })
+    document.querySelectorAll('[data-may-frecuencia]').forEach(b=>b.onclick=()=>{ frecuenciaSel=b.dataset.mayFrecuencia; dibujar() })
+    document.querySelectorAll('[data-may-metodo]').forEach(b=>b.onclick=()=>{ metodoSel=b.dataset.mayMetodo; dibujar() })
+    document.querySelectorAll('[data-may-producto]').forEach(b=>b.onclick=async()=>{
+      const { data, error } = await supabase.rpc('customer_mark_interest', { p_dni: c.dni, p_customer_id: c.id, p_product_id: b.dataset.mayProducto, p_quantity: 1 })
+      if(error || !data?.ok){ mostrarAlerta('No se pudo sumar: '+(data?.error||error?.message||'')); return }
+      mostrarAlerta('¡Sumado a tu próximo pedido!')
+    })
+    document.querySelector('#btn_logout_mayorista').onclick = ()=>{ mayoristaCarrito={}; cuenta=null; current='mayorista-login'; render() }
+    document.querySelector('#btn_confirmar_mayorista').onclick = async ()=>{
+      const errBox = document.querySelector('#err_mayorista')
+      const total = totalCant()
+      if(total<=0){ errBox.textContent='Elegí al menos un tamaño.'; errBox.style.display='block'; return }
+      const breakdown = Object.entries(mayoristaCarrito).filter(([,q])=>q>0).map(([size,qty])=>({size:Number(size),qty}))
+      const { data, error } = await supabase.rpc('mayorista_hacer_pedido', { p_dni: c.dni, p_customer_id: c.id, p_egg_quantity: total, p_frequency: frecuenciaSel, p_payment_method: metodoSel, p_plan_breakdown: breakdown, p_price: totalPrecio() })
+      if(error || !data?.ok){ errBox.textContent = 'No se pudo confirmar: '+(data?.error||error?.message||''); errBox.style.display='block'; return }
+      mostrarAlerta(`¡Listo! Próxima entrega: ${formatearFecha(data.next_delivery_date)}`)
+      const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
+      if(fresh?.found) cuenta = fresh
+      current = 'mayorista-panel'; render()
+    }
+  }
+  dibujar()
+}
+
 async function preparador(){
   const { data, error } = await supabase.rpc('preparador_pedidos_pendientes', {})
   const pedidos = data || []
@@ -1612,7 +1753,7 @@ const CANALES_VENTA = [
 ]
 async function vendedor(){
   if(!ventaEstado){
-    const { data: planesRaw } = await supabase.from('plan_prices').select('egg_quantity,price').eq('active', true).order('egg_quantity')
+    const { data: planesRaw } = await supabase.from('plan_prices').select('egg_quantity,price').eq('active', true).eq('customer_type','minorista').order('egg_quantity')
     ventaEstado = {
       planes: (planesRaw && planesRaw.length) ? planesRaw : [{egg_quantity:15,price:7000},{egg_quantity:30,price:12000}],
       canal: 'puerta_fria',
@@ -1751,24 +1892,48 @@ async function vendedorMisComisiones(){
 
 async function campo(){
   const today = new Date().toISOString().slice(0,10)
-  const recientes = await q('production','id,production_date,eggs_count,maples_count,losses_count,notes')
+  const recientes = await q('production','id,production_date,eggs_count,maples_count,losses_count,notes,source,cost,supplier_name')
   const { data: productosRaw } = await supabase.from('products').select('id,name,unit_label,current_qty,active').eq('active',true).order('name')
   const productos = productosRaw || []
+  let origenSel = 'propio'
   layout(`<h2>🥚 Personal de campo</h2>
   <div class="card"><h3>Registrar recolección de hoy</h3>
     <div class="field"><label>Fecha</label><input id="p_date" type="date" value="${today}"/></div>
+    <div class="field"><label>Origen</label><div class="grid two">
+      <button type="button" id="btn_origen_propio" class="btn primary">🐔 Propio</button>
+      <button type="button" id="btn_origen_comprado" class="btn ghost">🤝 Comprado a otro productor</button>
+    </div></div>
     <div class="grid two">
       <div class="field"><label>Huevos recolectados</label><input id="p_eggs" type="number" min="0" /></div>
       <div class="field"><label>Roturas/defectuosos</label><input id="p_losses" type="number" min="0" value="0"/></div>
+    </div>
+    <div id="campos_comprado" style="display:none">
+      <div class="grid two">
+        <div class="field"><label>¿A quién se lo compraste?</label><input id="p_supplier" placeholder="Ej: Granja Los Aromos"/></div>
+        <div class="field"><label>Costo total ($)</label><input id="p_cost" type="number" min="0"/></div>
+      </div>
+      <p class="muted" style="font-size:12px;margin-top:-8px">Esto genera un gasto automático en Finanzas — no hace falta que lo cargues dos veces.</p>
     </div>
     <div class="field"><label>Observaciones</label><textarea id="p_notes" rows="2" placeholder="Ej: cambio de parcela, incidencia sanitaria, etc."></textarea></div>
     <div id="err_campo" class="alert danger" style="display:none"></div>
     <button class="btn primary" id="btn_guardar_produccion">Guardar</button>
   </div>
-  <div class="card"><h3>Últimos registros</h3>${recientes.length?recientes.slice(-10).reverse().map(r=>`<div class="row"><span>${r.production_date}</span><span>${r.eggs_count} huevos · ${r.losses_count||0} roturas</span></div>`).join(''):'<p class="muted">Todavía no hay registros.</p>'}</div>
+  <div class="card"><h3>Últimos registros</h3>${recientes.length?recientes.slice(-10).reverse().map(r=>`<div class="row"><span>${r.production_date} ${r.source==='comprado'?' <span class="badge" style="background:#B85C00">🤝 Comprado</span>':''}${r.supplier_name?`<br><small class="muted">${r.supplier_name}</small>`:''}</span><span>${r.eggs_count} huevos · ${r.losses_count||0} roturas${r.cost?`<br><small class="muted">$${Number(r.cost).toLocaleString('es-AR')}</small>`:''}</span></div>`).join(''):'<p class="muted">Todavía no hay registros.</p>'}</div>
   <div class="card"><h3>🧺 Insumos disponibles</h3>
     ${productos.length? productos.map(p=>`<div class="row"><span><b>${p.current_qty}</b> × ${p.unit_label}<br><small>${p.name}</small></span><span style="display:flex;gap:6px;align-items:center"><input type="number" min="0.01" step="0.5" value="1" id="uso_qty_${p.id}" style="width:60px"/><button class="btn ghost" data-usar="${p.id}">Usar</button></span></div>`).join('') : '<p class="muted">Todavía no hay insumos cargados.</p>'}
   </div>`)
+  document.querySelector('#btn_origen_propio').onclick = ()=>{
+    origenSel='propio'
+    document.querySelector('#btn_origen_propio').className='btn primary'
+    document.querySelector('#btn_origen_comprado').className='btn ghost'
+    document.querySelector('#campos_comprado').style.display='none'
+  }
+  document.querySelector('#btn_origen_comprado').onclick = ()=>{
+    origenSel='comprado'
+    document.querySelector('#btn_origen_comprado').className='btn primary'
+    document.querySelector('#btn_origen_propio').className='btn ghost'
+    document.querySelector('#campos_comprado').style.display='block'
+  }
   document.querySelector('#btn_guardar_produccion').onclick = async ()=>{
     const eggs = Number(document.querySelector('#p_eggs').value)
     const losses = Number(document.querySelector('#p_losses').value)||0
@@ -1776,9 +1941,10 @@ async function campo(){
     const notes = document.querySelector('#p_notes').value.trim()
     const box = document.querySelector('#err_campo')
     if(!eggs || eggs<=0){ box.textContent='Ingresá la cantidad de huevos recolectados.'; box.style.display='block'; return }
-    const maples = Math.round((eggs/30)*10)/10
-    const { error } = await supabase.from('production').insert({ production_date:date, eggs_count:eggs, maples_count:maples, losses_count:losses, notes: notes||null })
-    if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
+    const supplierName = origenSel==='comprado' ? document.querySelector('#p_supplier').value.trim() : null
+    const cost = origenSel==='comprado' ? (Number(document.querySelector('#p_cost').value)||null) : null
+    const { data, error } = await supabase.rpc('registrar_produccion', { p_date:date, p_eggs:eggs, p_losses:losses, p_notes: notes||null, p_source: origenSel, p_cost: cost, p_supplier_name: supplierName||null })
+    if(error || !data?.ok){ box.textContent='No se pudo guardar: '+(error?.message||data?.error||''); box.style.display='block'; return }
     mostrarAlerta('Registro guardado ✅'); render()
   }
   document.querySelectorAll('[data-usar]').forEach(b=>b.onclick=async()=>{
@@ -1830,6 +1996,13 @@ async function clientes(){
             <div id="aviso_numero_cl_${c.id}"></div>
             <div id="err_cliente_${c.id}" class="alert danger" style="display:none"></div>
             <button data-guardar-cliente="${c.id}" style="width:100%;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:10px 0;font-size:13px;font-weight:600;margin-top:4px">💾 Guardar cambios</button>
+            <div style="margin-top:12px;padding-top:12px;border-top:1px solid #F0EBDD">
+              <label style="font-size:12px;color:#2F4D2A;font-weight:600;display:block;margin-bottom:6px">Tipo de cliente</label>
+              <div class="grid two">
+                <button type="button" data-tipo-cliente="${c.id}" data-valor="minorista" class="btn ${(detalle.customer.customer_type||'minorista')==='minorista'?'primary':'ghost'}">🛍️ Minorista</button>
+                <button type="button" data-tipo-cliente="${c.id}" data-valor="mayorista" class="btn ${detalle.customer.customer_type==='mayorista'?'primary':'ghost'}">🏭 Mayorista</button>
+              </div>
+            </div>
           </div>
           <div style="margin-top:16px"><h3 style="font-size:14px;color:#2F4D2A;margin-bottom:8px">📦 Suscripciones</h3>
             ${detalle.subscriptions.length? detalle.subscriptions.map(s=>{
@@ -1895,6 +2068,14 @@ async function clientes(){
     if(error){ box.textContent = 'No se pudo guardar: '+error.message; box.style.display='block'; return }
     delete clienteDetalleCache[id]
     mostrarAlerta('✅ Datos del cliente actualizados.')
+    render()
+  })
+  document.querySelectorAll('[data-tipo-cliente]').forEach(b=>b.onclick=async()=>{
+    const id = b.dataset.tipoCliente
+    const { data, error } = await supabase.rpc('admin_set_customer_type', { p_customer_id: id, p_type: b.dataset.valor })
+    if(error || !data?.ok){ mostrarAlerta('No se pudo cambiar: '+(error?.message||data?.error||'')); return }
+    delete clienteDetalleCache[id]
+    mostrarAlerta(`Cliente marcado como ${b.dataset.valor} ✅`)
     render()
   })
   document.querySelectorAll('[data-usar-credito]').forEach(b=>b.onclick=async()=>{
@@ -2604,6 +2785,7 @@ async function openDelivery(id){
 
 let adminData = null // cache de datos del panel admin, para no re-consultar todo al abrir/cerrar secciones
 let adminAsignarFecha = '' // filtro de fecha para "Reasignar pedidos puntuales"
+let adminAsignarTipo = 'todos' // 'todos' | 'minorista' | 'mayorista'
 
 async function fetchAdminData(){
   const [
@@ -2625,9 +2807,9 @@ async function fetchAdminData(){
     supabase.from('zone_drivers').select('zone,driver_user_id'),
     supabase.from('neighborhood_drivers').select('neighborhood,driver_user_id'),
     supabase.from('customers').select('neighborhood,zone').not('neighborhood','is',null),
-    supabase.from('orders').select('id,delivery_date,status,assigned_driver,assignment_locked,egg_quantity,customer_stage,customers(first_name,last_name,neighborhood,zone,street,street_number),subscriptions(frequency,plan_breakdown)').in('status',['pending','assigned','rescheduled']).order('delivery_date'),
+    supabase.from('orders').select('id,delivery_date,status,assigned_driver,assignment_locked,egg_quantity,customer_stage,customers(first_name,last_name,neighborhood,zone,street,street_number,customer_type),subscriptions(frequency,plan_breakdown)').in('status',['pending','assigned','rescheduled']).order('delivery_date'),
     supabase.from('payments').select('id,amount,expected_method,method,reconciled,created_at,customers(first_name,last_name)').order('created_at',{ascending:false}).limit(30),
-    supabase.from('plan_prices').select('id,egg_quantity,price,active').order('egg_quantity'),
+    supabase.from('plan_prices').select('id,egg_quantity,price,active,customer_type').order('egg_quantity'),
     supabase.from('finance_categories').select('id,name,type,active').order('name'),
     supabase.from('finance_entries').select('id,category_id,type,amount,entry_date,description,attachment_url').order('entry_date',{ascending:false}).limit(30),
     supabase.rpc('finance_dashboard', {}),
@@ -2784,14 +2966,23 @@ async function admin(){
     <div style="margin-top:16px"><h3 style="font-size:15px;color:#2F4D2A">Reasignar pedidos puntuales</h3>
       <div class="field"><label>Filtrar por fecha de entrega</label><input type="date" id="filtro_fecha_asignar" value="${adminAsignarFecha}"/></div>
       ${adminAsignarFecha?`<button class="btn ghost" id="btn_limpiar_fecha_asignar" style="margin-bottom:10px">Ver todas las fechas</button>`:''}
+      <div class="field"><label>Filtrar por tipo de cliente</label>
+        <div class="grid three" id="filtro_tipo_asignar_group">
+          <button type="button" class="btn ${adminAsignarTipo==='todos'?'primary':'ghost'}" data-filtro-tipo-asignar="todos">Todos</button>
+          <button type="button" class="btn ${adminAsignarTipo==='minorista'?'primary':'ghost'}" data-filtro-tipo-asignar="minorista">🛍️ Minorista</button>
+          <button type="button" class="btn ${adminAsignarTipo==='mayorista'?'primary':'ghost'}" data-filtro-tipo-asignar="mayorista">🏭 Mayorista</button>
+        </div>
+      </div>
       ${(()=>{
-        const pedidosFiltrados = adminAsignarFecha ? pedidosAsignar.filter(p=>p.delivery_date===adminAsignarFecha) : pedidosAsignar
-        if(!pedidosFiltrados.length) return `<p class="muted">${adminAsignarFecha?'No hay pedidos pendientes para esa fecha.':'No hay pedidos pendientes para asignar.'}</p>`
+        let pedidosFiltrados = adminAsignarFecha ? pedidosAsignar.filter(p=>p.delivery_date===adminAsignarFecha) : pedidosAsignar
+        if(adminAsignarTipo!=='todos') pedidosFiltrados = pedidosFiltrados.filter(p=>(p.customers?.customer_type||'minorista')===adminAsignarTipo)
+        if(!pedidosFiltrados.length) return `<p class="muted">No hay pedidos pendientes para ese filtro.</p>`
         return pedidosFiltrados.map(p=>{
         const c=p.customers||{}
         const sub=p.subscriptions||{}
         const asignadoNombre = staffMap[p.assigned_driver] || '(sin asignar)'
         const freqLabel = FRECUENCIAS[sub.frequency]||sub.frequency||'-'
+        const esMayorista = c.customer_type==='mayorista'
         const planLabel = sub.plan_breakdown && Array.isArray(sub.plan_breakdown) && sub.plan_breakdown.length
           ? sub.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')
           : `${p.egg_quantity||'-'} huevos`
@@ -2799,7 +2990,7 @@ async function admin(){
           <div style="display:flex;align-items:flex-start;gap:10px">
             ${pAvatar(c.first_name)}
             <div style="flex:1">
-              <div style="font-weight:700;color:#2F4D2A">${c.first_name||''} ${c.last_name||''}</div>
+              <div style="font-weight:700;color:#2F4D2A">${c.first_name||''} ${c.last_name||''} ${esMayorista?pPill('🏭 Mayorista','#B85C00','#FFFFFF'):''}</div>
               <div style="font-size:12px;color:#8A8570;margin-top:2px">🏘️ ${c.neighborhood||'-'} · 📍 ${c.street||''} ${c.street_number||''}</div>
               <div style="display:flex;gap:6px;align-items:center;margin-top:5px">${zonaBadge(c.zone)}${pPill(freqLabel)}</div>
               <div style="font-size:12px;color:#8A8570;margin-top:5px">🥚 ${planLabel}</div>
@@ -2992,7 +3183,7 @@ async function admin(){
     ${planPrices.length? planPrices.map(pp=>pCard(`
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
         <div>
-          <div style="font-weight:700;color:#2F4D2A">${pp.egg_quantity} huevos</div>
+          <div style="font-weight:700;color:#2F4D2A">${pp.egg_quantity} huevos ${pp.customer_type==='mayorista'?'<span class="badge" style="background:#B85C00">🏭 Mayorista</span>':''}</div>
           ${!pp.active?pPill('Inactivo','#F3E2D8','#B85C00'):''}
         </div>
         <div style="display:flex;gap:6px;align-items:center">
@@ -3005,6 +3196,12 @@ async function admin(){
     <div class="grid two" style="margin-top:10px">
       <div class="field"><label>Nuevo tamaño (huevos)</label><input id="pp_new_qty" type="number" min="1" placeholder="Ej: 12"/></div>
       <div class="field"><label>Precio</label><input id="pp_new_price" type="number" min="0" placeholder="Ej: 5000"/></div>
+    </div>
+    <div class="field"><label>Para qué tipo de cliente</label>
+      <div class="grid two">
+        <button type="button" id="btn_pp_tipo_minorista" class="btn primary">🛍️ Minorista</button>
+        <button type="button" id="btn_pp_tipo_mayorista" class="btn ghost">🏭 Mayorista</button>
+      </div>
     </div>
     <button class="btn primary" id="btn_agregar_tamano">➕ Agregar tamaño</button>
     <div id="err_tamano" class="alert danger" style="display:none;margin-top:8px"></div>
@@ -3256,6 +3453,11 @@ async function admin(){
                 <button data-ajustar-precio="${p.id}" data-tipo="fixed" style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:8px;padding:0 10px;font-size:12px;font-weight:600;color:#2F4D2A">$ fijo</button>
               </div>
               <p class="muted" style="font-size:11px;margin-bottom:10px">Precio actual: $${Number(p.price).toLocaleString('es-AR')}</p>
+              <h4 style="font-size:13px;color:#2F4D2A;margin-bottom:6px">🏭 Precio mayorista (opcional)</h4>
+              <div style="display:flex;gap:6px;margin-bottom:10px">
+                <input id="mayorista_valor_${p.id}" type="number" min="0" value="${p.wholesale_price||''}" placeholder="Vacío = no se ofrece a mayoristas" style="flex:1"/>
+                <button data-guardar-mayorista="${p.id}" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:0 14px;font-size:12px;font-weight:600">Guardar</button>
+              </div>
               <h4 style="font-size:13px;color:#2F4D2A;margin-bottom:6px">Stock</h4>
               <div style="display:flex;gap:6px;margin-bottom:10px">
                 <input id="stock_valor_${p.id}" type="number" min="0" value="${p.stock===null?'':p.stock}" placeholder="Vacío = sin control" style="flex:1"/>
@@ -3268,7 +3470,7 @@ async function admin(){
               </div>
               <button data-toggle-activo="${p.id}" data-activo="${p.active}" style="width:100%;background:${p.active?'#FFFFFF':'#2F4D2A'};color:${p.active?'#B85C00':'#F5EFE0'};border:1px solid #E3DCC8;border-radius:10px;padding:8px 0;font-size:12px;font-weight:600;margin-bottom:10px">${p.active?'Desactivar (dejar de ofrecer)':'Activar de nuevo'}</button>
               <h4 style="font-size:13px;color:#2F4D2A;margin-bottom:6px">¿Quién lo pidió?</h4>
-              ${detalle.length? detalle.map(d=>`<div class="row"><span>${d.first_name||''} ${d.last_name||''} · ${d.quantity} un.</span><span class="muted" style="font-size:11px">${new Date(d.created_at).toLocaleDateString('es-AR')}</span></div>`).join('') : '<p class="muted" style="font-size:12px">Todavía nadie lo pidió.</p>'}
+              ${detalle.length? detalle.map(d=>`<div class="row"><span>${d.first_name||''} ${d.last_name||''} · ${d.quantity} un.${d.source==='phone'?' <span style="color:#B85C00;font-size:11px">📞 Teléfono</span>':''}</span><span class="muted" style="font-size:11px">${new Date(d.created_at).toLocaleDateString('es-AR')}</span></div>`).join('') : '<p class="muted" style="font-size:12px">Todavía nadie lo pidió.</p>'}
             </div>
           `}
         </div>
@@ -3330,6 +3532,23 @@ async function admin(){
     }).join('') : '<p class="muted">No hay entregas programadas para dentro de 3 días.</p>'}
   </div></div>
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
+  ${accHead('agregado_manual','📞','Agregar producto por teléfono')}
+    <p class="muted">Para cuando un cliente llama y quiere sumar algo a último momento (a menos de 24hs, el sistema ya no lo deja hacer solo).</p>
+    <div class="field"><label>Número de WhatsApp donde te llegan estos pedidos</label>
+      <div style="display:flex;gap:6px">
+        <input id="whatsapp_urgentes_valor" value="${settingsMap.whatsapp_pedidos_urgentes||''}" placeholder="Ej: 3411234567" style="flex:1"/>
+        <button id="btn_guardar_whatsapp_urgentes" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:0 16px;font-size:12px;font-weight:600">Guardar</button>
+      </div>
+    </div>
+    <div class="field"><label>DNI del cliente</label>
+      <div style="display:flex;gap:6px">
+        <input id="buscar_dni_manual" inputmode="numeric" placeholder="Sin puntos" style="flex:1"/>
+        <button id="btn_buscar_dni_manual" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:0 16px;font-size:12px;font-weight:600">Buscar</button>
+      </div>
+    </div>
+    <div id="resultado_dni_manual"></div>
+  </div></div>
+  <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('vendedores','🧑‍💼','Vendedores y comisiones')}
     <p class="muted">Configurá la comisión de cada vendedor (por venta o porcentaje), y marcá los pagos mensuales.</p>
     ${rendicionVendedores.length? rendicionVendedores.map(v=>{
@@ -3382,6 +3601,10 @@ async function admin(){
       <div style="background:#2F4D2A;border-radius:12px;padding:10px 12px"><div style="color:#C9D8B0;font-size:11px">Gastos (30 días)</div><div style="color:#F5EFE0;font-size:17px;font-weight:700">$${Number(dash.gastos||0).toLocaleString('es-AR')}</div></div>
       <div style="background:#2F4D2A;border-radius:12px;padding:10px 12px"><div style="color:#C9D8B0;font-size:11px">Pérdidas (30 días)</div><div style="color:#F5EFE0;font-size:17px;font-weight:700">$${Number(dash.perdidas||0).toLocaleString('es-AR')}</div></div>
       <div style="background:#2F4D2A;border-radius:12px;padding:10px 12px"><div style="color:#C9D8B0;font-size:11px">Beneficio neto (30 días)</div><div style="color:${Number(dash.beneficio_neto||0)>=0?'#F5EFE0':'#F0997B'};font-size:17px;font-weight:700">$${Number(dash.beneficio_neto||0).toLocaleString('es-AR')}</div></div>
+    </div>
+    <div class="grid two" style="margin-top:8px">
+      <div style="background:#EAF0DC;border-radius:12px;padding:10px 12px"><div style="color:#5F5E5A;font-size:11px">🛍️ Minoristas (30 días)</div><div style="color:#2F4D2A;font-size:16px;font-weight:700">$${Number(dash.ventas_minorista||0).toLocaleString('es-AR')}</div></div>
+      <div style="background:#EAF0DC;border-radius:12px;padding:10px 12px"><div style="color:#5F5E5A;font-size:11px">🏭 Mayoristas (30 días)</div><div style="color:#2F4D2A;font-size:16px;font-weight:700">$${Number(dash.ventas_mayorista||0).toLocaleString('es-AR')}</div></div>
     </div>
     <div class="alert info" style="margin-top:10px"><b>Caja total acumulada: $${Number(dash.caja||0).toLocaleString('es-AR')}</b></div>
 
@@ -3494,6 +3717,7 @@ async function admin(){
   if(filtroFecha) filtroFecha.onchange = (e)=>{ adminAsignarFecha = e.target.value; render() }
   const btnLimpiarFecha = document.querySelector('#btn_limpiar_fecha_asignar')
   if(btnLimpiarFecha) btnLimpiarFecha.onclick = ()=>{ adminAsignarFecha = ''; render() }
+  document.querySelectorAll('[data-filtro-tipo-asignar]').forEach(b=>b.onclick=()=>{ adminAsignarTipo = b.dataset.filtroTipoAsignar; render() })
   if(AS('mapa')) initAdminMapa()
   document.querySelectorAll('[data-vehiculo-asignar]').forEach(sel=>sel.onchange=async()=>{
     const { error } = await supabase.from('vehicles').update({ assigned_to: sel.value || null }).eq('id', sel.dataset.vehiculoAsignar)
@@ -3734,12 +3958,17 @@ async function admin(){
     if(error){ mostrarAlerta('Error: '+error.message); return }
     adminData = null; render()
   })
+  let ppTipoSel = 'minorista'
+  const btnPpMinorista = document.querySelector('#btn_pp_tipo_minorista')
+  const btnPpMayorista = document.querySelector('#btn_pp_tipo_mayorista')
+  if(btnPpMinorista) btnPpMinorista.onclick = ()=>{ ppTipoSel='minorista'; btnPpMinorista.className='btn primary'; btnPpMayorista.className='btn ghost' }
+  if(btnPpMayorista) btnPpMayorista.onclick = ()=>{ ppTipoSel='mayorista'; btnPpMayorista.className='btn primary'; btnPpMinorista.className='btn ghost' }
   document.querySelector('#btn_agregar_tamano').onclick = async ()=>{
     const qty = Number(document.querySelector('#pp_new_qty').value)
     const price = Number(document.querySelector('#pp_new_price').value)
     const box = document.querySelector('#err_tamano')
     if(!qty || qty<=0 || !price || price<=0){ box.textContent='Completá cantidad de huevos y precio, ambos mayores a 0.'; box.style.display='block'; return }
-    const { error } = await supabase.from('plan_prices').insert({ egg_quantity: qty, price, active: true })
+    const { error } = await supabase.from('plan_prices').insert({ egg_quantity: qty, price, active: true, customer_type: ppTipoSel })
     if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
     adminData = null; render()
   }
@@ -3865,6 +4094,15 @@ async function admin(){
     mostrarAlerta('Stock actualizado ✅')
     render()
   })
+  document.querySelectorAll('[data-guardar-mayorista]').forEach(b=>b.onclick=async()=>{
+    const id = b.dataset.guardarMayorista
+    const valor = document.querySelector(`#mayorista_valor_${id}`).value.trim()
+    const { error } = await supabase.from('catalog_products').update({ wholesale_price: valor===''?null:Number(valor) }).eq('id', id)
+    if(error){ mostrarAlerta('Error: '+error.message); return }
+    adminData = null
+    mostrarAlerta('Precio mayorista guardado ✅')
+    render()
+  })
   document.querySelectorAll('[data-guardar-categoria]').forEach(b=>b.onclick=async()=>{
     const id = b.dataset.guardarCategoria
     const valor = document.querySelector(`#cat_valor_${id}`).value
@@ -3907,6 +4145,42 @@ async function admin(){
     mostrarAlerta('Rubro guardado ✅')
     render()
   })
+  const btnGuardarWhatsappUrgentes = document.querySelector('#btn_guardar_whatsapp_urgentes')
+  if(btnGuardarWhatsappUrgentes) btnGuardarWhatsappUrgentes.onclick = async ()=>{
+    const valor = document.querySelector('#whatsapp_urgentes_valor').value.trim().replace(/\D/g,'')
+    const { error } = await supabase.from('farm_settings').upsert({ key:'whatsapp_pedidos_urgentes', value: valor })
+    if(error){ mostrarAlerta('Error: '+error.message); return }
+    adminData = null
+    mostrarAlerta('Número guardado ✅')
+    render()
+  }
+  const btnBuscarDniManual = document.querySelector('#btn_buscar_dni_manual')
+  if(btnBuscarDniManual) btnBuscarDniManual.onclick = async ()=>{
+    const dni = document.querySelector('#buscar_dni_manual').value.trim()
+    const resultBox = document.querySelector('#resultado_dni_manual')
+    if(!/^\d{7,8}$/.test(dni)){ resultBox.innerHTML = '<div class="alert danger">Ingresá un DNI válido (7 u 8 números).</div>'; return }
+    const { data, error } = await supabase.rpc('admin_buscar_cliente_por_dni', { p_dni: dni })
+    if(error || !data?.found){ resultBox.innerHTML = '<div class="alert danger">No se encontró ningún cliente con ese DNI.</div>'; return }
+    resultBox.innerHTML = `<div class="alert info" style="margin-top:10px">
+      <b>${data.first_name||''} ${data.last_name||''}</b>
+      <div class="field" style="margin-top:8px"><label>Producto</label><select id="manual_producto">${catalogo.filter(p=>p.active).map(p=>`<option value="${p.id}">${p.name} — $${Number(p.price).toLocaleString('es-AR')}</option>`).join('')}</select></div>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <input id="manual_cantidad" type="number" min="1" value="1" style="flex:1"/>
+        <button id="btn_agregar_manual" data-customer-id="${data.id}" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:0 16px;font-size:12px;font-weight:600">➕ Agregar</button>
+      </div>
+    </div>`
+    document.querySelector('#btn_agregar_manual').onclick = async ()=>{
+      const customerId = document.querySelector('#btn_agregar_manual').dataset.customerId
+      const productId = document.querySelector('#manual_producto').value
+      const cantidad = Number(document.querySelector('#manual_cantidad').value)||1
+      const { data: res, error: errAdd } = await supabase.rpc('admin_agregar_producto_manual', { p_customer_id: customerId, p_product_id: productId, p_quantity: cantidad })
+      if(errAdd || !res?.ok){ mostrarAlerta('No se pudo agregar: '+(errAdd?.message||res?.error||'')); return }
+      adminData = null
+      mostrarAlerta('Producto agregado ✅')
+      resultBox.innerHTML = ''
+      document.querySelector('#buscar_dni_manual').value = ''
+    }
+  }
   document.querySelectorAll('[data-toggle-activo]').forEach(b=>b.onclick=async()=>{
     const activoAhora = b.dataset.activo === 'true'
     const { error } = await supabase.from('catalog_products').update({ active: !activoAhora }).eq('id', b.dataset.toggleActivo)
@@ -4209,6 +4483,8 @@ async function render(){
   else if(current==='campo') await campo();
   else if(current==='preparador') await preparador();
   else if(current==='vendedor') await vendedor();
+  else if(current==='mayorista-login') mayoristaLogin();
+  else if(current==='mayorista-panel') await mayoristaPanel();
   else if(current==='mis-suscriptores') await vendedorMisSuscriptores();
   else if(current==='mis-comisiones') await vendedorMisComisiones();
   else if(current==='vehiculo') await miVehiculo();
@@ -4236,6 +4512,8 @@ async function init(){
     if(!myRole){ session=null }
     else if(!roleRow.profile_completed){ current = 'staff-profile-setup' }
     else { current = myRole==='campo' ? 'campo' : myRole==='repartidor' ? 'repartidor' : myRole==='preparador' ? 'preparador' : myRole==='vendedor' ? 'vendedor' : 'admin' }
+  } else if(new URLSearchParams(window.location.search).get('mayorista')){
+    current = 'mayorista-login'
   }
   render()
 }
