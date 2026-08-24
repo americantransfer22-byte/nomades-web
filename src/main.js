@@ -260,6 +260,12 @@ function cuentaPanel(){
     ${(cuenta.referral_history && cuenta.referral_history.length) ? `<div style="margin-top:12px"><small class="muted" style="font-weight:600">Historial</small>${cuenta.referral_history.map(h=>`<div class="row"><span>${h.code} → ${h.referred_first_name||'alguien'}</span><span class="badge">${h.status==='completed'?'✅ Completado':'⏳ Pendiente'}</span></div>`).join('')}</div>`:''}
     <details style="margin-top:10px"><summary style="cursor:pointer;font-size:13px;color:#2F4D2A;font-weight:600">¿Cómo funciona?</summary><p class="muted" style="font-size:12px;margin-top:6px">1. Le pasás tu código a alguien que todavía no es cliente.<br>2. Esa persona lo pone al suscribirse, y su primera entrega le sale con 50% off.<br>3. Cuando le llega y la paga, vos te ganás $1.000 de descuento en tu próximo pedido, y te llega un código nuevo para volver a compartir.<br>4. Mientras el código esté "en uso", no se puede volver a usar hasta que se complete ese ciclo.</p></details>
   </div>
+  ${cuenta.huevos_semana>0?`<div class="nom-cascada card" style="background:#2F4D2A;text-align:center">
+    <div style="font-size:26px;margin-bottom:4px">🥚💪</div>
+    <div style="color:#F5EFE0;font-size:14px;font-weight:700">¡Esta semana comiste ${cuenta.huevos_semana} huevos de NÓMADES!</div>
+    <div style="color:#C9D8B0;font-size:12px;margin-top:4px">Eso son aprox. ${cuenta.huevos_semana*6}g de proteína de calidad para tu cuerpo</div>
+  </div>`:''}
+  ${cuenta.historial_entregas && cuenta.historial_entregas.length ? `<div class="card"><h3>📦 Historial de entregas</h3>${cuenta.historial_entregas.map(h=>`<div class="row"><span>${formatearFecha(h.delivery_date)}</span><span>${h.egg_quantity||0} huevos</span></div>`).join('')}</div>`:''}
   <div class="card" id="card_datos"><h3>Tus datos</h3><p>🪪 DNI ${c.dni||'-'}</p><p>🏠 ${tipoVia} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'} (CP ${c.postal_code||'-'})</p><p>📍 Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'}</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
   <button class="btn ghost" id="btn_ver_mapa" style="margin-bottom:10px">🗺️ Ver mapa de suscriptores</button>
   <div class="card"><h3>⭐ ¿Qué te pareció NÓMADES?</h3>
