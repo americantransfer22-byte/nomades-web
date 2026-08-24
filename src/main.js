@@ -2536,6 +2536,11 @@ let proveedorPedidoSeleccionado = null
 let pedidoProveedorCantidades = {} // product_id -> { qty, unitType }
 let pedidoProveedorTipoEntrega = 'entrega'
 let pedidoProveedorGenerado = null // texto del pedido ya armado
+let pedidoProveedorNumero = null // número correlativo del pedido ya generado
+let pedidoProveedorItems = null // items estructurados del último pedido generado, para armar el PDF
+let pedidoProveedorEditandoId = null // si no es null, "Generar pedido" edita este pedido en vez de crear uno nuevo
+let pedidoProveedorRecibiendoId = null // id del pedido que se está checkeando al recibir
+let pedidoProveedorRecibido = {} // item_id -> { checked, received_qty }
 let historialVehiculoActual = null
 
 async function verHistorialVehiculo(v){
@@ -2940,7 +2945,8 @@ async function fetchAdminData(){
     barriosRes, pedidosAsignarRes, pagosRes, planPricesRes, catsRes,
     entriesRes, dashRes, vehiculosRes, alertasRes, driverLedgerRes,
     rankingRes, reviewsRes,
-    suppliersRes, catalogRes, recordatoriosRes, rendicionVendedoresRes, sugerenciasRes, rankingSugerenciasRes
+    suppliersRes, catalogRes, recordatoriosRes, rendicionVendedoresRes, sugerenciasRes, rankingSugerenciasRes,
+    pedidosProveedorRes
   ] = await Promise.all([
     q('orders','id,status,delivery_date,egg_quantity,important_note,time_restriction_manual'),
     q('customers','id'),
@@ -2949,7 +2955,7 @@ async function fetchAdminData(){
     q('products','id,name,unit_label,category,current_qty,active'),
     supabase.from('stock_movements').select('id,product_id,type,quantity,note,created_by,created_at').order('created_at',{ascending:false}).limit(20),
     supabase.from('waitlist').select('id,customer_id,egg_quantity,frequency,position,created_at,customers(first_name,last_name,phone)').order('position'),
-    supabase.from('farm_settings').select('key,value').in('key',['default_daily_capacity_maples','transfer_cbu','transfer_alias','transfer_bank_name','transfer_holder_name','transfer_holder_doc','mp_alias','mp_wallet_name','mp_cbu','mp_holder_name','mp_holder_doc','assignment_mode','wallet_discount_type','wallet_discount_value']),
+    supabase.from('farm_settings').select('key,value').in('key',['default_daily_capacity_maples','transfer_cbu','transfer_alias','transfer_bank_name','transfer_holder_name','transfer_holder_doc','mp_alias','mp_wallet_name','mp_cbu','mp_holder_name','mp_holder_doc','assignment_mode','wallet_discount_type','wallet_discount_value','company_legal_name','company_cuit','company_address','company_phone','company_email']),
     supabase.from('zone_drivers').select('zone,driver_user_id'),
     supabase.from('neighborhood_drivers').select('neighborhood,driver_user_id'),
     supabase.from('customers').select('neighborhood,zone').not('neighborhood','is',null),
@@ -2969,7 +2975,8 @@ async function fetchAdminData(){
     supabase.rpc('admin_recordatorios_3_dias', {}),
     supabase.rpc('admin_rendicion_vendedores', {}),
     supabase.rpc('admin_product_suggestions', {}),
-    supabase.rpc('admin_suggestions_ranking', {})
+    supabase.rpc('admin_suggestions_ranking', {}),
+    supabase.rpc('admin_pedidos_proveedores', {})
   ])
 
   const movimientos = movimientosRes.data || []
@@ -3000,8 +3007,9 @@ async function fetchAdminData(){
   const rendicionVendedores = rendicionVendedoresRes.data || []
   const sugerencias = sugerenciasRes.data || []
   const rankingSugerencias = rankingSugerenciasRes.data || []
+  const pedidosProveedor = pedidosProveedorRes.data || []
 
-  return { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews,suppliers,catalogo,recordatorios,rendicionVendedores,sugerencias,rankingSugerencias }
+  return { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews,suppliers,catalogo,recordatorios,rendicionVendedores,sugerencias,rankingSugerencias,pedidosProveedor }
 }
 
 async function admin(){
@@ -3009,7 +3017,7 @@ async function admin(){
     layout(`<h2>Panel de administración</h2><div class="card">${skeletonBloque(5)}</div>`)
     adminData = await fetchAdminData()
   }
-  const { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews,suppliers,catalogo,recordatorios,rendicionVendedores,sugerencias,rankingSugerencias } = adminData
+  const { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews,suppliers,catalogo,recordatorios,rendicionVendedores,sugerencias,rankingSugerencias,pedidosProveedor } = adminData
   const capacidadBase = settingsMap.default_daily_capacity_maples || '300'
   const assignmentMode = settingsMap.assignment_mode || 'zone'
   const staffMap = Object.fromEntries(staff.map(s=>[s.user_id, s.full_name||'(sin nombre)']))
@@ -3625,8 +3633,67 @@ async function admin(){
     }).join('') : '<p class="muted">Todavía no cargaste productos.</p>'}
   </div></div>
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
-  ${accHead('pedidos_proveedor','📋','Pedidos a proveedores')}
+  ${accHead('pedidos_proveedor','📋','Pedidos a proveedores', pedidosProveedor.filter(o=>o.status==='generado').length?String(pedidosProveedor.filter(o=>o.status==='generado').length):null)}
+    ${(()=>{
+      const pedidoRecibiendo = pedidoProveedorRecibiendoId ? pedidosProveedor.find(o=>o.id===pedidoProveedorRecibiendoId) : null
+      if(pedidoRecibiendo){
+        const items = pedidoRecibiendo.items || []
+        let totalPedido = 0, totalRecibido = 0
+        items.forEach(it=>{
+          const r = pedidoProveedorRecibido[it.id] || { checked:false, received_qty: it.qty }
+          totalPedido += Number(it.price)*Number(it.qty)
+          totalRecibido += Number(it.price)*Number(r.received_qty)
+        })
+        const diferencia = totalPedido - totalRecibido
+        return `<button id="btn_volver_lista_pedidos" style="background:none;border:none;color:#2F4D2A;font-size:12.5px;font-weight:600;margin-bottom:10px;padding:0">← Volver a la lista</button>
+        <h3 style="font-size:14px;color:#2F4D2A">Recepción — Pedido N° ${pedidoRecibiendo.order_number} (${pedidoRecibiendo.supplier_name||''})</h3>
+        <p class="muted" style="font-size:12px">Tildá lo que llegó completo. Si algo faltó o vino de menos, destildá y ajustá la cantidad real.</p>
+        ${items.map(it=>{
+          const r = pedidoProveedorRecibido[it.id] || { checked:false, received_qty: it.qty }
+          return `<div class="row" style="align-items:flex-start;flex-direction:column;gap:6px">
+            <div style="display:flex;justify-content:space-between;width:100%;align-items:center">
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" data-recep-check="${it.id}" ${r.checked?'checked':''}/> ${it.name} <small class="muted">(pedidos: ${it.qty} ${it.unitLabel||it.unitType})</small></label>
+              <b style="font-size:12.5px">$${(Number(it.price)*Number(r.received_qty)).toLocaleString('es-AR')}</b>
+            </div>
+            ${!r.checked?`<div style="display:flex;align-items:center;gap:8px;padding-left:24px"><span class="muted" style="font-size:12px">Cantidad realmente recibida:</span><input type="number" min="0" data-recep-qty="${it.id}" value="${r.received_qty}" style="width:60px"/></div>`:''}
+          </div>`
+        }).join('')}
+        <div style="margin-top:12px;background:#F5EFE0;border-radius:10px;padding:10px 12px;font-size:13px">
+          <div class="row" style="border:0;padding:2px 0"><span>Total pedido</span><b>$${totalPedido.toLocaleString('es-AR')}</b></div>
+          <div class="row" style="border:0;padding:2px 0"><span>Total realmente recibido</span><b>$${totalRecibido.toLocaleString('es-AR')}</b></div>
+          ${diferencia>0?`<div class="row" style="border:0;padding:2px 0;color:#B03A2E"><span>Diferencia (faltante)</span><b>$${diferencia.toLocaleString('es-AR')}</b></div>`:''}
+        </div>
+        ${diferencia>0?`
+          <p class="muted" style="font-size:12px;margin-top:10px">Faltó mercadería. ¿Cómo lo resolvés con esta empresa?</p>
+          <button id="btn_recep_nota_credito" style="width:100%;margin-top:6px;background:#FFFFFF;color:#2F4D2A;border:1px solid #E3DCC8;border-radius:10px;padding:10px 0;font-size:12.5px;font-weight:600">🧾 Nota de crédito — pago los $${totalPedido.toLocaleString('es-AR')} completos, me deben $${diferencia.toLocaleString('es-AR')} para el próximo pedido</button>
+          <button id="btn_recep_descuento" style="width:100%;margin-top:8px;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:10px 0;font-size:12.5px;font-weight:600">💸 Pago solo lo recibido — $${totalRecibido.toLocaleString('es-AR')}</button>
+        `:`
+          <button id="btn_recep_completo" style="width:100%;margin-top:12px;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:11px 0;font-size:14px;font-weight:600">✅ Confirmar recepción completa</button>
+        `}
+        `
+      }
+      return `
     <p class="muted">Armá tu pedido de compra a una empresa y mandalo por WhatsApp, o guardalo como PDF para el mail.</p>
+    <details style="margin-bottom:14px;border:1px solid #E3DCC8;border-radius:10px;padding:0">
+      <summary style="cursor:pointer;padding:10px 12px;font-size:12.5px;font-weight:700;color:#2F4D2A">🏢 Datos de mi empresa (aparecen en el PDF del pedido)</summary>
+      <div style="padding:0 12px 12px">
+        <div class="field"><label>Razón social</label><input id="cfg_company_name" value="${settingsMap.company_legal_name||'NÓMADES'}"/></div>
+        <div class="grid two">
+          <div class="field"><label>CUIT</label><input id="cfg_company_cuit" value="${settingsMap.company_cuit||''}"/></div>
+          <div class="field"><label>Teléfono</label><input id="cfg_company_phone" value="${settingsMap.company_phone||''}"/></div>
+        </div>
+        <div class="field"><label>Dirección</label><input id="cfg_company_address" value="${settingsMap.company_address||''}"/></div>
+        <div class="field"><label>Email</label><input id="cfg_company_email" value="${settingsMap.company_email||''}"/></div>
+        <button id="btn_guardar_datos_empresa" style="width:100%;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:9px 0;font-size:12.5px;font-weight:600">Guardar datos de mi empresa</button>
+      </div>
+    </details>
+    ${pedidosProveedor.filter(o=>o.status==='generado').length?`<div style="margin-bottom:14px">
+      <h4 style="font-size:13px;color:#2F4D2A;margin-bottom:6px">📥 Pendientes de recibir</h4>
+      ${pedidosProveedor.filter(o=>o.status==='generado').map(o=>`<div class="row"><span>N° ${o.order_number} · ${o.supplier_name||''}<br><small class="muted">${(o.items||[]).length} producto(s) · $${(o.items||[]).reduce((s,it)=>s+Number(it.price)*Number(it.qty),0).toLocaleString('es-AR')}</small></span><span style="display:flex;gap:6px"><button data-editar-pedido="${o.id}" class="btn ghost" style="padding:6px 10px;font-size:11px">✏️ Editar</button><button data-recibir-pedido="${o.id}" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:6px 10px;font-size:11px;font-weight:600">✅ Recibir</button></span></div>`).join('')}
+    </div>`:''}
+    ${pedidosProveedor.filter(o=>o.status==='recibido').length?`<details style="margin-bottom:14px"><summary style="cursor:pointer;font-size:13px;font-weight:700;color:#2F4D2A">✅ Recibidos recientemente</summary>
+      ${pedidosProveedor.filter(o=>o.status==='recibido').slice(0,8).map(o=>`<div class="row"><span>N° ${o.order_number} · ${o.supplier_name||''}<br><small class="muted">${o.received_at?new Date(o.received_at).toLocaleDateString('es-AR'):''}</small></span><span>${o.resolution_type==='nota_credito'?`<span class="badge" style="background:#B85C00">🧾 Crédito $${Number(o.resolution_amount).toLocaleString('es-AR')}</span>`:o.resolution_type==='descuento'?`<span class="badge" style="background:#8A8570">💸 Descontado $${Number(o.resolution_amount).toLocaleString('es-AR')}</span>`:`<span class="badge">✅ Completo</span>`}</span></div>`).join('')}
+    </details>`:''}
     <div class="field"><label>¿A qué empresa le querés pedir?</label>
       <select id="sel_proveedor_pedido">
         <option value="">Elegí una empresa</option>
@@ -3638,6 +3705,7 @@ async function admin(){
       const productosProv = catalogo.filter(p=>p.supplier_id===proveedorPedidoSeleccionado)
       if(!productosProv.length) return '<p class="muted">Esta empresa todavía no tiene productos cargados en el catálogo.</p>'
       return `
+      ${pedidoProveedorEditandoId?`<div class="alert info" style="margin-bottom:10px">✏️ Estás editando el pedido N° ${pedidoProveedorNumero}</div>`:''}
       ${productosProv.map(p=>{
         const c = pedidoProveedorCantidades[p.id] || { qty:0, unitType:'unidad' }
         return `<div class="row"><span>${p.name}<br><small class="muted">$${Number(p.price).toLocaleString('es-AR')} · ${p.unit_label||'unidad'}${p.units_per_bulto>1?` (bulto = ${p.units_per_bulto})`:''}</small></span>
@@ -3650,22 +3718,25 @@ async function admin(){
             </select>
           </span></div>`
       }).join('')}
-      <div class="field" style="margin-top:10px"><label>¿Entrega o retiro?</label>
+      <div class="field" style="margin-top:14px"><label>¿Entrega o retiro?</label>
         <div class="grid two">
           <button type="button" id="btn_tipo_entrega" class="btn ${pedidoProveedorTipoEntrega==='entrega'?'primary':'ghost'}">Que me entreguen</button>
           <button type="button" id="btn_tipo_retiro" class="btn ${pedidoProveedorTipoEntrega==='retiro'?'primary':'ghost'}">Lo paso a retirar</button>
         </div>
       </div>
-      <button id="btn_generar_pedido_proveedor" style="width:100%;margin-top:10px;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:11px 0;font-size:14px;font-weight:600">📋 Generar pedido</button>
+      <button id="btn_generar_pedido_proveedor" style="width:100%;margin-top:14px;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:11px 0;font-size:14px;font-weight:600">${pedidoProveedorEditandoId?'💾 Guardar cambios':'📋 Generar pedido'}</button>
+      ${pedidoProveedorEditandoId?`<button id="btn_cancelar_edicion_pedido" style="width:100%;margin-top:8px;background:#FFFFFF;color:#8A8570;border:1px solid #E3DCC8;border-radius:10px;padding:9px 0;font-size:12.5px">Cancelar edición</button>`:''}
       ${pedidoProveedorGenerado ? `
-        <div class="alert info" style="margin-top:12px;white-space:pre-line;font-size:12px">${pedidoProveedorGenerado}</div>
-        <div style="display:flex;gap:8px;margin-top:8px">
+        <div style="margin-top:16px;background:#FFFDF7;border:1px solid #E3DCC8;border-radius:12px;padding:16px;white-space:pre-line;font-size:13px;line-height:1.9;color:#2F4D2A">${pedidoProveedorNumero?`<div style="font-weight:700;margin-bottom:8px">N° de pedido: ${pedidoProveedorNumero}</div>`:''}${pedidoProveedorGenerado}</div>
+        <div style="display:flex;gap:8px;margin-top:10px">
           ${prov?.contact_phone?`<button id="btn_enviar_whatsapp_proveedor" style="flex:1;background:#25D366;color:#fff;border:none;border-radius:10px;padding:10px 0;font-size:12px;font-weight:600">💬 WhatsApp</button>`:''}
           <button id="btn_imprimir_pedido_proveedor" style="flex:1;background:#FFFFFF;color:#2F4D2A;border:1px solid #E3DCC8;border-radius:10px;padding:10px 0;font-size:12px;font-weight:600">🖨️ Guardar como PDF</button>
         </div>
       ` : ''}
       `
     })() : ''}
+    `
+    })()}
   </div></div>
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('recordatorios','⏰','Recordatorios de sugerencias (3 días)', recordatorios.length?String(recordatorios.length):null)}
@@ -4374,6 +4445,8 @@ async function admin(){
     proveedorPedidoSeleccionado = e.target.value || null
     pedidoProveedorCantidades = {}
     pedidoProveedorGenerado = null
+    pedidoProveedorNumero = null
+    pedidoProveedorItems = null
     render()
   }
   document.querySelectorAll('[data-cant-pedido]').forEach(inp=>inp.oninput=()=>{
@@ -4391,25 +4464,153 @@ async function admin(){
   const btnTipoRetiro = document.querySelector('#btn_tipo_retiro')
   if(btnTipoRetiro) btnTipoRetiro.onclick = ()=>{ pedidoProveedorTipoEntrega='retiro'; render() }
   const btnGenerarPedidoProveedor = document.querySelector('#btn_generar_pedido_proveedor')
-  if(btnGenerarPedidoProveedor) btnGenerarPedidoProveedor.onclick = ()=>{
+  if(btnGenerarPedidoProveedor) btnGenerarPedidoProveedor.onclick = async ()=>{
     const prov = suppliers.find(s=>s.id===proveedorPedidoSeleccionado)
     const items = catalogo.filter(p=>p.supplier_id===proveedorPedidoSeleccionado)
       .map(p=>({ p, c: pedidoProveedorCantidades[p.id] }))
       .filter(x=>x.c && x.c.qty>0)
     if(!items.length){ mostrarAlerta('Poné alguna cantidad primero.'); return }
     const lineas = items.map(({p,c})=>`• ${c.qty} ${c.unitType==='unidad'?p.unit_label||'unidad':c.unitType}${c.qty>1?(c.unitType==='unidad'?'es':'s'):''} de ${p.name}`).join('\n')
-    const direccion = settingsMap.transfer_holder_name ? '' : ''
     pedidoProveedorGenerado = `PEDIDO — NÓMADES (Huevos de libre pastoreo)\nPara: ${prov?.name||''}\n\n${lineas}\n\n${pedidoProveedorTipoEntrega==='entrega' ? 'Modalidad: nos lo entregan a nuestra dirección.' : 'Modalidad: lo pasamos a retirar nosotros.'}\n\nGracias, saludos — NÓMADES`
+    pedidoProveedorItems = items.map(({p,c})=>({ id:p.id, name:p.name, qty:c.qty, unitType:c.unitType, unitLabel:p.unit_label||'unidad', price:p.price }))
+    if(pedidoProveedorEditandoId){
+      const { data, error } = await supabase.rpc('admin_actualizar_pedido_proveedor', { p_order_id: pedidoProveedorEditandoId, p_items: pedidoProveedorItems, p_delivery_mode: pedidoProveedorTipoEntrega })
+      if(error || !data?.ok){ mostrarAlerta(data?.error || error?.message || 'No se pudo guardar el cambio.'); return }
+      mostrarAlerta('✅ Pedido actualizado')
+      adminData = null
+    } else {
+      const { data, error } = await supabase.rpc('admin_crear_pedido_proveedor', { p_supplier_id: proveedorPedidoSeleccionado, p_items: pedidoProveedorItems, p_delivery_mode: pedidoProveedorTipoEntrega })
+      pedidoProveedorNumero = (!error && data?.ok) ? data.order_number : null
+      adminData = null
+    }
     render()
   }
+  const btnCancelarEdicionPedido = document.querySelector('#btn_cancelar_edicion_pedido')
+  if(btnCancelarEdicionPedido) btnCancelarEdicionPedido.onclick = ()=>{
+    pedidoProveedorEditandoId = null; proveedorPedidoSeleccionado = null; pedidoProveedorCantidades = {}; pedidoProveedorGenerado = null; pedidoProveedorNumero = null
+    render()
+  }
+  document.querySelectorAll('[data-editar-pedido]').forEach(b=>b.onclick=()=>{
+    const orden = pedidosProveedor.find(o=>o.id===b.dataset.editarPedido)
+    if(!orden) return
+    pedidoProveedorEditandoId = orden.id
+    pedidoProveedorNumero = orden.order_number
+    proveedorPedidoSeleccionado = orden.supplier_id
+    pedidoProveedorTipoEntrega = orden.delivery_type || 'entrega'
+    pedidoProveedorCantidades = {}
+    ;(orden.items||[]).forEach(it=>{ pedidoProveedorCantidades[it.id] = { qty: it.qty, unitType: it.unitType||'unidad' } })
+    pedidoProveedorGenerado = null
+    render()
+  })
+  document.querySelectorAll('[data-recibir-pedido]').forEach(b=>b.onclick=()=>{
+    const orden = pedidosProveedor.find(o=>o.id===b.dataset.recibirPedido)
+    if(!orden) return
+    pedidoProveedorRecibiendoId = orden.id
+    pedidoProveedorRecibido = {}
+    ;(orden.items||[]).forEach(it=>{ pedidoProveedorRecibido[it.id] = { checked:false, received_qty: it.qty } })
+    render()
+  })
+  const btnVolverListaPedidos = document.querySelector('#btn_volver_lista_pedidos')
+  if(btnVolverListaPedidos) btnVolverListaPedidos.onclick = ()=>{ pedidoProveedorRecibiendoId = null; pedidoProveedorRecibido = {}; render() }
+  document.querySelectorAll('[data-recep-check]').forEach(chk=>chk.onchange=()=>{
+    const id = chk.dataset.recepCheck
+    const orden = pedidosProveedor.find(o=>o.id===pedidoProveedorRecibiendoId)
+    const item = orden?.items?.find(it=>it.id===id)
+    pedidoProveedorRecibido[id] = { checked: chk.checked, received_qty: chk.checked ? (item?.qty||0) : 0 }
+    render()
+  })
+  document.querySelectorAll('[data-recep-qty]').forEach(inp=>inp.oninput=()=>{
+    const id = inp.dataset.recepQty
+    pedidoProveedorRecibido[id] = { checked:false, received_qty: Number(inp.value)||0 }
+  })
+  const confirmarRecepcion = async (resolutionType)=>{
+    const orden = pedidosProveedor.find(o=>o.id===pedidoProveedorRecibiendoId)
+    if(!orden) return
+    const receivedItems = (orden.items||[]).map(it=>{
+      const r = pedidoProveedorRecibido[it.id] || { checked:false, received_qty: it.qty }
+      return { id: it.id, name: it.name, price: it.price, received_qty: r.received_qty }
+    })
+    const { data, error } = await supabase.rpc('admin_recibir_pedido_proveedor', { p_order_id: orden.id, p_received_items: receivedItems, p_resolution_type: resolutionType })
+    if(error || !data?.ok){ mostrarAlerta(data?.error || error?.message || 'No se pudo registrar la recepción.'); return }
+    mostrarAlerta(`✅ Recepción registrada. Se cargó un gasto de $${Number(data.monto_pagado).toLocaleString('es-AR')}.`)
+    pedidoProveedorRecibiendoId = null; pedidoProveedorRecibido = {}
+    adminData = null
+    render()
+  }
+  const btnRecepCompleto = document.querySelector('#btn_recep_completo')
+  if(btnRecepCompleto) btnRecepCompleto.onclick = ()=>confirmarRecepcion(null)
+  const btnRecepNotaCredito = document.querySelector('#btn_recep_nota_credito')
+  if(btnRecepNotaCredito) btnRecepNotaCredito.onclick = ()=>confirmarRecepcion('nota_credito')
+  const btnRecepDescuento = document.querySelector('#btn_recep_descuento')
+  if(btnRecepDescuento) btnRecepDescuento.onclick = ()=>confirmarRecepcion('descuento')
   const btnEnviarWhatsappProveedor = document.querySelector('#btn_enviar_whatsapp_proveedor')
   if(btnEnviarWhatsappProveedor) btnEnviarWhatsappProveedor.onclick = ()=>{
     const prov = suppliers.find(s=>s.id===proveedorPedidoSeleccionado)
     const telLimpio = (prov?.contact_phone||'').replace(/\D/g,'')
-    window.open(`https://wa.me/54${telLimpio}?text=${encodeURIComponent(pedidoProveedorGenerado)}`, '_blank')
+    const textoWa = pedidoProveedorNumero ? `Pedido N° ${pedidoProveedorNumero}\n\n${pedidoProveedorGenerado}` : pedidoProveedorGenerado
+    window.open(`https://wa.me/54${telLimpio}?text=${encodeURIComponent(textoWa)}`, '_blank')
   }
   const btnImprimirPedidoProveedor = document.querySelector('#btn_imprimir_pedido_proveedor')
-  if(btnImprimirPedidoProveedor) btnImprimirPedidoProveedor.onclick = ()=>window.print()
+  if(btnImprimirPedidoProveedor) btnImprimirPedidoProveedor.onclick = ()=>{
+    const prov = suppliers.find(s=>s.id===proveedorPedidoSeleccionado)
+    const fecha = new Date().toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})
+    const filasItems = (pedidoProveedorItems||[]).map(it=>`<tr><td style="padding:8px;border-bottom:1px solid #E3DCC8">${it.name}</td><td style="padding:8px;border-bottom:1px solid #E3DCC8;text-align:center">${it.qty} ${it.unitType==='unidad'?it.unitLabel:it.unitType}</td></tr>`).join('')
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Pedido ${pedidoProveedorNumero||''}</title>
+    <style>
+      body{font-family:Arial,Helvetica,sans-serif;color:#2F2F2A;padding:30px;max-width:700px;margin:0 auto}
+      h1{font-size:20px;color:#2F4D2A;margin:0}
+      .sub{color:#8A8570;font-size:12px;margin-top:2px}
+      .box{border:1px solid #E3DCC8;border-radius:8px;padding:14px;margin-top:18px}
+      .cols{display:flex;gap:16px;margin-top:18px}
+      .col{flex:1;border:1px solid #E3DCC8;border-radius:8px;padding:14px}
+      .col h3{margin:0 0 8px;font-size:13px;color:#2F4D2A}
+      .col p{margin:2px 0;font-size:12.5px}
+      table{width:100%;border-collapse:collapse;margin-top:18px;font-size:13px}
+      th{background:#2F4D2A;color:#F5EFE0;padding:8px;text-align:left;font-size:12px}
+      .footer{margin-top:24px;font-size:12px;color:#8A8570}
+    </style></head><body>
+      <h1>Orden de compra${pedidoProveedorNumero?' N° '+pedidoProveedorNumero:''}</h1>
+      <div class="sub">Fecha: ${fecha}</div>
+      <div class="cols">
+        <div class="col"><h3>De</h3>
+          <p><b>${settingsMap.company_legal_name||'NÓMADES'}</b></p>
+          ${settingsMap.company_cuit?`<p>CUIT: ${settingsMap.company_cuit}</p>`:''}
+          ${settingsMap.company_address?`<p>${settingsMap.company_address}</p>`:''}
+          ${settingsMap.company_phone?`<p>Tel: ${settingsMap.company_phone}</p>`:''}
+          ${settingsMap.company_email?`<p>${settingsMap.company_email}</p>`:''}
+        </div>
+        <div class="col"><h3>Para</h3>
+          <p><b>${prov?.name||''}</b></p>
+          ${prov?.address?`<p>${prov.address}</p>`:''}
+          ${prov?.contact_phone?`<p>Tel: ${prov.contact_phone}</p>`:''}
+          ${prov?.contact_email?`<p>${prov.contact_email}</p>`:''}
+        </div>
+      </div>
+      <table><thead><tr><th>Producto</th><th style="text-align:center">Cantidad</th></tr></thead><tbody>${filasItems}</tbody></table>
+      <div class="box" style="margin-top:14px"><b>Modalidad:</b> ${pedidoProveedorTipoEntrega==='entrega'?'Nos lo entregan en nuestra dirección.':'Lo pasamos a retirar nosotros.'}</div>
+      <div class="footer">Gracias, saludos — ${settingsMap.company_legal_name||'NÓMADES'}</div>
+    </body></html>`
+    const w = window.open('', '_blank')
+    w.document.write(html)
+    w.document.close()
+    w.onload = ()=>w.print()
+    setTimeout(()=>w.print(), 300)
+  }
+  const btnGuardarDatosEmpresa = document.querySelector('#btn_guardar_datos_empresa')
+  if(btnGuardarDatosEmpresa) btnGuardarDatosEmpresa.onclick = async ()=>{
+    const valores = {
+      company_legal_name: document.querySelector('#cfg_company_name').value.trim() || 'NÓMADES',
+      company_cuit: document.querySelector('#cfg_company_cuit').value.trim(),
+      company_address: document.querySelector('#cfg_company_address').value.trim(),
+      company_phone: document.querySelector('#cfg_company_phone').value.trim(),
+      company_email: document.querySelector('#cfg_company_email').value.trim()
+    }
+    for(const [key, value] of Object.entries(valores)){
+      await supabase.from('farm_settings').update({ value }).eq('key', key)
+    }
+    mostrarAlerta('Datos de la empresa guardados ✅')
+    adminData = null
+  }
   document.querySelectorAll('[data-conciliar]').forEach(chk=>chk.onchange=async()=>{
     const { error } = await supabase.from('payments').update({ reconciled: chk.checked }).eq('id', chk.dataset.conciliar)
     if(error){ mostrarAlerta('Error: '+error.message); chk.checked=!chk.checked; return }
