@@ -49,7 +49,7 @@ async function geocodificarDireccion(direccion){
 }
 
 function layout(content){
-  const nav = session ? (current==='staff-profile-setup' ? [['logout','Salir']] : [['inicio','Inicio'],...navStaffFor(myRole),['logout','Salir']]) : [['inicio','Inicio'],['cuenta','Mi cuenta']]
+  const nav = session ? (current==='staff-profile-setup' ? [['logout','Salir']] : [...navStaffFor(myRole),['logout','Salir']]) : [['inicio','Inicio'],['cuenta','Mi cuenta']]
   app.innerHTML = `<div class="shell"><div class="top"><div class="brand" style="display:flex;align-items:center;gap:8px">NÓMADES <span class="muted" style="font-size:12px">Huevos de libre pastoreo</span></div><div class="nav">${nav.map(([k,l])=>`<button class="btn ${current===k?'primary':'ghost'}" data-nav="${k}">${l}</button>`).join('')}</div></div>${content}${!session?`<div style="text-align:center;margin-top:24px"><a href="#" id="staff_link" class="muted" style="font-size:12px">Acceso del equipo</a></div>`:''}</div>`
   document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=async ()=>{
     if(b.dataset.nav==='logout'){ await supabase.auth.signOut(); session=null; myRole=null; current='inicio'; return render() }
@@ -3202,6 +3202,7 @@ async function render(){
     lastPushedCurrent = current
   }
   navegandoPorHistorial = false
+  if(current==='inicio' && session && myRole){ current = myRole==='campo' ? 'campo' : myRole==='repartidor' ? 'repartidor' : 'admin' }
   if(current==='inicio')return inicio();
   if(current==='cuenta')return cuenta? cuentaPanel() : cuentaLogin();
   if(current==='staff-login')return staffLogin();
@@ -3236,6 +3237,7 @@ async function init(){
     staffProfile = roleRow || null
     if(!myRole){ session=null }
     else if(!roleRow.profile_completed){ current = 'staff-profile-setup' }
+    else { current = myRole==='campo' ? 'campo' : myRole==='repartidor' ? 'repartidor' : 'admin' }
   }
   render()
 }
