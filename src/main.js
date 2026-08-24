@@ -255,10 +255,15 @@ function cuentaPanel(){
     return `<p class="muted" style="font-size:12.5px;margin-bottom:2px">Se entregará el ${fechaTexto}</p>
     <div class="row"><span>${fechaTexto}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div>
     <div class="row"><span>${(next.plan_breakdown && Array.isArray(next.plan_breakdown) && next.plan_breakdown.length) ? next.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')+' huevos' : `${next.egg_quantity||0} huevos`}</span>${precioSub?`<span>$${precioSub.toLocaleString('es-AR')}</span>`:''}</div>
-    ${productosConfirmados.length?`<details style="margin-top:8px;border-top:1px solid #F0EBDD;padding-top:8px">
-      <summary style="cursor:pointer;font-size:12.5px;color:#2F4D2A;font-weight:600;list-style:none">🛒 ${productosConfirmados.length} producto${productosConfirmados.length===1?'':'s'} agregado${productosConfirmados.length===1?'':'s'} · $${totalProductos.toLocaleString('es-AR')} (tocá para ver o editar)</summary>
-      <div style="margin-top:8px">
-      ${productosConfirmados.map(({mi,p})=>`<div class="row">
+    ${productosConfirmados.length?`<div style="margin-top:10px;border-radius:12px;overflow:hidden;border:1px solid #E3DCC8">
+      <details>
+      <summary style="cursor:pointer;list-style:none;background:#2F4D2A;background-image:repeating-linear-gradient(135deg, rgba(245,239,224,0.05) 0px, rgba(245,239,224,0.05) 12px, transparent 12px, transparent 24px);padding:12px 14px;border-bottom:3px solid #E8833A;display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <span style="color:#F5EFE0;font-weight:700;font-size:13.5px">🛒 ${productosConfirmados.length} producto${productosConfirmados.length===1?'':'s'} agregado${productosConfirmados.length===1?'':'s'}</span>
+        <span style="color:#F5EFE0;font-weight:700;font-size:13.5px">$${totalProductos.toLocaleString('es-AR')}</span>
+      </summary>
+      <div style="background:#FFFDF7;padding:12px 14px">
+      <div style="font-size:11px;color:#8A8570;margin-bottom:8px;text-align:center;letter-spacing:1px">— TU TICKET — (tocá para editar)</div>
+      ${productosConfirmados.map(({mi,p})=>`<div class="row" style="border-bottom:1px dashed #E3DCC8">
         <span style="display:flex;align-items:center;gap:8px">
           ${p.photo_url?`<img src="${p.photo_url}" style="width:32px;height:32px;border-radius:6px;object-fit:cover;flex-shrink:0"/>`:`<div style="width:32px;height:32px;border-radius:6px;background:#F5EFE0;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">🛒</div>`}
           <span style="font-size:13px">${p.name}${mi.source==='phone'?'<br><span style="font-size:10px;color:#B85C00;font-weight:600">📞 Cargado por teléfono</span>':''}</span>
@@ -269,8 +274,10 @@ function cuentaPanel(){
           <button data-ajustar-interes="${mi.id}" data-nueva="${mi.quantity+1}" data-stock-max="${p.stock===null?'':p.stock}" style="width:24px;height:24px;border-radius:6px;background:#2F4D2A;color:#F5EFE0;border:none;font-size:13px;font-weight:700">+</button>
           <button data-cancelar-interes="${mi.id}" style="width:24px;height:24px;border-radius:6px;background:#FFFFFF;color:#B03A2E;border:1px solid #E3DCC8;font-size:11px">🗑️</button>
         </span></div>`).join('')}
+      <div style="display:flex;justify-content:space-between;padding-top:10px;font-weight:700;color:#2F4D2A;font-size:13px"><span>Subtotal productos</span><span>$${totalProductos.toLocaleString('es-AR')}</span></div>
       </div>
-    </details>`:''}
+      </details>
+    </div>`:''}
     <div class="alert info" style="margin-top:8px;text-align:center;font-weight:700">Total a pagar: $${totalPedido.toLocaleString('es-AR')}</div>
     ${next.payment_method?`<div class="alert info" style="margin-top:6px">💡 Recordá: el pago es en <b>${METODOS_PAGO_LABEL[next.payment_method]||next.payment_method}</b>.</div>`:''}
     ${next.payment_method==='mp'?`<div class="alert info" style="margin-top:6px">📄 Tené a mano el comprobante de tu pago — el repartidor te lo va a pedir para confirmar antes de dejarte el pedido.</div>`:''}`
