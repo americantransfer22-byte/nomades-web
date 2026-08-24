@@ -3662,6 +3662,7 @@ async function admin(){
           <button id="btn_imprimir_pedido_proveedor" style="flex:1;background:#FFFFFF;color:#2F4D2A;border:1px solid #E3DCC8;border-radius:10px;padding:10px 0;font-size:12px;font-weight:600">🖨️ Guardar como PDF</button>
         </div>
         <button id="btn_pedido_listo_volver" style="width:100%;margin-top:12px;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:11px 0;font-size:13px;font-weight:600">✅ Listo, volver a la lista</button>
+        <p class="muted" style="font-size:11.5px;text-align:center;margin-top:8px">Este pedido va a quedar guardado en "📥 Pendientes de recibir" — cuando te llegue, entrás ahí y hacés el checklist.</p>
         `
       }
 
@@ -4597,8 +4598,9 @@ async function admin(){
       .map(p=>({ p, c: pedidoProveedorCantidades[p.id] }))
       .filter(x=>x.c && x.c.qty>0)
     if(!items.length){ mostrarAlerta('Poné alguna cantidad primero.'); return }
-    const lineas = items.map(({p,c})=>`• ${c.qty} ${c.unitType==='unidad'?p.unit_label||'unidad':c.unitType}${c.qty>1?(c.unitType==='unidad'?'es':'s'):''} de ${p.name}`).join('\n')
-    pedidoProveedorGenerado = `PEDIDO — NÓMADES (Huevos de libre pastoreo)\nPara: ${prov?.name||''}\n\n${lineas}\n\n${pedidoProveedorTipoEntrega==='entrega' ? 'Modalidad: nos lo entregan a nuestra dirección.' : 'Modalidad: lo pasamos a retirar nosotros.'}\n\nGracias, saludos — NÓMADES`
+    const lineas = items.map(({p,c})=>`• ${c.qty} ${c.unitType==='unidad'?p.unit_label||'unidad':c.unitType}${c.qty>1?(c.unitType==='unidad'?'es':'s'):''} de ${p.name} — $${(Number(p.price)*Number(c.qty)).toLocaleString('es-AR')}`).join('\n')
+    const totalPedidoTexto = items.reduce((s,{p,c})=>s+Number(p.price)*Number(c.qty),0)
+    pedidoProveedorGenerado = `PEDIDO — NÓMADES (Huevos de libre pastoreo)\nPara: ${prov?.name||''}\n\n${lineas}\n\nTOTAL: $${totalPedidoTexto.toLocaleString('es-AR')}\n\n${pedidoProveedorTipoEntrega==='entrega' ? 'Modalidad: nos lo entregan a nuestra dirección.' : 'Modalidad: lo pasamos a retirar nosotros.'}\n\nGracias, saludos — NÓMADES`
     pedidoProveedorItems = items.map(({p,c})=>({ id:p.id, name:p.name, qty:c.qty, unitType:c.unitType, unitLabel:p.unit_label||'unidad', price:p.price }))
     if(pedidoProveedorEditandoId){
       const { data, error } = await supabase.rpc('admin_actualizar_pedido_proveedor', { p_order_id: pedidoProveedorEditandoId, p_items: pedidoProveedorItems, p_delivery_mode: pedidoProveedorTipoEntrega })
@@ -4784,7 +4786,8 @@ async function admin(){
   if(btnImprimirPedidoProveedor) btnImprimirPedidoProveedor.onclick = ()=>{
     const prov = suppliers.find(s=>s.id===proveedorPedidoSeleccionado)
     const fecha = new Date().toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})
-    const filasItems = (pedidoProveedorItems||[]).map(it=>`<tr><td style="padding:8px;border-bottom:1px solid #E3DCC8">${it.name}</td><td style="padding:8px;border-bottom:1px solid #E3DCC8;text-align:center">${it.qty} ${it.unitType==='unidad'?it.unitLabel:it.unitType}</td></tr>`).join('')
+    const filasItems = (pedidoProveedorItems||[]).map(it=>`<tr><td style="padding:8px;border-bottom:1px solid #E3DCC8">${it.name}</td><td style="padding:8px;border-bottom:1px solid #E3DCC8;text-align:center">${it.qty} ${it.unitType==='unidad'?it.unitLabel:it.unitType}</td><td style="padding:8px;border-bottom:1px solid #E3DCC8;text-align:right">$${Number(it.price).toLocaleString('es-AR')}</td><td style="padding:8px;border-bottom:1px solid #E3DCC8;text-align:right">$${(Number(it.price)*Number(it.qty)).toLocaleString('es-AR')}</td></tr>`).join('')
+    const totalPdf = (pedidoProveedorItems||[]).reduce((s,it)=>s+Number(it.price)*Number(it.qty),0)
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Pedido ${pedidoProveedorNumero||''}</title>
     <style>
       body{font-family:Arial,Helvetica,sans-serif;color:#2F2F2A;padding:30px;max-width:700px;margin:0 auto}
@@ -4816,7 +4819,7 @@ async function admin(){
           ${prov?.contact_email?`<p>${prov.contact_email}</p>`:''}
         </div>
       </div>
-      <table><thead><tr><th>Producto</th><th style="text-align:center">Cantidad</th></tr></thead><tbody>${filasItems}</tbody></table>
+      <table><thead><tr><th>Producto</th><th style="text-align:center">Cantidad</th><th style="text-align:right">Precio unit.</th><th style="text-align:right">Subtotal</th></tr></thead><tbody>${filasItems}</tbody><tfoot><tr><td colspan="3" style="padding:8px;text-align:right;font-weight:bold">TOTAL</td><td style="padding:8px;text-align:right;font-weight:bold">$${totalPdf.toLocaleString('es-AR')}</td></tr></tfoot></table>
       <div class="box" style="margin-top:14px"><b>Modalidad:</b> ${pedidoProveedorTipoEntrega==='entrega'?'Nos lo entregan en nuestra dirección.':'Lo pasamos a retirar nosotros.'}</div>
       <div class="footer">Gracias, saludos — ${settingsMap.company_legal_name||'NÓMADES'}</div>
     </body></html>`
