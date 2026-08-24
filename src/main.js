@@ -271,10 +271,10 @@ function cuentaPanel(){
     ${cuenta.catalogo.map(p=>{
       const yaElegido = (cuenta.mis_intereses||[]).find(mi=>mi.product_id===p.id)
       return `<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid #F0EBDD">
-        ${p.photo_url?`<div style="width:56px;height:56px;border-radius:10px;background:#F5EFE0;padding:3px;flex-shrink:0"><img src="${p.photo_url}" style="width:100%;height:100%;border-radius:8px;object-fit:cover"/></div>`:`<div style="width:56px;height:56px;border-radius:10px;background:#F5EFE0;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">🛒</div>`}
+        ${p.photo_url?`<div data-ver-producto="${p.id}" style="width:56px;height:56px;border-radius:10px;background:#F5EFE0;padding:3px;flex-shrink:0;cursor:pointer"><img src="${p.photo_url}" style="width:100%;height:100%;border-radius:8px;object-fit:cover"/></div>`:`<div data-ver-producto="${p.id}" style="width:56px;height:56px;border-radius:10px;background:#F5EFE0;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;cursor:pointer">🛒</div>`}
         <div style="flex:1">
-          <b style="color:#2F4D2A;font-size:14px">${p.name}</b>
-          ${p.description?`<div style="font-size:12px;color:#8A8570;margin-top:2px">${p.description}</div>`:''}
+          <b data-ver-producto="${p.id}" style="color:#2F4D2A;font-size:14px;cursor:pointer">${p.name}</b>
+          ${p.description?`<div data-ver-producto="${p.id}" style="font-size:12px;color:#8A8570;margin-top:2px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${p.description}</div>`:''}
           <div style="font-size:13px;color:#2F4D2A;font-weight:700;margin-top:4px">$${Number(p.price).toLocaleString('es-AR')} · ${p.unit_label||'unidad'}</div>
           ${yaElegido?`<span class="badge" style="margin-top:6px;display:inline-block">✅ Ya lo pediste (${yaElegido.quantity})</span>`:`<button data-pedir-producto="${p.id}" style="margin-top:6px;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600">Sumar a mi entrega</button>`}
         </div>
@@ -290,6 +290,10 @@ function cuentaPanel(){
   </div>
   <button class="btn ghost" id="btn_logout_cuenta">Cerrar sesión</button>`)
   document.querySelector('#btn_logout_cuenta').onclick = ()=>{ if(cuentaPollInterval){clearInterval(cuentaPollInterval);cuentaPollInterval=null} cuenta=null; current='inicio'; render() }
+  document.querySelectorAll('[data-ver-producto]').forEach(el=>el.onclick=()=>{
+    const p = (cuenta.catalogo||[]).find(pr=>pr.id===el.dataset.verProducto)
+    if(p) mostrarDetalleProducto(p)
+  })
   document.querySelectorAll('[data-pedir-producto]').forEach(b=>b.onclick=async()=>{
     const cant = prompt('¿Cuántas unidades querés?', '1')
     if(cant===null) return
@@ -689,6 +693,23 @@ function mostrarConfirmacion(mensaje){
     overlay.querySelector('#nom_modal_ok').onclick = ()=>cerrar(true)
     overlay.onclick = (e)=>{ if(e.target===overlay) cerrar(false) }
   })
+}
+function mostrarDetalleProducto(p){
+  const overlay = document.createElement('div')
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(20,20,18,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;animation:nomFadeIn 0.15s ease'
+  overlay.innerHTML = `<div style="background:#FFFFFF;border-radius:16px;max-width:360px;width:100%;max-height:85vh;overflow:auto;box-shadow:0 8px 24px rgba(0,0,0,0.25);animation:nomPop 0.18s ease">
+    ${p.photo_url?`<img src="${p.photo_url}" style="width:100%;max-height:280px;object-fit:cover;border-radius:16px 16px 0 0;display:block"/>`:`<div style="width:100%;height:180px;background:#F5EFE0;border-radius:16px 16px 0 0;display:flex;align-items:center;justify-content:center;font-size:44px">🛒</div>`}
+    <div style="padding:18px 20px 20px">
+      <div style="font-size:17px;font-weight:700;color:#2F4D2A;margin-bottom:8px">${p.name}</div>
+      ${p.description?`<div style="font-size:13.5px;color:#5F5E5A;line-height:1.5;margin-bottom:14px">${p.description}</div>`:''}
+      <div style="font-size:16px;font-weight:700;color:#2F4D2A;margin-bottom:16px">$${Number(p.price).toLocaleString('es-AR')} · ${p.unit_label||'unidad'}</div>
+      <button id="nom_modal_ok" style="width:100%;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:11px 0;font-size:14px;font-weight:600">Cerrar</button>
+    </div>
+  </div>`
+  document.body.appendChild(overlay)
+  const cerrar = ()=>{ if(overlay.parentNode) document.body.removeChild(overlay) }
+  overlay.querySelector('#nom_modal_ok').onclick = cerrar
+  overlay.onclick = (e)=>{ if(e.target===overlay) cerrar() }
 }
 function mostrarConfeti(mensaje){
   const overlay = document.createElement('div')
@@ -2677,7 +2698,10 @@ async function admin(){
           ${!detalle ? '<p class="muted">Cargando…</p>' : `
             <div style="border-top:1px solid #F0EBDD;padding-top:10px">
               <h4 style="font-size:13px;color:#2F4D2A;margin-bottom:6px">Foto</h4>
-              <div class="field"><input type="file" id="foto_producto_${p.id}" accept="image/*"/></div>
+              <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
+                <img id="preview_foto_${p.id}" src="${p.photo_url||''}" style="width:52px;height:52px;border-radius:8px;object-fit:cover;background:#F5EFE0;display:${p.photo_url?'block':'none'}"/>
+                <div style="flex:1"><input type="file" id="foto_producto_${p.id}" accept="image/*"/></div>
+              </div>
               <button data-subir-foto="${p.id}" style="width:100%;margin-bottom:12px;background:#FFFFFF;color:#2F4D2A;border:1px solid #E3DCC8;border-radius:10px;padding:8px 0;font-size:12px;font-weight:600">📷 Guardar foto</button>
               <h4 style="font-size:13px;color:#2F4D2A;margin-bottom:6px">Subir precio</h4>
               <div style="display:flex;gap:6px;margin-bottom:8px">
@@ -3233,6 +3257,16 @@ async function admin(){
     if(error){ mostrarAlerta('Error: '+error.message); return }
     adminData = null; render()
   })
+  document.querySelectorAll('[id^="foto_producto_"]').forEach(inp=>inp.onchange=(e)=>{
+    const id = inp.id.replace('foto_producto_','')
+    const file = e.target.files?.[0]
+    const preview = document.querySelector(`#preview_foto_${id}`)
+    if(file && preview){
+      const reader = new FileReader()
+      reader.onload = ()=>{ preview.src = reader.result; preview.style.display='block' }
+      reader.readAsDataURL(file)
+    }
+  })
   document.querySelectorAll('[data-subir-foto]').forEach(b=>b.onclick=async()=>{
     const id = b.dataset.subirFoto
     const fotoInput = document.querySelector(`#foto_producto_${id}`)
@@ -3494,6 +3528,7 @@ async function adminDetalle(){
 let lastPushedCurrent = null
 let navegandoPorHistorial = false
 
+let ultimaPantallaParaScroll = null
 async function render(){
   if(!navegandoPorHistorial && current !== lastPushedCurrent){
     if(lastPushedCurrent===null) history.replaceState({ current }, '', '')
@@ -3502,22 +3537,26 @@ async function render(){
   }
   navegandoPorHistorial = false
   if(current==='inicio' && session && myRole){ current = myRole==='campo' ? 'campo' : myRole==='repartidor' ? 'repartidor' : 'admin' }
-  if(current==='inicio')return inicio();
-  if(current==='cuenta')return cuenta? cuentaPanel() : cuentaLogin();
-  if(current==='staff-login')return staffLogin();
-  if(current==='staff-profile-setup')return staffProfileForm(true);
-  if(current==='perfil')return staffProfileForm(false);
-  if(current==='clientes')return clientes();
-  if(current==='pedidos')return pedidos();
-  if(current==='repartidor')return repartidor();
-  if(current==='repartidor-mapa')return mapaRepartidor();
-  if(current==='historial')return historialRepartidor();
-  if(current==='campo')return campo();
-  if(current==='vehiculo')return miVehiculo();
-  if(current==='vehiculo-stats')return vehiculoStats();
-  if(current==='vehiculo-historial')return vehiculoHistorial();
-  if(current==='admin-detalle')return adminDetalle();
-  return admin()
+  const mismaPantalla = current === ultimaPantallaParaScroll
+  const scrollPrevio = mismaPantalla ? window.scrollY : 0
+  ultimaPantallaParaScroll = current
+  if(current==='inicio') await inicio();
+  else if(current==='cuenta') await (cuenta? cuentaPanel() : cuentaLogin());
+  else if(current==='staff-login') await staffLogin();
+  else if(current==='staff-profile-setup') await staffProfileForm(true);
+  else if(current==='perfil') await staffProfileForm(false);
+  else if(current==='clientes') await clientes();
+  else if(current==='pedidos') await pedidos();
+  else if(current==='repartidor') await repartidor();
+  else if(current==='repartidor-mapa') await mapaRepartidor();
+  else if(current==='historial') await historialRepartidor();
+  else if(current==='campo') await campo();
+  else if(current==='vehiculo') await miVehiculo();
+  else if(current==='vehiculo-stats') await vehiculoStats();
+  else if(current==='vehiculo-historial') await vehiculoHistorial();
+  else if(current==='admin-detalle') await adminDetalle();
+  else await admin()
+  if(mismaPantalla) requestAnimationFrame(()=>window.scrollTo(0, scrollPrevio))
 }
 
 window.addEventListener('popstate', (e)=>{
