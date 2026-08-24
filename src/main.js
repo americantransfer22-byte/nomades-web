@@ -107,7 +107,7 @@ function inicio(){layout(`<section class="hero">
   <div class="grid two" id="planes_home"><p class="muted">Cargando precios…</p></div>
 </section>
 <section class="card" style="margin-top:18px"><h3>¿Por qué NÓMADES es distinto?</h3><p>La mayoría de los huevos de supermercado vienen de gallinas confinadas todo el día. Acá las gallinas viven al aire libre, se mueven, comen pasto fresco — y eso se nota en el sabor y el color de la yema. Además, cada entrega es trazable: sabés exactamente cuándo se recolectó tu pedido.</p></section>
-<section style="margin-top:18px"><h2>Lo que dicen nuestros clientes</h2><div id="resenas_home"><p class="muted">Cargando…</p></div></section>`)
+<section style="margin-top:18px"><h2>Lo que dicen nuestros clientes</h2><div id="resenas_home">${skeletonBloque(2)}</div></section>`)
   cargarPreciosHome()
   cargarResenasHome()
 }
@@ -232,7 +232,7 @@ function cuentaPanel(){
   layout(`<h2>👤 Hola, ${c.first_name}</h2>
   <div id="card_hoy_banner"></div>
   <div class="card"><h3>Tu próximo pedido</h3>${next?`<div class="row"><span>${esHoy && (next.customer_stage||next.status==='out_for_delivery') ? 'Hoy' : formatearFecha(next.delivery_date)}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div><p>${(next.plan_breakdown && Array.isArray(next.plan_breakdown) && next.plan_breakdown.length) ? next.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')+' huevos' : `${next.egg_quantity||0} huevos`}</p>${next.payment_method?`<div class="alert info">💡 Recordá: el pago es en <b>${METODOS_PAGO_LABEL[next.payment_method]||next.payment_method}</b>.</div>`:''}${next.payment_method==='mp'?`<div class="alert info" style="margin-top:6px">📄 Tené a mano el comprobante de tu pago — el repartidor te lo va a pedir para confirmar antes de dejarte el pedido.</div>`:''}`:estadoVacio('No tenés entregas próximas todavía.')}</div>
-  <div class="card" id="card_repartidor"><h3>🚚 Tu repartidor</h3><p class="muted">Cargando…</p></div>
+  <div class="card" id="card_repartidor"><h3>🚚 Tu repartidor</h3>${skeletonBloque(2)}</div>
   ${next && (next.customer_stage || next.status==='out_for_delivery') ? barraEstadoPedido(next.customer_stage, next.status, next.out_for_delivery_at, next.en_route_at) : ''}
   ${fechasMes.length?`<div class="card"><h3>📅 Tus próximas entregas</h3>${fechasMes.map((f,i)=>`<div class="row"><span>${formatearFecha(f)}</span>${i===0?'<span class="badge">Confirmada</span>':'<span class="muted" style="font-size:12px">Estimada</span>'}</div>`).join('')}<p class="muted" style="font-size:12px;margin-top:8px">Solo la primera fecha está confirmada como pedido. Las demás son estimadas según tu frecuencia y pueden moverse un poco.</p></div>`:''}
   <div class="card" id="card_subs"><h3>Tus suscripciones</h3>${cuenta.subscriptions.length?cuenta.subscriptions.map(s=>{
@@ -244,7 +244,7 @@ function cuentaPanel(){
       ${s.status==='paused'?`<button class="btn primary" data-reanudar="${s.id}" style="font-size:12px;padding:6px 12px">▶️ Reanudar</button>`:''}
     </span></div>`
   }).join(''):estadoVacio('No tenés suscripciones activas todavía.')}</div>
-  <div class="card" id="card_pagos"><h3>💳 Historial de pagos</h3><p class="muted">Cargando…</p></div>
+  <div class="card" id="card_pagos"><h3>💳 Historial de pagos</h3>${skeletonBloque(3)}</div>
   <div class="card"><h3>📣 Recomendá NÓMADES</h3><p class="muted">Compartí tu código — cuando alguien se suscriba con él y reciba y pague su primera entrega, vos te ganás <b>$1.000 de descuento</b> en tu próximo pedido. Cada código sirve una sola vez: apenas se usa, se genera uno nuevo para que compartas.</p>
     ${(()=>{
       const pendiente = (cuenta.referral_history||[]).find(h=>h.status==='pending')
@@ -625,7 +625,7 @@ function mostrarAlerta(mensaje){
     const overlay = document.createElement('div')
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(20,20,18,0.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;animation:nomFadeIn 0.15s ease'
     overlay.innerHTML = `<div style="background:#FFFFFF;border-radius:16px;padding:24px 20px;max-width:340px;width:100%;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,0.18);animation:nomPop 0.18s ease">
-      <div style="width:44px;height:44px;border-radius:50%;background:#EAF0DC;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:20px;color:#2F4D2A">✓</div>
+      <div style="width:44px;height:44px;border-radius:50%;background:#EAF0DC;display:flex;align-items:center;justify-content:center;margin:0 auto 14px"><svg width="22" height="22" viewBox="0 0 24 24"><path d="M4 12.5L9.5 18L20 6" fill="none" stroke="#2F4D2A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="24" stroke-dashoffset="24" style="animation:nomDrawCheck 0.35s ease 0.1s forwards"/></svg></div>
       <div style="font-size:14px;color:#2F4D2A;line-height:1.5;margin-bottom:18px;white-space:pre-line">${mensaje}</div>
       <button id="nom_modal_ok" style="width:100%;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:11px 0;font-size:14px;font-weight:600">Entendido</button>
     </div>`
@@ -678,6 +678,25 @@ function mostrarConfeti(mensaje){
   overlay.querySelector('#nom_modal_ok').onclick = cerrar
   overlay.onclick = (e)=>{ if(e.target===overlay) cerrar() }
 }
+function animarContadores(){
+  document.querySelectorAll('[data-count-target]').forEach(el=>{
+    const final = Number(el.dataset.countTarget)||0
+    const esMoneda = el.dataset.countCurrency==='1'
+    const duracion = 700
+    const inicio = performance.now()
+    const paso = (ts)=>{
+      const progreso = Math.min(1, (ts-inicio)/duracion)
+      const valor = Math.round(final*progreso)
+      el.textContent = esMoneda ? '$'+valor.toLocaleString('es-AR') : valor.toLocaleString('es-AR')
+      if(progreso<1) requestAnimationFrame(paso)
+    }
+    requestAnimationFrame(paso)
+  })
+}
+function skeletonBloque(lineas){
+  const n = lineas||3
+  return `<div style="display:flex;flex-direction:column;gap:8px">${Array.from({length:n}).map((_,i)=>`<div class="nom-skeleton" style="height:14px;width:${i===n-1?'60%':'100%'}"></div>`).join('')}</div>`
+}
 function estadoVacio(mensaje, icono){
   return `<div style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;padding:28px 16px;text-align:center">
     <svg width="60" height="60" viewBox="0 0 72 72" style="margin:0 auto 10px;display:block"><circle cx="36" cy="40" r="22" fill="#EAF0DC"/><ellipse cx="36" cy="38" rx="12" ry="15" fill="#F5EFE0" stroke="#2F4D2A" stroke-width="1.5"/><circle cx="31" cy="34" r="2" fill="#2F4D2A"/><circle cx="41" cy="34" r="2" fill="#2F4D2A"/><path d="M31 43 Q36 47 41 43" stroke="#2F4D2A" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
@@ -692,8 +711,18 @@ if(!document.querySelector('#nom_anim_styles')){
     @keyframes nomPop{from{opacity:0;transform:scale(0.94)}to{opacity:1;transform:scale(1)}}
     @keyframes nomCaer{from{transform:translateY(0) rotate(0deg);opacity:1}to{transform:translateY(220px) rotate(220deg);opacity:0}}
     @keyframes nomPulso{0%{box-shadow:0 0 0 0 rgba(47,77,42,0.45)}70%{box-shadow:0 0 0 10px rgba(47,77,42,0)}100%{box-shadow:0 0 0 0 rgba(47,77,42,0)}}
+    @keyframes nomCamina{0%,100%{transform:scaleX(-1) translateX(0)}50%{transform:scaleX(-1) translateX(-3px)}}
+    @keyframes nomEntrada{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes nomShimmer{0%{background-position:-200px 0}100%{background-position:200px 0}}
+    @keyframes nomDrawCheck{from{stroke-dashoffset:24}to{stroke-dashoffset:0}}
     .acc-body{overflow:hidden;transition:max-height 0.25s ease,padding 0.25s ease}
     .acc-arrow{display:inline-block;transition:transform 0.2s ease}
+    button,.btn{transition:transform 0.12s ease}
+    button:active,.btn:active{transform:scale(0.96)}
+    .shell{animation:nomFadeIn 0.2s ease}
+    .nom-cascada{animation:nomEntrada 0.35s ease both}
+    .nom-skeleton{background:linear-gradient(90deg,#F1EFE8 0%,#E8E3D5 50%,#F1EFE8 100%);background-size:400px 100%;animation:nomShimmer 1.3s ease-in-out infinite;border-radius:8px}
+    .nom-moto-camina{animation:nomCamina 0.6s ease-in-out infinite}
   `
   document.head.appendChild(styleTag)
 }
@@ -725,7 +754,7 @@ function barraEstadoPedido(stage, orderStatus, outForDeliveryAt, enRouteAt){
   const etapas = [
     { icono:'🥚', label:'Preparando', activo: stage==='preparing' || enReparto },
     { icono:'📦', label:'En reparto', activo: enReparto },
-    { icono:'<span style="display:inline-block;transform:scaleX(-1)">🛵</span>', label:'Hacia tu casa', activo: stage==='en_route' },
+    { icono:'<span style="display:inline-block;transform:scaleX(-1)" class="nom-moto-camina">🛵</span>', label:'Hacia tu casa', activo: stage==='en_route' },
     { icono:'🏠', label:'Entregado', activo: false }
   ]
   const idxActual = etapas.reduce((acc,e,i)=> e.activo ? i : acc, -1)
@@ -1186,10 +1215,10 @@ async function clientes(){
   const rows=await q('customers','id,first_name,last_name,phone,neighborhood,zone,city,status,dni')
   layout(`<h2>Clientes</h2>
   <button id="btn_exportar_clientes" class="btn ghost" style="width:100%;margin-bottom:12px">📊 Exportar a Excel (CSV)</button>
-  ${rows.length? rows.map(c=>{
+  ${rows.length? rows.map((c,i)=>{
     const abierto = clienteExpandido===c.id
     const detalle = clienteDetalleCache[c.id]
-    return `<div style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;overflow:hidden;margin-bottom:8px">
+    return `<div class="nom-cascada" style="animation-delay:${Math.min(i*0.04,0.4)}s;background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;overflow:hidden;margin-bottom:8px">
       <button type="button" data-toggle-cliente="${c.id}" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:12px 14px;cursor:pointer;gap:10px;background:${abierto?'#F5EFE0':'transparent'}">
         ${pAvatar(c.first_name)}
         <div style="flex:1;text-align:left">
@@ -1200,7 +1229,7 @@ async function clientes(){
         <span style="font-size:13px;color:#8A8570">${abierto?'▲':'▼'}</span>
       </button>
       <div style="display:${abierto?'block':'none'};padding:0 14px 14px">
-        ${!detalle ? '<p class="muted">Cargando…</p>' : `
+        ${!detalle ? skeletonBloque(4) : `
           <div style="border-top:1px solid #F0EBDD;padding-top:12px">
             <h3 style="font-size:14px;color:#2F4D2A;margin-bottom:8px">✏️ Editar datos</h3>
             <div class="grid two">
@@ -1305,12 +1334,12 @@ async function pedidos(){
 
   layout(`<h2>Pedidos</h2>
   <button id="btn_exportar_pedidos" class="btn ghost" style="width:100%;margin-bottom:12px">📊 Exportar a Excel (CSV)</button>
-  ${ordenados.length? ordenados.map(r=>{
+  ${ordenados.length? ordenados.map((r,i)=>{
     const c = r.customers||{}
     const rep = r.assigned_driver ? (staffMap[r.assigned_driver]||'(repartidor desconocido)') : 'Sin asignar'
     const abierto = pedidoExpandido===r.id
     const detalle = pedidoDetalleCache[r.id]
-    return `<div style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;overflow:hidden;margin-bottom:8px">
+    return `<div class="nom-cascada" style="animation-delay:${Math.min(i*0.04,0.4)}s;background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;overflow:hidden;margin-bottom:8px">
       <button type="button" data-toggle-pedido="${r.id}" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:12px 14px;cursor:pointer;gap:10px;background:${abierto?'#F5EFE0':'transparent'}">
         <div style="flex:1;text-align:left">
           <div style="font-size:11px;color:#8A8570">Pedido #${r.order_number||'-'}</div>
@@ -1324,7 +1353,7 @@ async function pedidos(){
         </div>
       </button>
       <div style="display:${abierto?'block':'none'};padding:0 14px 14px">
-        ${!detalle ? '<p class="muted">Cargando…</p>' : `
+        ${!detalle ? skeletonBloque(4) : `
           <div style="border-top:1px solid #F0EBDD;padding-top:12px">
             <h3 style="font-size:14px;color:#2F4D2A;margin-bottom:8px">📋 Línea de tiempo</h3>
             <div class="row"><span>📦 Salió a repartir</span><span>${detalle.out_for_delivery_at?new Date(detalle.out_for_delivery_at).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—'}</span></div>
@@ -1536,7 +1565,7 @@ async function vehiculoHistorial(){
     </div>
   </div>
   <button id="btn_imprimir_historial" style="width:100%;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:12px;padding:12px 0;font-size:14px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:8px">🖨️ Imprimir / Guardar como PDF</button>
-  <div id="historial_contenido"><p class="muted">Cargando…</p></div>`)
+  <div id="historial_contenido">${skeletonBloque(4)}</div>`)
   document.querySelector('#btn_volver_historial').onclick = ()=>{ current='admin'; adminOpenSection='vehiculos'; render() }
   document.querySelector('#btn_imprimir_historial').onclick = ()=>window.print()
 
@@ -1954,7 +1983,7 @@ async function fetchAdminData(){
 
 async function admin(){
   if(!adminData){
-    layout(`<h2>Panel de administración</h2><div class="card" style="text-align:center;padding:30px 16px"><p class="muted">Cargando…</p></div>`)
+    layout(`<h2>Panel de administración</h2><div class="card">${skeletonBloque(5)}</div>`)
     adminData = await fetchAdminData()
   }
   const { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews } = adminData
@@ -1985,10 +2014,10 @@ async function admin(){
       <div style="color:#C9D8B0;font-size:12px;margin-bottom:2px">Resumen de hoy</div>
       <div style="color:#F5EFE0;font-size:15px;font-weight:700;margin-bottom:12px">${fechaLinda}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-        <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:9px 10px"><div style="color:#C9D8B0;font-size:11px">Entregadas hoy</div><div style="color:#F5EFE0;font-size:17px;font-weight:700">${entregadosHoy}</div></div>
-        <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:9px 10px"><div style="color:#C9D8B0;font-size:11px">Faltan repartir</div><div style="color:#F5EFE0;font-size:17px;font-weight:700">${pendientesHoy}</div></div>
-        <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:9px 10px"><div style="color:#C9D8B0;font-size:11px">Huevos de hoy</div><div style="color:#F5EFE0;font-size:17px;font-weight:700">${huevosHoy}</div></div>
-        <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:9px 10px"><div style="color:#C9D8B0;font-size:11px">Vendido hoy</div><div style="color:#F5EFE0;font-size:17px;font-weight:700">$${ventasHoy.toLocaleString('es-AR')}</div></div>
+        <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:9px 10px"><div style="color:#C9D8B0;font-size:11px">Entregadas hoy</div><div style="color:#F5EFE0;font-size:17px;font-weight:700" data-count-target="${entregadosHoy}">0</div></div>
+        <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:9px 10px"><div style="color:#C9D8B0;font-size:11px">Faltan repartir</div><div style="color:#F5EFE0;font-size:17px;font-weight:700" data-count-target="${pendientesHoy}">0</div></div>
+        <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:9px 10px"><div style="color:#C9D8B0;font-size:11px">Huevos de hoy</div><div style="color:#F5EFE0;font-size:17px;font-weight:700" data-count-target="${huevosHoy}">0</div></div>
+        <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:9px 10px"><div style="color:#C9D8B0;font-size:11px">Vendido hoy</div><div style="color:#F5EFE0;font-size:17px;font-weight:700" data-count-target="${ventasHoy}" data-count-currency="1">$0</div></div>
       </div>
       ${totalAlertasHoy>0?`<div style="margin-top:10px;background:#E8833A;border-radius:10px;padding:8px 12px;color:#FFFFFF;font-size:12px;font-weight:600">⚠️ Tenés ${totalAlertasHoy} alerta${totalAlertasHoy===1?'':'s'} pendiente${totalAlertasHoy===1?'':'s'} en Vehículos y mantenimiento</div>`:''}
     </div>`
@@ -2451,7 +2480,7 @@ async function admin(){
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('resenas','⭐','Reseñas de clientes')}
     <p class="muted">Marcá "Destacar" para que aparezca en la portada del sitio, como prueba social.</p>
-    ${reviews.length? reviews.map(r=>pCard(`
+    ${reviews.length? reviews.map((r,i)=>pCard(`
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
         <div>
           <div style="font-weight:700;color:#F5B301">${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</div>
@@ -2460,7 +2489,7 @@ async function admin(){
         </div>
       </div>
       <button data-destacar-review="${r.id}" data-featured="${r.featured}" style="width:100%;margin-top:10px;background:${r.featured?'#2F4D2A':'#FFFFFF'};color:${r.featured?'#F5EFE0':'#2F4D2A'};border:1px solid #E3DCC8;border-radius:10px;padding:8px 0;font-size:12px;font-weight:600">${r.featured?'✅ Destacada en portada':'☆ Destacar en portada'}</button>
-    `, 'margin-bottom:8px')).join('') : '<p class="muted">Todavía no hay reseñas de clientes.</p>'}
+    `, `margin-bottom:8px;animation:nomEntrada 0.35s ease both;animation-delay:${Math.min(i*0.04,0.4)}s`)).join('') : '<p class="muted">Todavía no hay reseñas de clientes.</p>'}
   </div></div>
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('finanzas','💰','Finanzas')}
@@ -3009,6 +3038,7 @@ async function admin(){
   }
   const btnExportarFinPdf = document.querySelector('#btn_exportar_finanzas_pdf')
   if(btnExportarFinPdf) btnExportarFinPdf.onclick = ()=>window.print()
+  animarContadores()
 }
 
 const ADMIN_DETALLE_TITULOS = {
