@@ -158,13 +158,11 @@ function formatearFecha(fechaStr){
 function fechasDelMesParaSuscripcion(fechaInicial, frecuencia){
   if(!fechaInicial) return []
   const hoy = new Date(); hoy.setHours(0,0,0,0)
-  const finMes = new Date(hoy.getFullYear(), hoy.getMonth()+1, 0)
   let cursor = fechaInicial
   const fechas = []
   let i = 0
-  while(i<40){
+  while(i<6){
     const d = new Date(cursor+'T00:00:00')
-    if(d > finMes) break
     if(d >= hoy) fechas.push(cursor)
     cursor = proximaFechaProyectada(cursor, frecuencia)
     i++
@@ -233,9 +231,10 @@ function cuentaPanel(){
   const fechasMes = subActiva && next ? fechasDelMesParaSuscripcion(next.delivery_date, subActiva.frequency) : []
   layout(`<h2>👤 Hola, ${c.first_name}</h2>
   <div id="card_hoy_banner"></div>
-  <div class="card"><h3>Tu próximo pedido</h3>${next?`<div class="row"><span>${formatearFecha(next.delivery_date)}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div><p>${(next.plan_breakdown && Array.isArray(next.plan_breakdown) && next.plan_breakdown.length) ? next.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')+' huevos' : `${next.egg_quantity||0} huevos`}</p>${next.payment_method?`<div class="alert info">💡 Recordá: el pago es en <b>${METODOS_PAGO_LABEL[next.payment_method]||next.payment_method}</b>.</div>`:''}${next.payment_method==='mp'?`<div class="alert info" style="margin-top:6px">📄 Tené a mano el comprobante de tu pago — el repartidor te lo va a pedir para confirmar antes de dejarte el pedido.</div>`:''}`:estadoVacio('No tenés entregas próximas todavía.')}</div>
+  <div class="card"><h3>Tu próximo pedido</h3>${next?`<div class="row"><span>${esHoy && (next.customer_stage||next.status==='out_for_delivery') ? 'Hoy' : formatearFecha(next.delivery_date)}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div><p>${(next.plan_breakdown && Array.isArray(next.plan_breakdown) && next.plan_breakdown.length) ? next.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')+' huevos' : `${next.egg_quantity||0} huevos`}</p>${next.payment_method?`<div class="alert info">💡 Recordá: el pago es en <b>${METODOS_PAGO_LABEL[next.payment_method]||next.payment_method}</b>.</div>`:''}${next.payment_method==='mp'?`<div class="alert info" style="margin-top:6px">📄 Tené a mano el comprobante de tu pago — el repartidor te lo va a pedir para confirmar antes de dejarte el pedido.</div>`:''}`:estadoVacio('No tenés entregas próximas todavía.')}</div>
+  <div class="card" id="card_repartidor"><h3>🚚 Tu repartidor</h3><p class="muted">Cargando…</p></div>
   ${next && (next.customer_stage || next.status==='out_for_delivery') ? barraEstadoPedido(next.customer_stage, next.status, next.out_for_delivery_at, next.en_route_at) : ''}
-  ${fechasMes.length?`<div class="card"><h3>📅 Tus entregas este mes</h3>${fechasMes.map((f,i)=>`<div class="row"><span>${formatearFecha(f)}</span>${i===0?'<span class="badge">Confirmada</span>':'<span class="muted" style="font-size:12px">Estimada</span>'}</div>`).join('')}<p class="muted" style="font-size:12px;margin-top:8px">Solo la primera fecha está confirmada como pedido. Las demás son estimadas según tu frecuencia y pueden moverse un poco.</p></div>`:''}
+  ${fechasMes.length?`<div class="card"><h3>📅 Tus próximas entregas</h3>${fechasMes.map((f,i)=>`<div class="row"><span>${formatearFecha(f)}</span>${i===0?'<span class="badge">Confirmada</span>':'<span class="muted" style="font-size:12px">Estimada</span>'}</div>`).join('')}<p class="muted" style="font-size:12px;margin-top:8px">Solo la primera fecha está confirmada como pedido. Las demás son estimadas según tu frecuencia y pueden moverse un poco.</p></div>`:''}
   <div class="card" id="card_subs"><h3>Tus suscripciones</h3>${cuenta.subscriptions.length?cuenta.subscriptions.map(s=>{
     const planLabel = s.plan_breakdown && s.plan_breakdown.length ? s.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')+' huevos' : `${s.egg_quantity} huevos`
     const estadoBadge = s.status==='waitlist' ? ' · <span class="badge" style="background:#b3841f">🕒 Lista de espera</span>' : s.status==='paused' ? ' · <span class="badge" style="background:#8A8570">⏸️ Pausada</span>' : ''
@@ -256,7 +255,6 @@ function cuentaPanel(){
     ${(cuenta.referral_history && cuenta.referral_history.length) ? `<div style="margin-top:12px"><small class="muted" style="font-weight:600">Historial</small>${cuenta.referral_history.map(h=>`<div class="row"><span>${h.code} → ${h.referred_first_name||'alguien'}</span><span class="badge">${h.status==='completed'?'✅ Completado':'⏳ Pendiente'}</span></div>`).join('')}</div>`:''}
     <details style="margin-top:10px"><summary style="cursor:pointer;font-size:13px;color:#2F4D2A;font-weight:600">¿Cómo funciona?</summary><p class="muted" style="font-size:12px;margin-top:6px">1. Le pasás tu código a alguien que todavía no es cliente.<br>2. Esa persona lo pone al suscribirse, y su primera entrega le sale con 50% off.<br>3. Cuando le llega y la paga, vos te ganás $1.000 de descuento en tu próximo pedido, y te llega un código nuevo para volver a compartir.<br>4. Mientras el código esté "en uso", no se puede volver a usar hasta que se complete ese ciclo.</p></details>
   </div>
-  <div class="card" id="card_repartidor"><h3>🚚 Tu repartidor</h3><p class="muted">Cargando…</p></div>
   <div class="card" id="card_datos"><h3>Tus datos</h3><p>🪪 DNI ${c.dni||'-'}</p><p>🏠 ${tipoVia} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'} (CP ${c.postal_code||'-'})</p><p>📍 Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'}</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
   <button class="btn ghost" id="btn_ver_mapa" style="margin-bottom:10px">🗺️ Ver mapa de suscriptores</button>
   <div class="card"><h3>⭐ ¿Qué te pareció NÓMADES?</h3>
