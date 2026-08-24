@@ -331,8 +331,12 @@ function cuentaPanel(){
     const items = Object.entries(carritoProductos).filter(([,q])=>q>0).map(([id,q])=>({ p: (cuenta.catalogo||[]).find(pr=>pr.id===id), q })).filter(x=>x.p)
     if(!items.length) return ''
     const total = items.reduce((s,{p,q})=>s+Number(p.price)*q,0)
-    return `<div class="card" style="border:2px solid #2F4D2A"><h3>🧾 Resumen de tu pedido</h3>
-      ${items.map(({p,q})=>`<div class="row"><span>${p.name}<br><small class="muted">$${Number(p.price).toLocaleString('es-AR')} c/u</small></span>
+    return `<div class="card" id="card_resumen_carrito" style="border:2px solid #2F4D2A"><h3>🧾 Resumen de tu pedido</h3>
+      ${items.map(({p,q})=>`<div class="row">
+        <span style="display:flex;align-items:center;gap:8px">
+          ${p.photo_url?`<img src="${p.photo_url}" style="width:36px;height:36px;border-radius:7px;object-fit:cover;flex-shrink:0"/>`:`<div style="width:36px;height:36px;border-radius:7px;background:#F5EFE0;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">🛒</div>`}
+          <span>${p.name}<br><small class="muted">$${Number(p.price).toLocaleString('es-AR')} c/u</small></span>
+        </span>
         <span style="display:flex;align-items:center;gap:8px">
           <button data-carrito-menos="${p.id}" style="width:26px;height:26px;border-radius:7px;background:#F5EFE0;color:#2F4D2A;border:none;font-size:14px;font-weight:700">−</button>
           <b style="min-width:14px;text-align:center">${q}</b>
@@ -350,8 +354,20 @@ function cuentaPanel(){
     <div id="err_review" class="alert danger" style="display:none"></div>
     <button class="btn primary" id="btn_enviar_review" style="width:100%">Enviar reseña</button>
   </div>
-  <button class="btn ghost" id="btn_logout_cuenta">Cerrar sesión</button>`)
+  <button class="btn ghost" id="btn_logout_cuenta">Cerrar sesión</button>
+  ${(()=>{
+    const items = Object.entries(carritoProductos).filter(([,q])=>q>0).map(([id,q])=>({ p: (cuenta.catalogo||[]).find(pr=>pr.id===id), q })).filter(x=>x.p)
+    if(!items.length) return ''
+    const total = items.reduce((s,{p,q})=>s+Number(p.price)*q,0)
+    const cant = items.reduce((s,{q})=>s+q,0)
+    return `<div id="flotante_carrito" style="position:fixed;left:16px;right:16px;bottom:16px;max-width:400px;margin:0 auto;background:#2F4D2A;border-radius:14px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 4px 16px rgba(0,0,0,0.25);z-index:500;cursor:pointer">
+      <span style="color:#C9D8B0;font-size:12px">🛒 ${cant} producto${cant===1?'':'s'}</span>
+      <span style="color:#F5EFE0;font-size:16px;font-weight:700">$${total.toLocaleString('es-AR')} →</span>
+    </div>`
+  })()}`)
   document.querySelector('#btn_logout_cuenta').onclick = ()=>{ if(cuentaPollInterval){clearInterval(cuentaPollInterval);cuentaPollInterval=null} carritoProductos={}; cuenta=null; current='inicio'; render() }
+  const flotanteCarrito = document.querySelector('#flotante_carrito')
+  if(flotanteCarrito) flotanteCarrito.onclick = ()=>document.querySelector('#card_resumen_carrito')?.scrollIntoView({behavior:'smooth',block:'center'})
   document.querySelectorAll('[data-filtro-categoria]').forEach(b=>b.onclick=()=>{
     categoriaCatalogoSeleccionada = b.dataset.filtroCategoria || null
     cuentaPanel()
