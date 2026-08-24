@@ -175,6 +175,7 @@ function fechasDelMesParaSuscripcion(fechaInicial, frecuencia){
 let cuentaPollInterval = null
 let carritoProductos = {} // product_id -> cantidad, carrito local del cliente antes de confirmar
 let categoriaCatalogoSeleccionada = null // null = "Todas"
+let catalogoDetallesAbierto = null // null = decide solo según si ya confirmó algo; true/false = lo decidió el cliente tocando
 
 function reproducirSonidoAviso(){
   try{
@@ -325,7 +326,8 @@ function cuentaPanel(){
     })()}
     ${(()=>{
       const yaConfirmoAlgo = (cuenta.mis_intereses||[]).some(mi=>mi.status==='interested')
-      return `<details ${yaConfirmoAlgo?'':'open'}><summary style="cursor:pointer;font-size:13px;color:#2F4D2A;font-weight:600;margin-bottom:8px">${yaConfirmoAlgo?'➕ Agregar más productos':'🛍️ Ver productos'}</summary>`
+      const abierto = catalogoDetallesAbierto !== null ? catalogoDetallesAbierto : !yaConfirmoAlgo
+      return `<details id="detalles_catalogo" ${abierto?'open':''}><summary style="cursor:pointer;font-size:13px;color:#2F4D2A;font-weight:600;margin-bottom:8px">${yaConfirmoAlgo?'➕ Agregar más productos':'🛍️ Ver productos'}</summary>`
     })()}
     ${(()=>{
       const categoriasConProductos = CATEGORIAS_CATALOGO.filter(cat=>cuenta.catalogo.some(p=>p.category===cat))
@@ -421,13 +423,15 @@ function cuentaPanel(){
       <span style="color:#F5EFE0;font-size:16px;font-weight:700">$${total.toLocaleString('es-AR')} →</span>
     </div>`
   })()}`)
-  document.querySelector('#btn_logout_cuenta').onclick = ()=>{ if(cuentaPollInterval){clearInterval(cuentaPollInterval);cuentaPollInterval=null} carritoProductos={}; cuenta=null; current='inicio'; render() }
+  document.querySelector('#btn_logout_cuenta').onclick = ()=>{ if(cuentaPollInterval){clearInterval(cuentaPollInterval);cuentaPollInterval=null} carritoProductos={}; catalogoDetallesAbierto=null; cuenta=null; current='inicio'; render() }
   const flotanteCarrito = document.querySelector('#flotante_carrito')
   if(flotanteCarrito) flotanteCarrito.onclick = ()=>document.querySelector('#card_resumen_carrito')?.scrollIntoView({behavior:'smooth',block:'center'})
   document.querySelectorAll('[data-filtro-categoria]').forEach(b=>b.onclick=()=>{
     categoriaCatalogoSeleccionada = b.dataset.filtroCategoria || null
     cuentaPanel()
   })
+  const detallesCatalogo = document.querySelector('#detalles_catalogo')
+  if(detallesCatalogo) detallesCatalogo.ontoggle = ()=>{ catalogoDetallesAbierto = detallesCatalogo.open }
   document.querySelectorAll('[data-ver-producto]').forEach(el=>el.onclick=()=>{
     const p = (cuenta.catalogo||[]).find(pr=>pr.id===el.dataset.verProducto)
     if(p) mostrarDetalleProducto(p)
