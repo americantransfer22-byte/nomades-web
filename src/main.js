@@ -249,7 +249,9 @@ function cuentaPanel(){
     return `<p class="muted" style="font-size:12.5px;margin-bottom:2px">Se entregará el ${fechaTexto}</p>
     <div class="row"><span>${fechaTexto}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div>
     <div class="row"><span>${(next.plan_breakdown && Array.isArray(next.plan_breakdown) && next.plan_breakdown.length) ? next.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')+' huevos' : `${next.egg_quantity||0} huevos`}</span>${precioSub?`<span>$${precioSub.toLocaleString('es-AR')}</span>`:''}</div>
-    ${productosConfirmados.length?`<div style="margin-top:8px;border-top:1px solid #F0EBDD;padding-top:8px">
+    ${productosConfirmados.length?`<details style="margin-top:8px;border-top:1px solid #F0EBDD;padding-top:8px">
+      <summary style="cursor:pointer;font-size:12.5px;color:#2F4D2A;font-weight:600;list-style:none">🛒 ${productosConfirmados.length} producto${productosConfirmados.length===1?'':'s'} agregado${productosConfirmados.length===1?'':'s'} · $${totalProductos.toLocaleString('es-AR')} (tocá para ver o editar)</summary>
+      <div style="margin-top:8px">
       ${productosConfirmados.map(({mi,p})=>`<div class="row">
         <span style="display:flex;align-items:center;gap:8px">
           ${p.photo_url?`<img src="${p.photo_url}" style="width:32px;height:32px;border-radius:6px;object-fit:cover;flex-shrink:0"/>`:`<div style="width:32px;height:32px;border-radius:6px;background:#F5EFE0;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">🛒</div>`}
@@ -261,7 +263,8 @@ function cuentaPanel(){
           <button data-ajustar-interes="${mi.id}" data-nueva="${mi.quantity+1}" data-stock-max="${p.stock===null?'':p.stock}" style="width:24px;height:24px;border-radius:6px;background:#2F4D2A;color:#F5EFE0;border:none;font-size:13px;font-weight:700">+</button>
           <button data-cancelar-interes="${mi.id}" style="width:24px;height:24px;border-radius:6px;background:#FFFFFF;color:#B03A2E;border:1px solid #E3DCC8;font-size:11px">🗑️</button>
         </span></div>`).join('')}
-    </div>`:''}
+      </div>
+    </details>`:''}
     <div class="alert info" style="margin-top:8px;text-align:center;font-weight:700">Total a pagar: $${totalPedido.toLocaleString('es-AR')}</div>
     ${next.payment_method?`<div class="alert info" style="margin-top:6px">💡 Recordá: el pago es en <b>${METODOS_PAGO_LABEL[next.payment_method]||next.payment_method}</b>.</div>`:''}
     ${next.payment_method==='mp'?`<div class="alert info" style="margin-top:6px">📄 Tené a mano el comprobante de tu pago — el repartidor te lo va a pedir para confirmar antes de dejarte el pedido.</div>`:''}`
@@ -315,6 +318,10 @@ function cuentaPanel(){
       </div>`
     })()}
     ${(()=>{
+      const yaConfirmoAlgo = (cuenta.mis_intereses||[]).some(mi=>mi.status==='interested')
+      return `<details ${yaConfirmoAlgo?'':'open'}><summary style="cursor:pointer;font-size:13px;color:#2F4D2A;font-weight:600;margin-bottom:8px">${yaConfirmoAlgo?'➕ Agregar más productos':'🛍️ Ver productos'}</summary>`
+    })()}
+    ${(()=>{
       const categoriasConProductos = CATEGORIAS_CATALOGO.filter(cat=>cuenta.catalogo.some(p=>p.category===cat))
       if(categoriasConProductos.length<2) return ''
       return `<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;margin-bottom:10px">
@@ -360,6 +367,7 @@ function cuentaPanel(){
         </div>`
       }).join('')
     })()}
+    </details>
   </div>`:''}
   ${(()=>{
     const items = Object.entries(carritoProductos).filter(([,q])=>q>0).map(([id,q])=>({ p: (cuenta.catalogo||[]).find(pr=>pr.id===id), q })).filter(x=>x.p)
