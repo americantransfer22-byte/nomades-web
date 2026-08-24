@@ -1509,6 +1509,7 @@ async function abrirPreparacion(id){
   const { data: detalle, error } = await supabase.rpc('preparador_pedido_detalle', { p_order_id: id })
   if(error || !detalle || detalle.error) return mostrarAlerta('No se pudo cargar el pedido')
   const o = detalle.order, c = detalle.customer, sub = detalle.subscription||{}, productos = detalle.productos||[]
+  const marcados = o.prep_checklist || []
   layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><button class="btn ghost" id="btn_volver_preparador" style="padding:6px 12px">← Volver</button><h2 style="margin:0">Preparar pedido</h2></div>
   <div class="card">
     <h3>${c.last_name||''}, ${c.first_name||''}</h3>
@@ -1517,18 +1518,23 @@ async function abrirPreparacion(id){
   </div>
   <div class="card">
     <h3>✅ Checklist</h3>
-    <label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #F0EBDD"><input type="checkbox" class="check-prep" style="width:18px;height:18px"/> <span>🥚 ${FRECUENCIAS[sub.frequency]||sub.frequency||''} · ${sub.egg_quantity||'-'} huevos${sub.plan_breakdown?` (${sub.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')})`:''}</span></label>
+    <p class="muted" style="font-size:11.5px;margin-bottom:8px">Podés salir y volver cuando quieras — lo que ya tildaste queda guardado.</p>
+    <label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #F0EBDD"><input type="checkbox" class="check-prep" data-item-key="eggs" ${marcados.includes('eggs')?'checked':''} style="width:18px;height:18px"/> <span>🥚 ${FRECUENCIAS[sub.frequency]||sub.frequency||''} · ${sub.egg_quantity||'-'} huevos${sub.plan_breakdown?` (${sub.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')})`:''}</span></label>
     ${productos.map(p=>`<label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #F0EBDD">
-      <input type="checkbox" class="check-prep" style="width:18px;height:18px"/>
+      <input type="checkbox" class="check-prep" data-item-key="${p.id}" ${marcados.includes(p.id)?'checked':''} style="width:18px;height:18px"/>
       ${p.photo_url?`<img src="${p.photo_url}" style="width:28px;height:28px;border-radius:6px;object-fit:cover"/>`:'<span>🛒</span>'}
       <span>${p.quantity}× ${p.name}</span>
     </label>`).join('')}
     ${!productos.length?'<p class="muted" style="font-size:12px;margin-top:6px">Sin productos extra, solo huevos.</p>':''}
-    <button class="btn primary" id="btn_finalizar_preparado" style="width:100%;margin-top:14px" disabled>📦 Finalizar preparado</button>
+    <button class="btn primary" id="btn_finalizar_preparado" style="width:100%;margin-top:14px">📦 Finalizar preparado</button>
   </div>`)
   document.querySelector('#btn_volver_preparador').onclick = ()=>{ current='preparador'; render() }
   const actualizarBtnPrep = ()=>{ document.querySelector('#btn_finalizar_preparado').disabled = ![...document.querySelectorAll('.check-prep')].every(chk=>chk.checked) }
-  document.querySelectorAll('.check-prep').forEach(chk=>chk.onchange=actualizarBtnPrep)
+  actualizarBtnPrep()
+  document.querySelectorAll('.check-prep').forEach(chk=>chk.onchange=async()=>{
+    actualizarBtnPrep()
+    await supabase.rpc('preparador_toggle_check', { p_order_id: id, p_item_key: chk.dataset.itemKey, p_checked: chk.checked })
+  })
   supabase.rpc('preparador_marcar_preparando', { p_order_id: id })
   document.querySelector('#btn_finalizar_preparado').onclick = async ()=>{
     const { data, error: errFin } = await supabase.rpc('preparador_finalizar', { p_order_id: id })
