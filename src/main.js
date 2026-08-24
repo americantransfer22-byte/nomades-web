@@ -171,6 +171,7 @@ function fechasDelMesParaSuscripcion(fechaInicial, frecuencia){
 }
 
 let cuentaPollInterval = null
+let carritoProductos = {} // product_id -> cantidad, carrito local del cliente antes de confirmar
 
 function reproducirSonidoAviso(){
   try{
@@ -268,19 +269,53 @@ function cuentaPanel(){
   ${cuenta.historial_entregas && cuenta.historial_entregas.length ? `<div class="card"><h3>📦 Historial de entregas</h3>${cuenta.historial_entregas.map(h=>`<div class="row"><span>${formatearFecha(h.delivery_date)}</span><span>${h.egg_quantity||0} huevos</span></div>`).join('')}</div>`:''}
   <div class="card" id="card_datos"><h3>Tus datos</h3><p>🪪 DNI ${c.dni||'-'}</p><p>🏠 ${tipoVia} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'} (CP ${c.postal_code||'-'})</p><p>📍 Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'}</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
   ${cuenta.catalogo && cuenta.catalogo.length ? `<div class="card"><h3>🛒 Otros productos</h3><p class="muted" style="margin-bottom:10px">Sumalos a tu próxima entrega — se pagan junto con tu pedido, sin recargo extra.</p>
-    ${cuenta.catalogo.map(p=>{
-      const yaElegido = (cuenta.mis_intereses||[]).find(mi=>mi.product_id===p.id)
-      return `<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid #F0EBDD">
-        ${p.photo_url?`<div data-ver-producto="${p.id}" style="width:56px;height:56px;border-radius:10px;background:#F5EFE0;padding:3px;flex-shrink:0;cursor:pointer"><img src="${p.photo_url}" style="width:100%;height:100%;border-radius:8px;object-fit:cover"/></div>`:`<div data-ver-producto="${p.id}" style="width:56px;height:56px;border-radius:10px;background:#F5EFE0;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;cursor:pointer">🛒</div>`}
-        <div style="flex:1">
-          <b data-ver-producto="${p.id}" style="color:#2F4D2A;font-size:14px;cursor:pointer">${p.name}</b>
-          ${p.description?`<div data-ver-producto="${p.id}" style="font-size:12px;color:#8A8570;margin-top:2px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${p.description}</div>`:''}
-          <div style="font-size:13px;color:#2F4D2A;font-weight:700;margin-top:4px">$${Number(p.price).toLocaleString('es-AR')} · ${p.unit_label||'unidad'}</div>
-          ${yaElegido?`<span class="badge" style="margin-top:6px;display:inline-block">✅ Ya lo pediste (${yaElegido.quantity})</span>`:`<button data-pedir-producto="${p.id}" style="margin-top:6px;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600">Sumar a mi entrega</button>`}
-        </div>
-      </div>`
-    }).join('')}
+    ${(()=>{
+      const maxInteresados = Math.max(0, ...cuenta.catalogo.map(p=>p.interesados||0))
+      return cuenta.catalogo.map(p=>{
+        const yaElegido = (cuenta.mis_intereses||[]).find(mi=>mi.product_id===p.id && mi.status==='interested')
+        const yaNotificar = (cuenta.mis_intereses||[]).find(mi=>mi.product_id===p.id && mi.status==='notify')
+        const sinStock = p.stock!==null && p.stock<=0
+        const esPopular = maxInteresados>0 && p.interesados===maxInteresados
+        const enCarrito = carritoProductos[p.id]||0
+        return `<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid #F0EBDD">
+          ${p.photo_url?`<div data-ver-producto="${p.id}" style="width:56px;height:56px;border-radius:10px;background:#F5EFE0;padding:3px;flex-shrink:0;cursor:pointer"><img src="${p.photo_url}" style="width:100%;height:100%;border-radius:8px;object-fit:cover"/></div>`:`<div data-ver-producto="${p.id}" style="width:56px;height:56px;border-radius:10px;background:#F5EFE0;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;cursor:pointer">🛒</div>`}
+          <div style="flex:1">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+              <b data-ver-producto="${p.id}" style="color:#2F4D2A;font-size:14px;cursor:pointer">${p.name}</b>
+              ${esPopular?`<span class="badge" style="background:#F5B301;color:#5C3E00;font-size:10px">⭐ Más elegido</span>`:''}
+            </div>
+            ${p.description?`<div data-ver-producto="${p.id}" style="font-size:12px;color:#8A8570;margin-top:2px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${p.description}</div>`:''}
+            <div style="font-size:13px;color:#2F4D2A;font-weight:700;margin-top:4px">$${Number(p.price).toLocaleString('es-AR')} · ${p.unit_label||'unidad'}</div>
+            ${p.stock!==null && !sinStock?`<div style="font-size:11px;color:#8A8570;margin-top:2px">Quedan ${p.stock} unidades</div>`:''}
+            ${yaElegido?`<span class="badge" style="margin-top:6px;display:inline-block">✅ Ya lo pediste (${yaElegido.quantity})</span>`
+              :sinStock?(yaNotificar?`<span class="badge" style="margin-top:6px;display:inline-block;background:#D3D1C7;color:#5F5E5A">🔔 Te vamos a avisar</span>`:`<button data-notificar-stock="${p.id}" style="margin-top:6px;background:#FFFFFF;color:#2F4D2A;border:1px solid #E3DCC8;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600">🔔 Avisame cuando haya</button>`)
+              :`<div style="display:flex;align-items:center;gap:10px;margin-top:6px">
+                  <button data-carrito-menos="${p.id}" style="width:30px;height:30px;border-radius:8px;background:#F5EFE0;color:#2F4D2A;border:none;font-size:16px;font-weight:700">−</button>
+                  <b style="min-width:16px;text-align:center">${enCarrito}</b>
+                  <button data-carrito-mas="${p.id}" data-stock-max="${p.stock===null?'':p.stock}" style="width:30px;height:30px;border-radius:8px;background:#2F4D2A;color:#F5EFE0;border:none;font-size:16px;font-weight:700">+</button>
+                </div>`
+            }
+          </div>
+        </div>`
+      }).join('')
+    })()}
   </div>`:''}
+  ${(()=>{
+    const items = Object.entries(carritoProductos).filter(([,q])=>q>0).map(([id,q])=>({ p: (cuenta.catalogo||[]).find(pr=>pr.id===id), q })).filter(x=>x.p)
+    if(!items.length) return ''
+    const total = items.reduce((s,{p,q})=>s+Number(p.price)*q,0)
+    return `<div class="card" style="border:2px solid #2F4D2A"><h3>🧾 Resumen de tu pedido</h3>
+      ${items.map(({p,q})=>`<div class="row"><span>${p.name}<br><small class="muted">$${Number(p.price).toLocaleString('es-AR')} c/u</small></span>
+        <span style="display:flex;align-items:center;gap:8px">
+          <button data-carrito-menos="${p.id}" style="width:26px;height:26px;border-radius:7px;background:#F5EFE0;color:#2F4D2A;border:none;font-size:14px;font-weight:700">−</button>
+          <b style="min-width:14px;text-align:center">${q}</b>
+          <button data-carrito-mas="${p.id}" data-stock-max="${p.stock===null?'':p.stock}" style="width:26px;height:26px;border-radius:7px;background:#2F4D2A;color:#F5EFE0;border:none;font-size:14px;font-weight:700">+</button>
+          <button data-carrito-eliminar="${p.id}" style="width:26px;height:26px;border-radius:7px;background:#FFFFFF;color:#B03A2E;border:1px solid #E3DCC8;font-size:13px">🗑️</button>
+        </span></div>`).join('')}
+      <div class="alert info" style="margin-top:10px;text-align:center;font-size:15px;font-weight:700">Total: $${total.toLocaleString('es-AR')}</div>
+      <button id="btn_confirmar_carrito" style="width:100%;margin-top:10px;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:11px 0;font-size:14px;font-weight:600">Confirmar productos</button>
+    </div>`
+  })()}
   <button class="btn ghost" id="btn_ver_mapa" style="margin-bottom:10px">🗺️ Ver mapa de suscriptores</button>
   <div class="card"><h3>⭐ ¿Qué te pareció NÓMADES?</h3>
     <div class="field"><label>Tu puntaje</label><div id="review_estrellas" style="font-size:30px;display:flex;gap:4px">${[1,2,3,4,5].map(n=>`<button type="button" data-estrella="${n}" style="all:unset;cursor:pointer;line-height:1;color:#D8D3C6">☆</button>`).join('')}</div></div>
@@ -289,22 +324,48 @@ function cuentaPanel(){
     <button class="btn primary" id="btn_enviar_review" style="width:100%">Enviar reseña</button>
   </div>
   <button class="btn ghost" id="btn_logout_cuenta">Cerrar sesión</button>`)
-  document.querySelector('#btn_logout_cuenta').onclick = ()=>{ if(cuentaPollInterval){clearInterval(cuentaPollInterval);cuentaPollInterval=null} cuenta=null; current='inicio'; render() }
+  document.querySelector('#btn_logout_cuenta').onclick = ()=>{ if(cuentaPollInterval){clearInterval(cuentaPollInterval);cuentaPollInterval=null} carritoProductos={}; cuenta=null; current='inicio'; render() }
   document.querySelectorAll('[data-ver-producto]').forEach(el=>el.onclick=()=>{
     const p = (cuenta.catalogo||[]).find(pr=>pr.id===el.dataset.verProducto)
     if(p) mostrarDetalleProducto(p)
   })
-  document.querySelectorAll('[data-pedir-producto]').forEach(b=>b.onclick=async()=>{
-    const cant = prompt('¿Cuántas unidades querés?', '1')
-    if(cant===null) return
-    const cantidad = Math.max(1, parseInt(cant)||1)
-    const { data, error } = await supabase.rpc('customer_mark_interest', { p_dni: c.dni, p_customer_id: c.id, p_product_id: b.dataset.pedirProducto, p_quantity: cantidad })
+  document.querySelectorAll('[data-carrito-mas]').forEach(b=>b.onclick=()=>{
+    const id = b.dataset.carritoMas
+    const stockMax = b.dataset.stockMax
+    const actual = carritoProductos[id]||0
+    if(stockMax!=='' && actual+1>Number(stockMax)){ mostrarAlerta(`Solo quedan ${stockMax} unidades disponibles.`); return }
+    carritoProductos[id] = actual+1
+    cuentaPanel()
+  })
+  document.querySelectorAll('[data-carrito-menos]').forEach(b=>b.onclick=()=>{
+    const id = b.dataset.carritoMenos
+    carritoProductos[id] = Math.max(0, (carritoProductos[id]||0)-1)
+    cuentaPanel()
+  })
+  document.querySelectorAll('[data-carrito-eliminar]').forEach(b=>b.onclick=()=>{
+    delete carritoProductos[b.dataset.carritoEliminar]
+    cuentaPanel()
+  })
+  document.querySelectorAll('[data-notificar-stock]').forEach(b=>b.onclick=async()=>{
+    const { data, error } = await supabase.rpc('customer_notify_stock', { p_dni: c.dni, p_customer_id: c.id, p_product_id: b.dataset.notificarStock })
     if(error || !data?.ok){ mostrarAlerta('No se pudo registrar: '+(data?.error||error?.message||'')); return }
-    mostrarAlerta('¡Sumado! Te lo llevamos junto con tu próxima entrega. Se paga en el momento, junto con tu pedido.')
     const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
     if(fresh?.found) cuenta = fresh
     cuentaPanel()
   })
+  const btnConfirmarCarrito = document.querySelector('#btn_confirmar_carrito')
+  if(btnConfirmarCarrito) btnConfirmarCarrito.onclick = async ()=>{
+    const items = Object.entries(carritoProductos).filter(([,q])=>q>0)
+    for(const [productId, cantidad] of items){
+      const { data, error } = await supabase.rpc('customer_mark_interest', { p_dni: c.dni, p_customer_id: c.id, p_product_id: productId, p_quantity: cantidad })
+      if(error || !data?.ok){ mostrarAlerta('No se pudo confirmar uno de los productos: '+(data?.error||error?.message||'')); return }
+    }
+    carritoProductos = {}
+    mostrarAlerta('¡Listo! Te llevamos estos productos junto con tu próxima entrega. Se pagan en el momento, junto con tu pedido.')
+    const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
+    if(fresh?.found) cuenta = fresh
+    cuentaPanel()
+  }
   document.querySelector('#btn_editar_datos').onclick = ()=>editarDatosForm(c)
   document.querySelector('#btn_ver_mapa').onclick = ()=>mapaSuscriptores()
   let ratingSel = 0
@@ -697,11 +758,11 @@ function mostrarConfirmacion(mensaje){
 function mostrarDetalleProducto(p){
   const overlay = document.createElement('div')
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(20,20,18,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;animation:nomFadeIn 0.15s ease'
-  overlay.innerHTML = `<div style="background:#FFFFFF;border-radius:16px;max-width:360px;width:100%;max-height:85vh;overflow:auto;box-shadow:0 8px 24px rgba(0,0,0,0.25);animation:nomPop 0.18s ease">
-    ${p.photo_url?`<img src="${p.photo_url}" style="width:100%;max-height:280px;object-fit:cover;border-radius:16px 16px 0 0;display:block"/>`:`<div style="width:100%;height:180px;background:#F5EFE0;border-radius:16px 16px 0 0;display:flex;align-items:center;justify-content:center;font-size:44px">🛒</div>`}
+  overlay.innerHTML = `<div style="background:#FFFFFF;border-radius:16px;max-width:360px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 8px 24px rgba(0,0,0,0.25);animation:nomPop 0.18s ease">
+    ${p.photo_url?`<div style="width:100%;height:240px;background:#F5EFE0;border-radius:16px 16px 0 0;display:flex;align-items:center;justify-content:center;overflow:hidden"><img src="${p.photo_url}" style="max-width:100%;max-height:100%;object-fit:contain"/></div>`:`<div style="width:100%;height:180px;background:#F5EFE0;border-radius:16px 16px 0 0;display:flex;align-items:center;justify-content:center;font-size:44px">🛒</div>`}
     <div style="padding:18px 20px 20px">
       <div style="font-size:17px;font-weight:700;color:#2F4D2A;margin-bottom:8px">${p.name}</div>
-      ${p.description?`<div style="font-size:13.5px;color:#5F5E5A;line-height:1.5;margin-bottom:14px">${p.description}</div>`:''}
+      ${p.description?`<div style="font-size:13.5px;color:#5F5E5A;line-height:1.5;margin-bottom:14px;white-space:pre-line">${p.description}</div>`:''}
       <div style="font-size:16px;font-weight:700;color:#2F4D2A;margin-bottom:16px">$${Number(p.price).toLocaleString('es-AR')} · ${p.unit_label||'unidad'}</div>
       <button id="nom_modal_ok" style="width:100%;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:11px 0;font-size:14px;font-weight:600">Cerrar</button>
     </div>
@@ -2671,13 +2732,14 @@ async function admin(){
         <span style="font-size:12px;color:#8A8570">${mostrarFormNuevoProducto?'▲':'▼'}</span>
       </button>
       <div style="display:${mostrarFormNuevoProducto?'block':'none'};padding:4px 12px 12px">
-        <div class="field"><label>Empresa proveedora</label><select id="prod_new_supplier"><option value="">Sin especificar</option>${suppliers.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}</select></div>
-        <div class="field"><label>Nombre del producto</label><input id="prod_new_name" placeholder="Ej: Aceite de girasol 900ml"/></div>
-        <div class="field"><label>Descripción</label><textarea id="prod_new_desc" rows="2" placeholder="Ej: Ideal para todo tipo de cocción"></textarea></div>
+        <div class="field"><label>Empresa proveedora</label><select id="catprod_new_supplier"><option value="">Sin especificar</option>${suppliers.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}</select></div>
+        <div class="field"><label>Nombre del producto</label><input id="catprod_new_name" placeholder="Ej: Aceite de girasol 900ml"/></div>
+        <div class="field"><label>Descripción</label><textarea id="catprod_new_desc" rows="2" placeholder="Ej: Ideal para todo tipo de cocción"></textarea></div>
         <div class="grid two">
-          <div class="field"><label>Precio</label><input id="prod_new_price" type="number" min="0"/></div>
-          <div class="field"><label>Unidad</label><input id="prod_new_unit" placeholder="Ej: botella, paquete"/></div>
+          <div class="field"><label>Precio</label><input id="catprod_new_price" type="number" min="0"/></div>
+          <div class="field"><label>Unidad</label><input id="catprod_new_unit" placeholder="Ej: botella, paquete"/></div>
         </div>
+        <div class="field"><label>Stock disponible (opcional — dejalo vacío si no querés controlarlo)</label><input id="catprod_new_stock" type="number" min="0" placeholder="Ej: 20"/></div>
         <div class="field"><label>Foto del producto</label><input type="file" id="prod_new_foto" accept="image/*"/></div>
         <button id="btn_crear_producto_catalogo" style="width:100%;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:10px 0;font-size:13px;font-weight:600">💾 Guardar producto</button>
       </div>
@@ -2690,7 +2752,7 @@ async function admin(){
           ${p.photo_url?`<div style="width:40px;height:40px;border-radius:8px;background:#F5EFE0;padding:2px;flex-shrink:0"><img src="${p.photo_url}" style="width:100%;height:100%;border-radius:6px;object-fit:cover"/></div>`:`<div style="width:40px;height:40px;border-radius:8px;background:#EAF0DC;display:flex;align-items:center;justify-content:center">🛒</div>`}
           <div style="flex:1;text-align:left">
             <div style="font-weight:700;color:#2F4D2A">${p.name}${!p.active?' <span class="muted">(inactivo)</span>':''}</div>
-            <div style="font-size:12px;color:#8A8570">$${Number(p.price).toLocaleString('es-AR')} · ${p.supplier_name||'sin empresa'} · ${p.interesados} interesado(s)</div>
+            <div style="font-size:12px;color:#8A8570">$${Number(p.price).toLocaleString('es-AR')} · ${p.supplier_name||'sin empresa'} · ${p.interesados} interesado(s)${p.stock!==null?` · <span style="color:${p.stock>0?'#2F4D2A':'#B03A2E'}">${p.stock} en stock</span>`:''}</div>
           </div>
           <span style="font-size:12px;color:#8A8570">${abierto?'▲':'▼'}</span>
         </button>
@@ -2710,6 +2772,11 @@ async function admin(){
                 <button data-ajustar-precio="${p.id}" data-tipo="fixed" style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:8px;padding:0 10px;font-size:12px;font-weight:600;color:#2F4D2A">$ fijo</button>
               </div>
               <p class="muted" style="font-size:11px;margin-bottom:10px">Precio actual: $${Number(p.price).toLocaleString('es-AR')}</p>
+              <h4 style="font-size:13px;color:#2F4D2A;margin-bottom:6px">Stock</h4>
+              <div style="display:flex;gap:6px;margin-bottom:10px">
+                <input id="stock_valor_${p.id}" type="number" min="0" value="${p.stock===null?'':p.stock}" placeholder="Vacío = sin control" style="flex:1"/>
+                <button data-guardar-stock="${p.id}" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:0 14px;font-size:12px;font-weight:600">Guardar</button>
+              </div>
               <button data-toggle-activo="${p.id}" data-activo="${p.active}" style="width:100%;background:${p.active?'#FFFFFF':'#2F4D2A'};color:${p.active?'#B85C00':'#F5EFE0'};border:1px solid #E3DCC8;border-radius:10px;padding:8px 0;font-size:12px;font-weight:600;margin-bottom:10px">${p.active?'Desactivar (dejar de ofrecer)':'Activar de nuevo'}</button>
               <h4 style="font-size:13px;color:#2F4D2A;margin-bottom:6px">¿Quién lo pidió?</h4>
               ${detalle.length? detalle.map(d=>`<div class="row"><span>${d.first_name||''} ${d.last_name||''} · ${d.quantity} un.</span><span class="muted" style="font-size:11px">${new Date(d.created_at).toLocaleDateString('es-AR')}</span></div>`).join('') : '<p class="muted" style="font-size:12px">Todavía nadie lo pidió.</p>'}
@@ -3201,8 +3268,8 @@ async function admin(){
   if(btnToggleFormProducto) btnToggleFormProducto.onclick = ()=>{ mostrarFormNuevoProducto = !mostrarFormNuevoProducto; render() }
   const btnCrearProductoCatalogo = document.querySelector('#btn_crear_producto_catalogo')
   if(btnCrearProductoCatalogo) btnCrearProductoCatalogo.onclick = async ()=>{
-    const name = document.querySelector('#prod_new_name').value.trim()
-    const price = Number(document.querySelector('#prod_new_price').value)
+    const name = document.querySelector('#catprod_new_name').value.trim()
+    const price = Number(document.querySelector('#catprod_new_price').value)
     if(!name || !price){ mostrarAlerta('Completá al menos el nombre y el precio.'); return }
     let photo_url = null
     const fotoInput = document.querySelector('#prod_new_foto')
@@ -3214,11 +3281,13 @@ async function admin(){
       const { data: pub } = supabase.storage.from('product-photos').getPublicUrl(path)
       photo_url = pub.publicUrl
     }
+    const stockVal = document.querySelector('#catprod_new_stock').value.trim()
     const { error } = await supabase.from('catalog_products').insert({
-      supplier_id: document.querySelector('#prod_new_supplier').value || null,
+      supplier_id: document.querySelector('#catprod_new_supplier').value || null,
       name, price,
-      description: document.querySelector('#prod_new_desc').value.trim(),
-      unit_label: document.querySelector('#prod_new_unit').value.trim() || 'unidad',
+      description: document.querySelector('#catprod_new_desc').value.trim(),
+      unit_label: document.querySelector('#catprod_new_unit').value.trim() || 'unidad',
+      stock: stockVal===''?null:Number(stockVal),
       photo_url
     })
     if(error){ mostrarAlerta('Error: '+error.message); return }
@@ -3249,6 +3318,15 @@ async function admin(){
     delete productoDetalleCache[id]
     adminData = null
     mostrarAlerta(`Precio actualizado: $${producto.price.toLocaleString('es-AR')} → $${nuevoPrecio.toLocaleString('es-AR')}`)
+    render()
+  })
+  document.querySelectorAll('[data-guardar-stock]').forEach(b=>b.onclick=async()=>{
+    const id = b.dataset.guardarStock
+    const valor = document.querySelector(`#stock_valor_${id}`).value.trim()
+    const { error } = await supabase.from('catalog_products').update({ stock: valor===''?null:Number(valor) }).eq('id', id)
+    if(error){ mostrarAlerta('Error: '+error.message); return }
+    adminData = null
+    mostrarAlerta('Stock actualizado ✅')
     render()
   })
   document.querySelectorAll('[data-toggle-activo]').forEach(b=>b.onclick=async()=>{
