@@ -2541,6 +2541,11 @@ let pedidoProveedorItems = null // items estructurados del último pedido genera
 let pedidoProveedorEditandoId = null // si no es null, "Generar pedido" edita este pedido en vez de crear uno nuevo
 let pedidoProveedorRecibiendoId = null // id del pedido que se está checkeando al recibir
 let pedidoProveedorRecibido = {} // item_id -> { checked, received_qty }
+let pedidoProveedorRecienRecibido = null // { id, total_a_pagar } — para ofrecer pagar justo después de recibir
+let pagoProveedorSeleccionado = null // supplier_id elegido en "Pagar pedido"
+let pagoPedidoSeleccionado = null // order_id elegido para pagar
+let pagoTipo = 'total' // 'total' | 'parcial'
+let pagoMontoParcial = ''
 let historialVehiculoActual = null
 
 async function verHistorialVehiculo(v){
@@ -2946,7 +2951,7 @@ async function fetchAdminData(){
     entriesRes, dashRes, vehiculosRes, alertasRes, driverLedgerRes,
     rankingRes, reviewsRes,
     suppliersRes, catalogRes, recordatoriosRes, rendicionVendedoresRes, sugerenciasRes, rankingSugerenciasRes,
-    pedidosProveedorRes
+    pedidosProveedorRes, rankingProveedoresRes
   ] = await Promise.all([
     q('orders','id,status,delivery_date,egg_quantity,important_note,time_restriction_manual'),
     q('customers','id'),
@@ -2976,7 +2981,8 @@ async function fetchAdminData(){
     supabase.rpc('admin_rendicion_vendedores', {}),
     supabase.rpc('admin_product_suggestions', {}),
     supabase.rpc('admin_suggestions_ranking', {}),
-    supabase.rpc('admin_pedidos_proveedores', {})
+    supabase.rpc('admin_pedidos_proveedores', {}),
+    supabase.rpc('admin_ranking_proveedores', {})
   ])
 
   const movimientos = movimientosRes.data || []
@@ -3008,8 +3014,9 @@ async function fetchAdminData(){
   const sugerencias = sugerenciasRes.data || []
   const rankingSugerencias = rankingSugerenciasRes.data || []
   const pedidosProveedor = pedidosProveedorRes.data || []
+  const rankingProveedores = rankingProveedoresRes.data || []
 
-  return { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews,suppliers,catalogo,recordatorios,rendicionVendedores,sugerencias,rankingSugerencias,pedidosProveedor }
+  return { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews,suppliers,catalogo,recordatorios,rendicionVendedores,sugerencias,rankingSugerencias,pedidosProveedor,rankingProveedores }
 }
 
 async function admin(){
@@ -3017,7 +3024,7 @@ async function admin(){
     layout(`<h2>Panel de administración</h2><div class="card">${skeletonBloque(5)}</div>`)
     adminData = await fetchAdminData()
   }
-  const { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews,suppliers,catalogo,recordatorios,rendicionVendedores,sugerencias,rankingSugerencias,pedidosProveedor } = adminData
+  const { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews,suppliers,catalogo,recordatorios,rendicionVendedores,sugerencias,rankingSugerencias,pedidosProveedor,rankingProveedores } = adminData
   const capacidadBase = settingsMap.default_daily_capacity_maples || '300'
   const assignmentMode = settingsMap.assignment_mode || 'zone'
   const staffMap = Object.fromEntries(staff.map(s=>[s.user_id, s.full_name||'(sin nombre)']))
@@ -3633,9 +3640,28 @@ async function admin(){
     }).join('') : '<p class="muted">Todavía no cargaste productos.</p>'}
   </div></div>
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
-  ${accHead('pedidos_proveedor','📋','Pedidos a proveedores', pedidosProveedor.filter(o=>o.status==='generado').length?String(pedidosProveedor.filter(o=>o.status==='generado').length):null)}
+  ${accHead('pedidos_proveedor','📋','Pedidos y cuenta con proveedores', pedidosProveedor.filter(o=>o.status==='generado').length?String(pedidosProveedor.filter(o=>o.status==='generado').length):null)}
     ${(()=>{
       const pedidoRecibiendo = pedidoProveedorRecibiendoId ? pedidosProveedor.find(o=>o.id===pedidoProveedorRecibiendoId) : null
+
+      if(pedidoProveedorRecienRecibido){
+        const r = pedidoProveedorRecienRecibido
+        return `<div style="text-align:center;padding:6px 0 10px">
+          <div style="font-size:28px">✅</div>
+          <h3 style="font-size:14px;color:#2F4D2A;margin:4px 0 2px">Recepción registrada</h3>
+          <p class="muted" style="font-size:12.5px">Pedido N° ${r.order_number} · A pagar: $${Number(r.total_a_pagar).toLocaleString('es-AR')}</p>
+        </div>
+        <p class="muted" style="font-size:12.5px;text-align:center;margin-bottom:8px">¿Lo pagás ahora?</p>
+        <button id="btn_pagar_ahora_total" style="width:100%;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:10px 0;font-size:13px;font-weight:600">💰 Pagar todo ahora ($${Number(r.total_a_pagar).toLocaleString('es-AR')})</button>
+        <button id="btn_pagar_ahora_parcial" style="width:100%;margin-top:8px;background:#FFFFFF;color:#2F4D2A;border:1px solid #E3DCC8;border-radius:10px;padding:10px 0;font-size:13px;font-weight:600">🔸 Pagar una parte</button>
+        <div id="pagar_ahora_parcial_box" style="display:none;margin-top:8px">
+          <div class="field"><label>¿Cuánto pagás ahora?</label><input id="pagar_ahora_monto" type="number" min="0" max="${r.total_a_pagar}" placeholder="Ej: ${Math.round(r.total_a_pagar/2)}"/></div>
+          <button id="btn_confirmar_pago_parcial_ahora" style="width:100%;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:10px 0;font-size:13px;font-weight:600">Guardar pago</button>
+        </div>
+        <button id="btn_pagar_ahora_no" style="width:100%;margin-top:10px;background:none;border:none;color:#8A8570;font-size:12.5px">Ahora no, lo pago después</button>
+        `
+      }
+
       if(pedidoRecibiendo){
         const items = pedidoRecibiendo.items || []
         let totalPedido = 0, totalRecibido = 0
@@ -3647,12 +3673,12 @@ async function admin(){
         const diferencia = totalPedido - totalRecibido
         return `<button id="btn_volver_lista_pedidos" style="background:none;border:none;color:#2F4D2A;font-size:12.5px;font-weight:600;margin-bottom:10px;padding:0">← Volver a la lista</button>
         <h3 style="font-size:14px;color:#2F4D2A">Recepción — Pedido N° ${pedidoRecibiendo.order_number} (${pedidoRecibiendo.supplier_name||''})</h3>
-        <p class="muted" style="font-size:12px">Tildá lo que llegó completo. Si algo faltó o vino de menos, destildá y ajustá la cantidad real.</p>
+        <p class="muted" style="font-size:12px">Tildá lo que vas revisando y corroborando. Si algo faltó o vino de menos, ajustá la cantidad real.</p>
         ${items.map(it=>{
           const r = pedidoProveedorRecibido[it.id] || { checked:false, received_qty: it.qty }
           return `<div class="row" style="align-items:flex-start;flex-direction:column;gap:6px">
             <div style="display:flex;justify-content:space-between;width:100%;align-items:center">
-              <label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" data-recep-check="${it.id}" ${r.checked?'checked':''}/> ${it.name} <small class="muted">(pedidos: ${it.qty} ${it.unitLabel||it.unitType})</small></label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" data-recep-check="${it.id}" ${r.checked?'checked':''}/> ${it.name} <small class="muted">(pedidos: ${it.qty} ${it.unitLabel||it.unitType} · $${Number(it.price).toLocaleString('es-AR')} c/u)</small></label>
               <b style="font-size:12.5px">$${(Number(it.price)*Number(r.received_qty)).toLocaleString('es-AR')}</b>
             </div>
             ${!r.checked?`<div style="display:flex;align-items:center;gap:8px;padding-left:24px"><span class="muted" style="font-size:12px">Cantidad realmente recibida:</span><input type="number" min="0" data-recep-qty="${it.id}" value="${r.received_qty}" style="width:60px"/></div>`:''}
@@ -3672,8 +3698,9 @@ async function admin(){
         `}
         `
       }
+
       return `
-    <p class="muted">Armá tu pedido de compra a una empresa y mandalo por WhatsApp, o guardalo como PDF para el mail.</p>
+    <p class="muted">Armá tu pedido de compra a una empresa, revisá lo que te llega, y llevá la cuenta de lo que le pagaste a cada una.</p>
     <details style="margin-bottom:14px;border:1px solid #E3DCC8;border-radius:10px;padding:0">
       <summary style="cursor:pointer;padding:10px 12px;font-size:12.5px;font-weight:700;color:#2F4D2A">🏢 Datos de mi empresa (aparecen en el PDF del pedido)</summary>
       <div style="padding:0 12px 12px">
@@ -3687,13 +3714,59 @@ async function admin(){
         <button id="btn_guardar_datos_empresa" style="width:100%;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:9px 0;font-size:12.5px;font-weight:600">Guardar datos de mi empresa</button>
       </div>
     </details>
+    ${rankingProveedores.length?`<details style="margin-bottom:14px"><summary style="cursor:pointer;font-size:13px;font-weight:700;color:#2F4D2A">🏆 Ranking — a quién le compro más</summary>
+      ${rankingProveedores.map((r,i)=>`<div class="row"><span>${i+1}. ${r.supplier_name}<br><small class="muted">${r.cantidad_pedidos} pedido(s)</small></span><b>$${Number(r.total_pagado).toLocaleString('es-AR')}</b></div>`).join('')}
+    </details>`:''}
+    ${pedidosProveedor.length?`<details style="margin-bottom:14px">
+      <summary style="cursor:pointer;font-size:13px;font-weight:700;color:#2F4D2A">📜 Historial completo de pedidos</summary>
+      ${pedidosProveedor.map(o=>{
+        const saldo = Number(o.total_a_pagar) - Number(o.total_pagado)
+        let estadoPago
+        if(o.status!=='recibido') estadoPago = `<span class="badge" style="background:#8A8570">🕓 Sin recibir</span>`
+        else if(saldo<=0) estadoPago = `<span class="badge">✅ Pagado</span>`
+        else if(Number(o.total_pagado)>0) estadoPago = `<span class="badge" style="background:#B85C00">🟡 Parcial: $${Number(o.total_pagado).toLocaleString('es-AR')} de $${Number(o.total_a_pagar).toLocaleString('es-AR')}</span>`
+        else estadoPago = `<span class="badge" style="background:#B03A2E">🔴 Sin pagar</span>`
+        return `<div class="row" style="flex-direction:column;align-items:stretch;gap:4px">
+          <div style="display:flex;justify-content:space-between"><span><b>N° ${o.order_number}</b> · ${o.supplier_name||''}</span><b>$${Number(o.total_a_pagar).toLocaleString('es-AR')}</b></div>
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <small class="muted">Pedido: ${new Date(o.created_at).toLocaleDateString('es-AR')}${o.received_at?` · Recibido: ${new Date(o.received_at).toLocaleDateString('es-AR')}`:''}</small>
+            ${estadoPago}
+          </div>
+        </div>`
+      }).join('')}
+    </details>`:''}
     ${pedidosProveedor.filter(o=>o.status==='generado').length?`<div style="margin-bottom:14px">
       <h4 style="font-size:13px;color:#2F4D2A;margin-bottom:6px">📥 Pendientes de recibir</h4>
-      ${pedidosProveedor.filter(o=>o.status==='generado').map(o=>`<div class="row"><span>N° ${o.order_number} · ${o.supplier_name||''}<br><small class="muted">${(o.items||[]).length} producto(s) · $${(o.items||[]).reduce((s,it)=>s+Number(it.price)*Number(it.qty),0).toLocaleString('es-AR')}</small></span><span style="display:flex;gap:6px"><button data-editar-pedido="${o.id}" class="btn ghost" style="padding:6px 10px;font-size:11px">✏️ Editar</button><button data-recibir-pedido="${o.id}" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:6px 10px;font-size:11px;font-weight:600">✅ Recibir</button></span></div>`).join('')}
+      ${pedidosProveedor.filter(o=>o.status==='generado').map(o=>`<div class="row"><span>N° ${o.order_number} · ${o.supplier_name||''}<br><small class="muted">${(o.items||[]).length} producto(s) · $${Number(o.total_pedido).toLocaleString('es-AR')}</small></span><span style="display:flex;gap:6px"><button data-editar-pedido="${o.id}" class="btn ghost" style="padding:6px 10px;font-size:11px">✏️ Editar</button><button data-recibir-pedido="${o.id}" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:6px 10px;font-size:11px;font-weight:600">✅ Recibir</button></span></div>`).join('')}
     </div>`:''}
-    ${pedidosProveedor.filter(o=>o.status==='recibido').length?`<details style="margin-bottom:14px"><summary style="cursor:pointer;font-size:13px;font-weight:700;color:#2F4D2A">✅ Recibidos recientemente</summary>
-      ${pedidosProveedor.filter(o=>o.status==='recibido').slice(0,8).map(o=>`<div class="row"><span>N° ${o.order_number} · ${o.supplier_name||''}<br><small class="muted">${o.received_at?new Date(o.received_at).toLocaleDateString('es-AR'):''}</small></span><span>${o.resolution_type==='nota_credito'?`<span class="badge" style="background:#B85C00">🧾 Crédito $${Number(o.resolution_amount).toLocaleString('es-AR')}</span>`:o.resolution_type==='descuento'?`<span class="badge" style="background:#8A8570">💸 Descontado $${Number(o.resolution_amount).toLocaleString('es-AR')}</span>`:`<span class="badge">✅ Completo</span>`}</span></div>`).join('')}
-    </details>`:''}
+    <details style="margin-bottom:14px;border:1px solid #E3DCC8;border-radius:10px;padding:0">
+      <summary style="cursor:pointer;padding:10px 12px;font-size:12.5px;font-weight:700;color:#2F4D2A">💰 Pagar un pedido</summary>
+      <div style="padding:0 12px 12px">
+        <div class="field"><label>Empresa</label><select id="sel_pago_proveedor">
+          <option value="">Elegí una empresa</option>
+          ${suppliers.map(s=>`<option value="${s.id}" ${pagoProveedorSeleccionado===s.id?'selected':''}>${s.name}</option>`).join('')}
+        </select></div>
+        ${pagoProveedorSeleccionado ? (()=>{
+          const pendientes = pedidosProveedor.filter(o=>o.supplier_id===pagoProveedorSeleccionado && o.status==='recibido' && (Number(o.total_a_pagar)-Number(o.total_pagado))>0.5)
+          if(!pendientes.length) return '<p class="muted" style="font-size:12.5px">Esta empresa no tiene pedidos recibidos con saldo pendiente.</p>'
+          return `<div class="field"><label>Pedido</label><select id="sel_pago_pedido">
+            <option value="">Elegí un pedido</option>
+            ${pendientes.map(o=>`<option value="${o.id}" ${pagoPedidoSeleccionado===o.id?'selected':''}>N° ${o.order_number} — saldo $${(Number(o.total_a_pagar)-Number(o.total_pagado)).toLocaleString('es-AR')}</option>`).join('')}
+          </select></div>
+          ${pagoPedidoSeleccionado ? (()=>{
+            const orden = pendientes.find(o=>o.id===pagoPedidoSeleccionado)
+            const saldo = orden ? Number(orden.total_a_pagar)-Number(orden.total_pagado) : 0
+            if(!orden) return ''
+            return `<div class="grid two" style="margin-top:8px">
+              <button type="button" id="btn_pago_tipo_total" class="btn ${pagoTipo==='total'?'primary':'ghost'}">Total ($${saldo.toLocaleString('es-AR')})</button>
+              <button type="button" id="btn_pago_tipo_parcial" class="btn ${pagoTipo==='parcial'?'primary':'ghost'}">Parcial</button>
+            </div>
+            ${pagoTipo==='parcial'?`<div class="field" style="margin-top:8px"><label>Monto a pagar</label><input id="input_pago_parcial" type="number" min="0" max="${saldo}" value="${pagoMontoParcial}"/></div>`:''}
+            <button id="btn_guardar_pago_proveedor" style="width:100%;margin-top:10px;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:10px 0;font-size:13px;font-weight:600">💾 Guardar pago</button>`
+          })() : ''}`
+        })() : ''}
+      </div>
+    </details>
     <div class="field"><label>¿A qué empresa le querés pedir?</label>
       <select id="sel_proveedor_pedido">
         <option value="">Elegí una empresa</option>
@@ -3704,11 +3777,14 @@ async function admin(){
       const prov = suppliers.find(s=>s.id===proveedorPedidoSeleccionado)
       const productosProv = catalogo.filter(p=>p.supplier_id===proveedorPedidoSeleccionado)
       if(!productosProv.length) return '<p class="muted">Esta empresa todavía no tiene productos cargados en el catálogo.</p>'
+      let totalArmando = 0
+      productosProv.forEach(p=>{ const c = pedidoProveedorCantidades[p.id]; if(c) totalArmando += Number(p.price)*Number(c.qty||0) })
       return `
       ${pedidoProveedorEditandoId?`<div class="alert info" style="margin-bottom:10px">✏️ Estás editando el pedido N° ${pedidoProveedorNumero}</div>`:''}
       ${productosProv.map(p=>{
         const c = pedidoProveedorCantidades[p.id] || { qty:0, unitType:'unidad' }
-        return `<div class="row"><span>${p.name}<br><small class="muted">$${Number(p.price).toLocaleString('es-AR')} · ${p.unit_label||'unidad'}${p.units_per_bulto>1?` (bulto = ${p.units_per_bulto})`:''}</small></span>
+        const subtotal = Number(p.price)*Number(c.qty||0)
+        return `<div class="row"><span>${p.name}<br><small class="muted">$${Number(p.price).toLocaleString('es-AR')} · ${p.unit_label||'unidad'}${p.units_per_bulto>1?` (bulto = ${p.units_per_bulto})`:''}</small>${subtotal>0?`<br><small style="color:#2F4D2A;font-weight:600">Subtotal: $${subtotal.toLocaleString('es-AR')}</small>`:''}</span>
           <span style="display:flex;gap:4px;align-items:center">
             <input data-cant-pedido="${p.id}" type="number" min="0" value="${c.qty}" style="width:50px"/>
             <select data-unidad-pedido="${p.id}" style="width:80px">
@@ -3718,6 +3794,7 @@ async function admin(){
             </select>
           </span></div>`
       }).join('')}
+      <div style="margin-top:10px;background:#F5EFE0;border-radius:10px;padding:10px 12px;text-align:center;font-weight:700;color:#2F4D2A">Total del pedido: $${totalArmando.toLocaleString('es-AR')}</div>
       <div class="field" style="margin-top:14px"><label>¿Entrega o retiro?</label>
         <div class="grid two">
           <button type="button" id="btn_tipo_entrega" class="btn ${pedidoProveedorTipoEntrega==='entrega'?'primary':'ghost'}">Que me entreguen</button>
@@ -4532,8 +4609,8 @@ async function admin(){
     })
     const { data, error } = await supabase.rpc('admin_recibir_pedido_proveedor', { p_order_id: orden.id, p_received_items: receivedItems, p_resolution_type: resolutionType })
     if(error || !data?.ok){ mostrarAlerta(data?.error || error?.message || 'No se pudo registrar la recepción.'); return }
-    mostrarAlerta(`✅ Recepción registrada. Se cargó un gasto de $${Number(data.monto_pagado).toLocaleString('es-AR')}.`)
     pedidoProveedorRecibiendoId = null; pedidoProveedorRecibido = {}
+    pedidoProveedorRecienRecibido = { id: orden.id, order_number: orden.order_number, total_a_pagar: data.total_a_pagar }
     adminData = null
     render()
   }
@@ -4543,6 +4620,61 @@ async function admin(){
   if(btnRecepNotaCredito) btnRecepNotaCredito.onclick = ()=>confirmarRecepcion('nota_credito')
   const btnRecepDescuento = document.querySelector('#btn_recep_descuento')
   if(btnRecepDescuento) btnRecepDescuento.onclick = ()=>confirmarRecepcion('descuento')
+  const btnPagarAhoraTotal = document.querySelector('#btn_pagar_ahora_total')
+  if(btnPagarAhoraTotal) btnPagarAhoraTotal.onclick = async ()=>{
+    const r = pedidoProveedorRecienRecibido
+    const { data, error } = await supabase.rpc('admin_pagar_pedido_proveedor', { p_order_id: r.id, p_amount: r.total_a_pagar })
+    if(error || !data?.ok){ mostrarAlerta(data?.error || error?.message || 'No se pudo registrar el pago.'); return }
+    mostrarAlerta('✅ Pago registrado')
+    pedidoProveedorRecienRecibido = null
+    adminData = null
+    render()
+  }
+  const btnPagarAhoraParcial = document.querySelector('#btn_pagar_ahora_parcial')
+  if(btnPagarAhoraParcial) btnPagarAhoraParcial.onclick = ()=>{
+    document.querySelector('#pagar_ahora_parcial_box').style.display = 'block'
+    btnPagarAhoraParcial.style.display = 'none'
+  }
+  const btnConfirmarPagoParcialAhora = document.querySelector('#btn_confirmar_pago_parcial_ahora')
+  if(btnConfirmarPagoParcialAhora) btnConfirmarPagoParcialAhora.onclick = async ()=>{
+    const r = pedidoProveedorRecienRecibido
+    const monto = Number(document.querySelector('#pagar_ahora_monto').value)
+    if(!monto || monto<=0){ mostrarAlerta('Ingresá un monto válido.'); return }
+    const { data, error } = await supabase.rpc('admin_pagar_pedido_proveedor', { p_order_id: r.id, p_amount: monto })
+    if(error || !data?.ok){ mostrarAlerta(data?.error || error?.message || 'No se pudo registrar el pago.'); return }
+    mostrarAlerta('✅ Pago parcial registrado')
+    pedidoProveedorRecienRecibido = null
+    adminData = null
+    render()
+  }
+  const btnPagarAhoraNo = document.querySelector('#btn_pagar_ahora_no')
+  if(btnPagarAhoraNo) btnPagarAhoraNo.onclick = ()=>{ pedidoProveedorRecienRecibido = null; render() }
+  const selPagoProveedor = document.querySelector('#sel_pago_proveedor')
+  if(selPagoProveedor) selPagoProveedor.onchange = (e)=>{ pagoProveedorSeleccionado = e.target.value || null; pagoPedidoSeleccionado = null; pagoTipo='total'; pagoMontoParcial=''; render() }
+  const selPagoPedido = document.querySelector('#sel_pago_pedido')
+  if(selPagoPedido) selPagoPedido.onchange = (e)=>{ pagoPedidoSeleccionado = e.target.value || null; pagoTipo='total'; pagoMontoParcial=''; render() }
+  const btnPagoTipoTotal = document.querySelector('#btn_pago_tipo_total')
+  if(btnPagoTipoTotal) btnPagoTipoTotal.onclick = ()=>{ pagoTipo='total'; render() }
+  const btnPagoTipoParcial = document.querySelector('#btn_pago_tipo_parcial')
+  if(btnPagoTipoParcial) btnPagoTipoParcial.onclick = ()=>{ pagoTipo='parcial'; render() }
+  const btnGuardarPagoProveedor = document.querySelector('#btn_guardar_pago_proveedor')
+  if(btnGuardarPagoProveedor) btnGuardarPagoProveedor.onclick = async ()=>{
+    const orden = pedidosProveedor.find(o=>o.id===pagoPedidoSeleccionado)
+    if(!orden) return
+    const saldo = Number(orden.total_a_pagar) - Number(orden.total_pagado)
+    let monto = saldo
+    if(pagoTipo==='parcial'){
+      monto = Number(document.querySelector('#input_pago_parcial').value)
+      if(!monto || monto<=0){ mostrarAlerta('Ingresá un monto válido.'); return }
+      if(monto>saldo){ mostrarAlerta('Ese monto es mayor al saldo pendiente ($'+saldo.toLocaleString('es-AR')+').'); return }
+    }
+    const { data, error } = await supabase.rpc('admin_pagar_pedido_proveedor', { p_order_id: orden.id, p_amount: monto })
+    if(error || !data?.ok){ mostrarAlerta(data?.error || error?.message || 'No se pudo registrar el pago.'); return }
+    mostrarAlerta('✅ Pago de $'+monto.toLocaleString('es-AR')+' registrado')
+    pagoProveedorSeleccionado = null; pagoPedidoSeleccionado = null; pagoTipo='total'; pagoMontoParcial=''
+    adminData = null
+    render()
+  }
   const btnEnviarWhatsappProveedor = document.querySelector('#btn_enviar_whatsapp_proveedor')
   if(btnEnviarWhatsappProveedor) btnEnviarWhatsappProveedor.onclick = ()=>{
     const prov = suppliers.find(s=>s.id===proveedorPedidoSeleccionado)
