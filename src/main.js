@@ -51,7 +51,7 @@ async function geocodificarDireccion(direccion){
 }
 
 function layout(content){
-  const esMayorista = current==='mayorista-login' || current==='mayorista-panel'
+  const esMayorista = current==='mayorista-login' || current==='mayorista-panel' || current==='mayorista-landing' || current==='mayorista-signup'
   const nav = esMayorista ? [] : session ? (current==='staff-profile-setup' ? [['logout','Salir']] : [...navStaffFor(myRole),['logout','Salir']]) : [['inicio','Inicio'],['cuenta','Mi cuenta']]
   app.innerHTML = `<div class="shell"><div class="top"><div class="brand" style="display:flex;align-items:center;gap:8px">NÓMADES <span class="muted" style="font-size:12px">${esMayorista?'Portal mayoristas':'Huevos de libre pastoreo'}</span></div><div class="nav">${nav.map(([k,l])=>`<button class="btn ${current===k?'primary':'ghost'}" data-nav="${k}">${l}</button>`).join('')}</div></div>${content}${(!session && !esMayorista)?`<div style="text-align:center;margin-top:24px"><a href="#" id="staff_link" class="muted" style="font-size:12px">Acceso del equipo</a></div>`:''}</div>`
   document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=async ()=>{
@@ -1570,13 +1570,110 @@ async function miVehiculo(){
   }
 }
 
+async function mayoristaLanding(){
+  layout(`<h2>🏭 Vendemos a mayoristas</h2><div class="card">${skeletonBloque(4)}</div>`)
+  const [{ data: planesRaw }, { data: catalogoRaw }] = await Promise.all([
+    supabase.from('plan_prices').select('egg_quantity,price').eq('active', true).eq('customer_type','mayorista').order('egg_quantity'),
+    supabase.rpc('mayorista_catalogo', {})
+  ])
+  const planes = planesRaw || []
+  const catalogo = catalogoRaw || []
+  layout(`<h2>🏭 Vendemos a mayoristas</h2>
+  <div class="card"><p class="muted">Huevos de libre pastoreo directo de la granja, en volumen y con precio mayorista. Así queda armado tu pedido:</p></div>
+  <div class="card"><h3>🥚 Huevo</h3>
+    ${planes.length? planes.map(p=>`<div class="row"><span>${p.egg_quantity} huevos</span><b>$${Number(p.price).toLocaleString('es-AR')}</b></div>`).join('') : '<p class="muted">Consultanos por volumen y precio.</p>'}
+  </div>
+  ${catalogo.length?`<div class="card"><h3>🛒 Otros productos</h3>
+    ${catalogo.map(p=>`<div class="row"><span>${p.name}<br><small class="muted">${p.unit_label||'unidad'}</small></span><b>$${Number(p.price).toLocaleString('es-AR')}</b></div>`).join('')}
+  </div>`:''}
+  <button class="btn primary" id="btn_quiero_ser_mayorista" style="width:100%;margin-top:6px">➕ Quiero ser cliente mayorista</button>
+  <button class="btn ghost" id="btn_ya_soy_mayorista" style="width:100%;margin-top:8px">Ya soy cliente — Ingresar con DNI</button>`)
+  document.querySelector('#btn_quiero_ser_mayorista').onclick = ()=>{ current='mayorista-signup'; render() }
+  document.querySelector('#btn_ya_soy_mayorista').onclick = ()=>{ current='mayorista-login'; render() }
+}
+
+const mayoristaAlta = { first_name:'', last_name:'', dni:'', phone:'', email:'', street:'', street_number:'', neighborhood:'', city:'Rosario', province:'Santa Fe', zone:'', carrito:{}, frequency:'weekly', payment_method:'transfer' }
+async function mayoristaSignupForm(){
+  const c = mayoristaAlta
+  const { data: planesRaw } = await supabase.from('plan_prices').select('egg_quantity,price').eq('active', true).eq('customer_type','mayorista').order('egg_quantity')
+  const planes = planesRaw || []
+  const totalCant = ()=>Object.entries(c.carrito).reduce((s,[q,n])=>s+Number(q)*n,0)
+  const totalPrecio = ()=>Object.entries(c.carrito).reduce((s,[q,n])=>{ const pl=planes.find(p=>String(p.egg_quantity)===q); return s+(pl?Number(pl.price):0)*n }, 0)
+  let enviando = false
+  const dibujar = ()=>{
+    layout(`<h2>🏭 Alta de cuenta mayorista</h2>
+    <div class="card">
+      <div class="grid two">
+        <div class="field"><label>Nombre / razón social *</label><input id="ma_first_name" value="${c.first_name}"/></div>
+        <div class="field"><label>Apellido *</label><input id="ma_last_name" value="${c.last_name}"/></div>
+        <div class="field"><label>DNI/CUIT *</label><input id="ma_dni" inputmode="numeric" value="${c.dni}" placeholder="Sin puntos"/></div>
+        <div class="field"><label>Teléfono *</label><input id="ma_phone" inputmode="tel" value="${c.phone}"/></div>
+      </div>
+      <div class="field"><label>Email</label><input id="ma_email" type="email" value="${c.email}"/></div>
+      <div class="grid two">
+        <div class="field"><label>Calle</label><input id="ma_street" value="${c.street}"/></div>
+        <div class="field"><label>Número</label><input id="ma_street_number" value="${c.street_number}"/></div>
+      </div>
+      <div class="field"><label>Barrio / referencia</label><input id="ma_neighborhood" value="${c.neighborhood}"/></div>
+      <div class="grid two">
+        <div class="field"><label>Ciudad</label><input id="ma_city" value="${c.city}"/></div>
+        <div class="field"><label>Provincia</label><input id="ma_province" value="${c.province}"/></div>
+      </div>
+    </div>
+    <div class="card"><h3>Tu pedido de huevos</h3>
+      ${planes.length? planes.map(pl=>`<div class="row"><span>${pl.egg_quantity} huevos <small class="muted">$${Number(pl.price).toLocaleString('es-AR')}</small></span><span style="display:flex;align-items:center;gap:8px"><button type="button" data-ma-menos="${pl.egg_quantity}" class="btn ghost" style="padding:6px 14px">−</button><b>${c.carrito[pl.egg_quantity]||0}</b><button type="button" data-ma-mas="${pl.egg_quantity}" class="btn ghost" style="padding:6px 14px">+</button></span></div>`).join('') : '<p class="muted">Todavía no hay tamaños mayoristas cargados.</p>'}
+      <div class="alert info" style="margin-top:8px"><b>Total: ${totalCant()} huevos</b> · $${totalPrecio().toLocaleString('es-AR')}</div>
+      <div class="field" style="margin-top:10px"><label>Frecuencia</label><div class="grid three">${Object.entries(FRECUENCIAS).map(([v,l])=>`<button type="button" data-ma-frecuencia="${v}" class="btn ${c.frequency===v?'primary':'ghost'}">${l}</button>`).join('')}</div></div>
+      <div class="field"><label>Forma de pago</label><div class="grid three">
+        <button type="button" data-ma-metodo="transfer" class="btn ${c.payment_method==='transfer'?'primary':'ghost'}">Transferencia</button>
+        <button type="button" data-ma-metodo="mp" class="btn ${c.payment_method==='mp'?'primary':'ghost'}">Mercado Pago</button>
+        <button type="button" data-ma-metodo="cash" class="btn ${c.payment_method==='cash'?'primary':'ghost'}">Efectivo</button>
+      </div></div>
+    </div>
+    <div id="err_alta_mayorista" class="alert danger" style="display:none"></div>
+    <button class="btn primary" id="btn_confirmar_alta_mayorista" style="width:100%" ${enviando?'disabled':''}>${enviando?'Enviando…':'Confirmar y crear mi cuenta'}</button>
+    <button class="btn ghost" id="btn_volver_landing" style="width:100%;margin-top:8px">← Volver</button>`)
+    const ids = ['first_name','last_name','dni','phone','email','street','street_number','neighborhood','city','province']
+    ids.forEach(id=>{ const el=document.querySelector('#ma_'+id); if(el) el.oninput=()=>c[id]=el.value })
+    document.querySelectorAll('[data-ma-mas]').forEach(b=>b.onclick=()=>{ c.carrito[b.dataset.maMas]=(c.carrito[b.dataset.maMas]||0)+1; dibujar() })
+    document.querySelectorAll('[data-ma-menos]').forEach(b=>b.onclick=()=>{ if(c.carrito[b.dataset.maMenos]>0) c.carrito[b.dataset.maMenos]--; dibujar() })
+    document.querySelectorAll('[data-ma-frecuencia]').forEach(b=>b.onclick=()=>{ c.frequency=b.dataset.maFrecuencia; dibujar() })
+    document.querySelectorAll('[data-ma-metodo]').forEach(b=>b.onclick=()=>{ c.payment_method=b.dataset.maMetodo; dibujar() })
+    document.querySelector('#btn_volver_landing').onclick = ()=>{ current='mayorista-landing'; render() }
+    document.querySelector('#btn_confirmar_alta_mayorista').onclick = async ()=>{
+      const box = document.querySelector('#err_alta_mayorista')
+      if(!c.first_name.trim() || !c.last_name.trim()){ box.textContent='Falta el nombre.'; box.style.display='block'; return }
+      if(!/^\d{7,8}$/.test(c.dni.trim())){ box.textContent='El DNI/CUIT debe tener 7 u 8 números, sin puntos ni guiones.'; box.style.display='block'; return }
+      if(!c.phone.trim()){ box.textContent='Falta el teléfono.'; box.style.display='block'; return }
+      if(totalCant()<=0){ box.textContent='Elegí al menos un tamaño de maple.'; box.style.display='block'; return }
+      box.style.display='none'
+      enviando = true; dibujar()
+      const breakdown = Object.entries(c.carrito).filter(([,q])=>q>0).map(([size,qty])=>({size:Number(size),qty}))
+      const { data, error } = await supabase.rpc('mayorista_signup', {
+        p_customer: { first_name:c.first_name.trim(), last_name:c.last_name.trim(), dni:c.dni.trim(), phone:c.phone.trim(), email:c.email.trim(), street:c.street.trim(), street_number:c.street_number.trim(), neighborhood:c.neighborhood.trim(), city:c.city.trim()||'Rosario', province:c.province.trim()||'Santa Fe', zone:c.zone },
+        p_subscription: { frequency:c.frequency, egg_quantity: totalCant(), payment_method:c.payment_method, plan_breakdown: breakdown, price: totalPrecio() }
+      })
+      enviando = false
+      if(error || !data?.ok){ box.textContent = data?.error || 'No pudimos crear tu cuenta. Probá de nuevo.'; box.style.display='block'; dibujar(); return }
+      const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni.trim() })
+      if(fresh?.found) cuenta = fresh
+      mostrarAlerta(data.status==='active' ? '✅ Cuenta creada. Próxima entrega: '+data.next_delivery_date : '🕒 Cuenta creada — quedaste en lista de espera para ese volumen, te contactamos apenas se libere lugar.')
+      current = 'mayorista-panel'
+      render()
+    }
+  }
+  dibujar()
+}
+
 function mayoristaLogin(){
   layout(`<h2>🏭 Acceso mayoristas</h2><div class="card">
     <p class="muted">Ingresá con el DNI de tu cuenta mayorista NÓMADES.</p>
     <div class="field"><label>DNI</label><input id="dni_mayorista" inputmode="numeric" placeholder="Sin puntos"/></div>
     <div id="err_mayorista_login" class="alert danger" style="display:none"></div>
     <button class="btn primary" id="btn_dni_mayorista" style="width:100%">Entrar</button>
+    <button class="btn ghost" id="btn_volver_landing_login" style="width:100%;margin-top:8px">← Volver</button>
   </div>`)
+  document.querySelector('#btn_volver_landing_login').onclick = ()=>{ current='mayorista-landing'; render() }
   document.querySelector('#btn_dni_mayorista').onclick = async ()=>{
     const dni = document.querySelector('#dni_mayorista').value.trim()
     const box = document.querySelector('#err_mayorista_login')
@@ -1591,6 +1688,7 @@ function mayoristaLogin(){
 }
 
 let mayoristaCarrito = {}
+let mayoristaCarritoProductosNuevo = {}
 async function mayoristaPanel(){
   panelVolver = mayoristaPanel
   if(!cuenta){ current='mayorista-login'; render(); return }
@@ -1632,7 +1730,20 @@ async function mayoristaPanel(){
       ${subActiva && subActiva.status==='paused'?`<button class="btn primary" data-reanudar="${subActiva.id}" style="width:100%;margin-top:8px">▶️ Reanudar</button>`:''}
     </div>
     ${productosMayoristas.length?`<div class="card"><h3>🛒 Otros productos (precio mayorista)</h3>
-      ${productosMayoristas.map(p=>`<div class="row"><span>${p.name}<br><small class="muted">$${Number(p.price).toLocaleString('es-AR')} · ${p.unit_label||'unidad'}</small></span><button data-may-producto="${p.id}" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:8px 14px;font-size:12px;font-weight:600">Sumar</button></div>`).join('')}
+      ${productosMayoristas.map(p=>{
+        const sinStock = p.stock!==null && p.stock<=0
+        const yaElegido = (cuenta.mis_intereses||[]).find(mi=>mi.product_id===p.id)
+        const enCarritoNuevo = mayoristaCarritoProductosNuevo[p.id]||0
+        return `<div class="row" style="flex-direction:column;align-items:stretch">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span>${p.name}<br><small class="muted">$${Number(p.price).toLocaleString('es-AR')} · ${p.unit_label||'unidad'}</small>${p.stock!==null && !sinStock?`<br><small class="muted">Quedan ${p.stock} unidades</small>`:''}${sinStock?`<br><small style="color:#B03A2E">Sin stock por ahora</small>`:''}</span>
+            ${yaElegido?`<span style="display:flex;align-items:center;gap:8px"><button data-ma-ajustar="${yaElegido.id}" data-nueva="${yaElegido.quantity-1}" class="btn ghost" style="padding:6px 12px">−</button><b>${yaElegido.quantity}</b><button data-ma-ajustar="${yaElegido.id}" data-nueva="${yaElegido.quantity+1}" data-stock-max="${p.stock===null?'':p.stock}" class="btn ghost" style="padding:6px 12px">+</button></span>`
+            : sinStock?`<span class="badge" style="background:#D3D1C7;color:#5F5E5A">Sin stock</span>`
+            : `<span style="display:flex;align-items:center;gap:8px"><button data-ma-prod-menos="${p.id}" class="btn ghost" style="padding:6px 12px">−</button><b>${enCarritoNuevo}</b><button data-ma-prod-mas="${p.id}" data-stock-max="${p.stock===null?'':p.stock}" class="btn ghost" style="padding:6px 12px">+</button></span>`}
+          </div>
+        </div>`
+      }).join('')}
+      ${Object.values(mayoristaCarritoProductosNuevo).some(q=>q>0)?`<button class="btn primary" id="btn_confirmar_productos_mayorista" style="width:100%;margin-top:10px">Agregar al pedido</button>`:''}
     </div>`:''}
     ${cuenta.historial_entregas && cuenta.historial_entregas.length ? `<div class="card"><h3>📦 Historial de entregas</h3>${cuenta.historial_entregas.map(h=>`<div class="row"><span>${formatearFecha(h.delivery_date)}</span><span>${h.egg_quantity||0} huevos</span></div>`).join('')}</div>`:''}
     <div class="card" id="card_pagos"><h3>💳 Historial de pagos</h3>${skeletonBloque(3)}</div>
@@ -1664,12 +1775,40 @@ async function mayoristaPanel(){
     document.querySelectorAll('[data-may-menos]').forEach(b=>b.onclick=()=>{ if(mayoristaCarrito[b.dataset.mayMenos]>0) mayoristaCarrito[b.dataset.mayMenos]--; dibujar() })
     document.querySelectorAll('[data-may-frecuencia]').forEach(b=>b.onclick=()=>{ frecuenciaSel=b.dataset.mayFrecuencia; dibujar() })
     document.querySelectorAll('[data-may-metodo]').forEach(b=>b.onclick=()=>{ metodoSel=b.dataset.mayMetodo; dibujar() })
-    document.querySelectorAll('[data-may-producto]').forEach(b=>b.onclick=async()=>{
-      const { data, error } = await supabase.rpc('customer_mark_interest', { p_dni: c.dni, p_customer_id: c.id, p_product_id: b.dataset.mayProducto, p_quantity: 1 })
-      if(error || !data?.ok){ mostrarAlerta('No se pudo sumar: '+(data?.error||error?.message||'')); return }
-      mostrarAlerta('¡Sumado a tu próximo pedido!')
+    document.querySelectorAll('[data-ma-prod-mas]').forEach(b=>b.onclick=()=>{
+      const id=b.dataset.maProdMas, stockMax=b.dataset.stockMax
+      const actual = mayoristaCarritoProductosNuevo[id]||0
+      if(stockMax!=='' && actual+1>Number(stockMax)){ mostrarAlerta(`Solo quedan ${stockMax} unidades disponibles.`); return }
+      mayoristaCarritoProductosNuevo[id] = actual+1; dibujar()
     })
-    document.querySelector('#btn_logout_mayorista').onclick = ()=>{ mayoristaCarrito={}; cuenta=null; current='mayorista-login'; render() }
+    document.querySelectorAll('[data-ma-prod-menos]').forEach(b=>b.onclick=()=>{
+      const id=b.dataset.maProdMenos
+      mayoristaCarritoProductosNuevo[id] = Math.max(0,(mayoristaCarritoProductosNuevo[id]||0)-1); dibujar()
+    })
+    document.querySelectorAll('[data-ma-ajustar]').forEach(b=>b.onclick=async()=>{
+      const nueva = Number(b.dataset.nueva)
+      const stockMax = b.dataset.stockMax
+      if(stockMax!==undefined && stockMax!=='' && nueva>Number(stockMax)){ mostrarAlerta(`Solo quedan ${stockMax} unidades disponibles.`); return }
+      const { data, error } = await supabase.rpc('customer_update_interest_quantity', { p_dni: c.dni, p_customer_id: c.id, p_interest_id: b.dataset.maAjustar, p_new_quantity: nueva })
+      if(error || !data?.ok){ mostrarAlerta(data?.error || error?.message || 'No se pudo actualizar.'); return }
+      const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
+      if(fresh?.found) cuenta = fresh
+      mayoristaPanel()
+    })
+    const btnConfirmarProductosMayorista = document.querySelector('#btn_confirmar_productos_mayorista')
+    if(btnConfirmarProductosMayorista) btnConfirmarProductosMayorista.onclick = async ()=>{
+      const items = Object.entries(mayoristaCarritoProductosNuevo).filter(([,q])=>q>0)
+      for(const [productId, cantidad] of items){
+        const { data, error } = await supabase.rpc('customer_mark_interest', { p_dni: c.dni, p_customer_id: c.id, p_product_id: productId, p_quantity: cantidad })
+        if(error || !data?.ok){ mostrarAlerta('No se pudo sumar uno de los productos: '+(data?.error||error?.message||'')); return }
+      }
+      mayoristaCarritoProductosNuevo = {}
+      const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
+      if(fresh?.found) cuenta = fresh
+      mostrarAlerta('¡Sumado a tu próximo pedido!')
+      mayoristaPanel()
+    }
+    document.querySelector('#btn_logout_mayorista').onclick = ()=>{ mayoristaCarrito={}; mayoristaCarritoProductosNuevo={}; cuenta=null; current='mayorista-login'; render() }
     document.querySelector('#btn_confirmar_mayorista').onclick = async ()=>{
       const errBox = document.querySelector('#err_mayorista')
       const total = totalCant()
@@ -4484,6 +4623,8 @@ async function render(){
   else if(current==='preparador') await preparador();
   else if(current==='vendedor') await vendedor();
   else if(current==='mayorista-login') mayoristaLogin();
+  else if(current==='mayorista-landing') await mayoristaLanding();
+  else if(current==='mayorista-signup') mayoristaSignupForm();
   else if(current==='mayorista-panel') await mayoristaPanel();
   else if(current==='mis-suscriptores') await vendedorMisSuscriptores();
   else if(current==='mis-comisiones') await vendedorMisComisiones();
@@ -4513,7 +4654,7 @@ async function init(){
     else if(!roleRow.profile_completed){ current = 'staff-profile-setup' }
     else { current = myRole==='campo' ? 'campo' : myRole==='repartidor' ? 'repartidor' : myRole==='preparador' ? 'preparador' : myRole==='vendedor' ? 'vendedor' : 'admin' }
   } else if(new URLSearchParams(window.location.search).get('mayorista')){
-    current = 'mayorista-login'
+    current = 'mayorista-landing'
   }
   render()
 }
