@@ -231,6 +231,7 @@ function iniciarPollingCuenta(){
 }
 
 function cuentaPanel(){
+  const scrollPrevioCuenta = window.scrollY
   const c = cuenta.customer
   const next = cuenta.next_order
   const tipoVia = TIPOS_VIA[c.street_type] || 'Calle'
@@ -299,7 +300,12 @@ function cuentaPanel(){
   </div>`:''}
   ${cuenta.historial_entregas && cuenta.historial_entregas.length ? `<div class="card"><h3>📦 Historial de entregas</h3>${cuenta.historial_entregas.map(h=>`<div class="row"><span>${formatearFecha(h.delivery_date)}</span><span>${h.egg_quantity||0} huevos</span></div>`).join('')}</div>`:''}
   <div class="card" id="card_datos"><h3>Tus datos</h3><p>🪪 DNI ${c.dni||'-'}</p><p>🏠 ${tipoVia} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'} (CP ${c.postal_code||'-'})</p><p>📍 Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'}</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
-  ${cuenta.catalogo && cuenta.catalogo.length ? `<div class="card"><h3>🛒 NÓMADES, tu supermercado online</h3>
+  ${cuenta.catalogo && cuenta.catalogo.length ? `<div class="card" style="padding:0;overflow:hidden">
+    <div style="background:#2F4D2A;background-image:repeating-linear-gradient(135deg, rgba(245,239,224,0.05) 0px, rgba(245,239,224,0.05) 12px, transparent 12px, transparent 24px);padding:16px 16px 14px;border-bottom:3px solid #E8833A">
+      <div style="font-size:18px;font-weight:700;color:#F5EFE0;display:flex;align-items:center;gap:8px">🛒 NÓMADES</div>
+      <div style="font-size:12.5px;color:#C9D8B0;margin-top:2px">tu supermercado online</div>
+    </div>
+    <div style="padding:16px">
     <details style="margin-bottom:10px"><summary style="cursor:pointer;font-size:13px;color:#2F4D2A;font-weight:600">Nuestro proyecto</summary><p class="muted" style="font-size:12.5px;margin-top:6px;line-height:1.5">Queremos ser parte de tu día a día. Nuestra idea es sumar cada vez más productos — comprados directo a fábricas y proveedores — para ofrecerte una alternativa más rentable, sin que tengas que moverte de tu casa. Precios justos, productos bien identificados, y la comodidad de recibirlo todo junto con tus huevos.</p></details>
     ${(()=>{
       const nuevos = cuenta.catalogo.filter(p=>p.created_at && (Date.now() - new Date(p.created_at).getTime()) < 30*24*60*60*1000)
@@ -368,6 +374,7 @@ function cuentaPanel(){
       }).join('')
     })()}
     </details>
+    </div>
   </div>`:''}
   ${(()=>{
     const items = Object.entries(carritoProductos).filter(([,q])=>q>0).map(([id,q])=>({ p: (cuenta.catalogo||[]).find(pr=>pr.id===id), q })).filter(x=>x.p)
@@ -557,6 +564,7 @@ function cuentaPanel(){
   cargarHistorialPagos(c)
   cargarRepartidor(c, esHoy)
   if(!cuentaPollInterval) iniciarPollingCuenta()
+  requestAnimationFrame(()=>window.scrollTo(0, scrollPrevioCuenta))
 }
 
 async function cargarRepartidor(c, esHoy){
