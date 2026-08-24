@@ -172,6 +172,7 @@ function fechasDelMesParaSuscripcion(fechaInicial, frecuencia){
 
 let cuentaPollInterval = null
 let carritoProductos = {} // product_id -> cantidad, carrito local del cliente antes de confirmar
+let categoriaCatalogoSeleccionada = null // null = "Todas"
 
 function reproducirSonidoAviso(){
   try{
@@ -270,12 +271,32 @@ function cuentaPanel(){
   <div class="card" id="card_datos"><h3>Tus datos</h3><p>🪪 DNI ${c.dni||'-'}</p><p>🏠 ${tipoVia} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'} (CP ${c.postal_code||'-'})</p><p>📍 Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'}</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
   ${cuenta.catalogo && cuenta.catalogo.length ? `<div class="card"><h3>🛒 Otros productos</h3><p class="muted" style="margin-bottom:10px">Sumalos a tu próxima entrega — se pagan junto con tu pedido, sin recargo extra.</p>
     ${(()=>{
+      const items = Object.entries(carritoProductos).filter(([,q])=>q>0).map(([id,q])=>({ p: (cuenta.catalogo||[]).find(pr=>pr.id===id), q })).filter(x=>x.p)
+      if(!items.length) return ''
+      const totalArriba = items.reduce((s,{p,q})=>s+Number(p.price)*q,0)
+      const cantArticulos = items.reduce((s,{q})=>s+q,0)
+      return `<div style="background:#2F4D2A;border-radius:10px;padding:10px 12px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+        <span style="color:#C9D8B0;font-size:12px">🛒 Llevás ${cantArticulos} producto${cantArticulos===1?'':'s'}</span>
+        <span style="color:#F5EFE0;font-size:15px;font-weight:700">$${totalArriba.toLocaleString('es-AR')}</span>
+      </div>`
+    })()}
+    ${(()=>{
+      const categoriasConProductos = CATEGORIAS_CATALOGO.filter(cat=>cuenta.catalogo.some(p=>p.category===cat))
+      if(categoriasConProductos.length<2) return ''
+      return `<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;margin-bottom:10px">
+        <button data-filtro-categoria="" style="white-space:nowrap;background:${categoriaCatalogoSeleccionada===null?'#2F4D2A':'#F5EFE0'};color:${categoriaCatalogoSeleccionada===null?'#F5EFE0':'#2F4D2A'};border:none;border-radius:20px;padding:7px 14px;font-size:12px;font-weight:600">Todas</button>
+        ${categoriasConProductos.map(cat=>`<button data-filtro-categoria="${cat}" style="white-space:nowrap;background:${categoriaCatalogoSeleccionada===cat?'#2F4D2A':'#F5EFE0'};color:${categoriaCatalogoSeleccionada===cat?'#F5EFE0':'#2F4D2A'};border:none;border-radius:20px;padding:7px 14px;font-size:12px;font-weight:600">${cat}</button>`).join('')}
+      </div>`
+    })()}
+    ${(()=>{
       const maxInteresados = Math.max(0, ...cuenta.catalogo.map(p=>p.interesados||0))
-      return cuenta.catalogo.map(p=>{
+      const productosFiltrados = categoriaCatalogoSeleccionada ? cuenta.catalogo.filter(p=>p.category===categoriaCatalogoSeleccionada) : cuenta.catalogo
+      if(!productosFiltrados.length) return '<p class="muted" style="font-size:13px">No hay productos en esta categoría.</p>'
+      return productosFiltrados.map(p=>{
         const yaElegido = (cuenta.mis_intereses||[]).find(mi=>mi.product_id===p.id && mi.status==='interested')
         const yaNotificar = (cuenta.mis_intereses||[]).find(mi=>mi.product_id===p.id && mi.status==='notify')
         const sinStock = p.stock!==null && p.stock<=0
-        const esPopular = maxInteresados>0 && p.interesados===maxInteresados
+        const esPopular = maxInteresados>1 && p.interesados===maxInteresados
         const enCarrito = carritoProductos[p.id]||0
         return `<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid #F0EBDD">
           ${p.photo_url?`<div data-ver-producto="${p.id}" style="width:56px;height:56px;border-radius:10px;background:#F5EFE0;padding:3px;flex-shrink:0;cursor:pointer"><img src="${p.photo_url}" style="width:100%;height:100%;border-radius:8px;object-fit:cover"/></div>`:`<div data-ver-producto="${p.id}" style="width:56px;height:56px;border-radius:10px;background:#F5EFE0;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;cursor:pointer">🛒</div>`}
@@ -287,7 +308,13 @@ function cuentaPanel(){
             ${p.description?`<div data-ver-producto="${p.id}" style="font-size:12px;color:#8A8570;margin-top:2px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${p.description}</div>`:''}
             <div style="font-size:13px;color:#2F4D2A;font-weight:700;margin-top:4px">$${Number(p.price).toLocaleString('es-AR')} · ${p.unit_label||'unidad'}</div>
             ${p.stock!==null && !sinStock?`<div style="font-size:11px;color:#8A8570;margin-top:2px">Quedan ${p.stock} unidades</div>`:''}
-            ${yaElegido?`<span class="badge" style="margin-top:6px;display:inline-block">✅ Ya lo pediste (${yaElegido.quantity})</span>`
+            ${yaElegido?`<div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span class="badge">✅ Confirmado</span>
+              <button data-ajustar-interes="${yaElegido.id}" data-nueva="${yaElegido.quantity-1}" data-stock-max="${p.stock===null?'':p.stock}" style="width:26px;height:26px;border-radius:7px;background:#F5EFE0;color:#2F4D2A;border:none;font-size:14px;font-weight:700">−</button>
+              <b style="min-width:14px;text-align:center">${yaElegido.quantity}</b>
+              <button data-ajustar-interes="${yaElegido.id}" data-nueva="${yaElegido.quantity+1}" data-stock-max="${p.stock===null?'':p.stock}" style="width:26px;height:26px;border-radius:7px;background:#2F4D2A;color:#F5EFE0;border:none;font-size:14px;font-weight:700">+</button>
+              <button data-cancelar-interes="${yaElegido.id}" style="background:#FFFFFF;color:#B03A2E;border:1px solid #E3DCC8;border-radius:7px;padding:0 8px;height:26px;font-size:12px">🗑️</button>
+            </div>`
               :sinStock?(yaNotificar?`<span class="badge" style="margin-top:6px;display:inline-block;background:#D3D1C7;color:#5F5E5A">🔔 Te vamos a avisar</span>`:`<button data-notificar-stock="${p.id}" style="margin-top:6px;background:#FFFFFF;color:#2F4D2A;border:1px solid #E3DCC8;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600">🔔 Avisame cuando haya</button>`)
               :`<div style="display:flex;align-items:center;gap:10px;margin-top:6px">
                   <button data-carrito-menos="${p.id}" style="width:30px;height:30px;border-radius:8px;background:#F5EFE0;color:#2F4D2A;border:none;font-size:16px;font-weight:700">−</button>
@@ -325,6 +352,10 @@ function cuentaPanel(){
   </div>
   <button class="btn ghost" id="btn_logout_cuenta">Cerrar sesión</button>`)
   document.querySelector('#btn_logout_cuenta').onclick = ()=>{ if(cuentaPollInterval){clearInterval(cuentaPollInterval);cuentaPollInterval=null} carritoProductos={}; cuenta=null; current='inicio'; render() }
+  document.querySelectorAll('[data-filtro-categoria]').forEach(b=>b.onclick=()=>{
+    categoriaCatalogoSeleccionada = b.dataset.filtroCategoria || null
+    cuentaPanel()
+  })
   document.querySelectorAll('[data-ver-producto]').forEach(el=>el.onclick=()=>{
     const p = (cuenta.catalogo||[]).find(pr=>pr.id===el.dataset.verProducto)
     if(p) mostrarDetalleProducto(p)
@@ -355,17 +386,42 @@ function cuentaPanel(){
   })
   const btnConfirmarCarrito = document.querySelector('#btn_confirmar_carrito')
   if(btnConfirmarCarrito) btnConfirmarCarrito.onclick = async ()=>{
-    const items = Object.entries(carritoProductos).filter(([,q])=>q>0)
-    for(const [productId, cantidad] of items){
+    const itemsCarrito = Object.entries(carritoProductos).filter(([,q])=>q>0)
+    const itemsConProducto = itemsCarrito.map(([id,q])=>({ p: (cuenta.catalogo||[]).find(pr=>pr.id===id), q })).filter(x=>x.p)
+    const totalProductos = itemsConProducto.reduce((s,{p,q})=>s+Number(p.price)*q,0)
+    for(const [productId, cantidad] of itemsCarrito){
       const { data, error } = await supabase.rpc('customer_mark_interest', { p_dni: c.dni, p_customer_id: c.id, p_product_id: productId, p_quantity: cantidad })
       if(error || !data?.ok){ mostrarAlerta('No se pudo confirmar uno de los productos: '+(data?.error||error?.message||'')); return }
     }
     carritoProductos = {}
-    mostrarAlerta('¡Listo! Te llevamos estos productos junto con tu próxima entrega. Se pagan en el momento, junto con tu pedido.')
+    const subActivaResumen = cuenta.subscriptions.find(s=>s.status==='active')
+    const precioSub = Number(subActivaResumen?.price_at_signup||0)
+    const totalGeneral = precioSub + totalProductos
+    const desglose = subActivaResumen
+      ? `Suscripción (${subActivaResumen.egg_quantity} huevos): $${precioSub.toLocaleString('es-AR')}\nProductos agregados: $${totalProductos.toLocaleString('es-AR')}\n\nTotal a pagar: $${totalGeneral.toLocaleString('es-AR')}`
+      : `Productos agregados: $${totalProductos.toLocaleString('es-AR')}`
+    mostrarAlerta(`¡Listo! Te llevamos todo junto con tu próxima entrega.\n\n${desglose}`)
     const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
     if(fresh?.found) cuenta = fresh
     cuentaPanel()
   }
+  document.querySelectorAll('[data-cancelar-interes]').forEach(b=>b.onclick=async()=>{
+    const confirmado = await mostrarConfirmacion('¿Cancelar este producto? Ya no te lo vamos a llevar.')
+    if(!confirmado) return
+    const { data, error } = await supabase.rpc('customer_cancel_interest', { p_dni: c.dni, p_customer_id: c.id, p_interest_id: b.dataset.cancelarInteres })
+    if(error || !data?.ok){ mostrarAlerta('No se pudo cancelar: '+(data?.error||error?.message||'')); return }
+    const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
+    if(fresh?.found) cuenta = fresh
+    cuentaPanel()
+  })
+  document.querySelectorAll('[data-ajustar-interes]').forEach(b=>b.onclick=async()=>{
+    const nueva = Number(b.dataset.nueva)
+    const { data, error } = await supabase.rpc('customer_update_interest_quantity', { p_dni: c.dni, p_customer_id: c.id, p_interest_id: b.dataset.ajustarInteres, p_new_quantity: nueva })
+    if(error || !data?.ok){ mostrarAlerta(data?.error || error?.message || 'No se pudo actualizar.'); return }
+    const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
+    if(fresh?.found) cuenta = fresh
+    cuentaPanel()
+  })
   document.querySelector('#btn_editar_datos').onclick = ()=>editarDatosForm(c)
   document.querySelector('#btn_ver_mapa').onclick = ()=>mapaSuscriptores()
   let ratingSel = 0
@@ -816,6 +872,7 @@ function skeletonBloque(lineas){
   return `<div style="display:flex;flex-direction:column;gap:8px">${Array.from({length:n}).map((_,i)=>`<div class="nom-skeleton" style="height:14px;width:${i===n-1?'60%':'100%'}"></div>`).join('')}</div>`
 }
 const ORDEN_ZONAS = ['norte','sur','este','oeste']
+const CATEGORIAS_CATALOGO = ['Aceites y vinagres','Conservas','Fideos y pastas','Condimentos y especias','Almacén general','Otros']
 function detectarRestriccionHoraria(texto){
   if(!texto) return null
   const patrones = [
@@ -2739,6 +2796,7 @@ async function admin(){
           <div class="field"><label>Precio</label><input id="catprod_new_price" type="number" min="0"/></div>
           <div class="field"><label>Unidad</label><input id="catprod_new_unit" placeholder="Ej: botella, paquete"/></div>
         </div>
+        <div class="field"><label>Categoría</label><select id="catprod_new_cat">${CATEGORIAS_CATALOGO.map(cat=>`<option value="${cat}">${cat}</option>`).join('')}</select></div>
         <div class="field"><label>Stock disponible (opcional — dejalo vacío si no querés controlarlo)</label><input id="catprod_new_stock" type="number" min="0" placeholder="Ej: 20"/></div>
         <div class="field"><label>Foto del producto</label><input type="file" id="prod_new_foto" accept="image/*"/></div>
         <button id="btn_crear_producto_catalogo" style="width:100%;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:10px 0;font-size:13px;font-weight:600">💾 Guardar producto</button>
@@ -2776,6 +2834,11 @@ async function admin(){
               <div style="display:flex;gap:6px;margin-bottom:10px">
                 <input id="stock_valor_${p.id}" type="number" min="0" value="${p.stock===null?'':p.stock}" placeholder="Vacío = sin control" style="flex:1"/>
                 <button data-guardar-stock="${p.id}" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:0 14px;font-size:12px;font-weight:600">Guardar</button>
+              </div>
+              <h4 style="font-size:13px;color:#2F4D2A;margin-bottom:6px">Categoría</h4>
+              <div style="display:flex;gap:6px;margin-bottom:10px">
+                <select id="cat_valor_${p.id}" style="flex:1">${CATEGORIAS_CATALOGO.map(cat=>`<option value="${cat}" ${p.category===cat?'selected':''}>${cat}</option>`).join('')}</select>
+                <button data-guardar-categoria="${p.id}" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:0 14px;font-size:12px;font-weight:600">Guardar</button>
               </div>
               <button data-toggle-activo="${p.id}" data-activo="${p.active}" style="width:100%;background:${p.active?'#FFFFFF':'#2F4D2A'};color:${p.active?'#B85C00':'#F5EFE0'};border:1px solid #E3DCC8;border-radius:10px;padding:8px 0;font-size:12px;font-weight:600;margin-bottom:10px">${p.active?'Desactivar (dejar de ofrecer)':'Activar de nuevo'}</button>
               <h4 style="font-size:13px;color:#2F4D2A;margin-bottom:6px">¿Quién lo pidió?</h4>
@@ -3287,6 +3350,7 @@ async function admin(){
       name, price,
       description: document.querySelector('#catprod_new_desc').value.trim(),
       unit_label: document.querySelector('#catprod_new_unit').value.trim() || 'unidad',
+      category: document.querySelector('#catprod_new_cat').value,
       stock: stockVal===''?null:Number(stockVal),
       photo_url
     })
@@ -3327,6 +3391,15 @@ async function admin(){
     if(error){ mostrarAlerta('Error: '+error.message); return }
     adminData = null
     mostrarAlerta('Stock actualizado ✅')
+    render()
+  })
+  document.querySelectorAll('[data-guardar-categoria]').forEach(b=>b.onclick=async()=>{
+    const id = b.dataset.guardarCategoria
+    const valor = document.querySelector(`#cat_valor_${id}`).value
+    const { error } = await supabase.from('catalog_products').update({ category: valor }).eq('id', id)
+    if(error){ mostrarAlerta('Error: '+error.message); return }
+    adminData = null
+    mostrarAlerta('Categoría actualizada ✅')
     render()
   })
   document.querySelectorAll('[data-toggle-activo]').forEach(b=>b.onclick=async()=>{
