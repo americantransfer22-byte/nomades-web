@@ -10,9 +10,10 @@ let adminOpenSection = null // qué sección del acordeón de admin está abiert
 let adminDetalleTipo = null // qué tarjeta de resumen se está viendo en detalle
 
 function navStaffFor(role){
-  if(role==='admin') return [['clientes','Clientes'],['pedidos','Pedidos'],['repartidor','Repartidor'],['campo','Campo'],['admin','Administración'],['vehiculo','Mi vehículo'],['perfil','Mi perfil']]
+  if(role==='admin') return [['clientes','Clientes'],['pedidos','Pedidos'],['preparador','Preparar pedidos'],['repartidor','Repartidor'],['campo','Campo'],['admin','Administración'],['vehiculo','Mi vehículo'],['perfil','Mi perfil']]
   if(role==='campo') return [['campo','Campo'],['perfil','Mi perfil']]
   if(role==='repartidor') return [['repartidor','Repartidor'],['historial','Historial'],['vehiculo','Mi vehículo'],['perfil','Mi perfil']]
+  if(role==='preparador') return [['preparador','Preparar pedidos'],['perfil','Mi perfil']]
   return []
 }
 
@@ -238,7 +239,32 @@ function cuentaPanel(){
   const fechasMes = subActiva && next ? fechasDelMesParaSuscripcion(next.delivery_date, subActiva.frequency) : []
   layout(`<h2>👤 Hola, ${c.first_name}</h2>
   <div id="card_hoy_banner"></div>
-  <div class="card"><h3>Tu próximo pedido</h3>${next?`<div class="row"><span>${esHoy && (next.customer_stage||next.status==='out_for_delivery') ? 'Hoy' : formatearFecha(next.delivery_date)}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div><p>${(next.plan_breakdown && Array.isArray(next.plan_breakdown) && next.plan_breakdown.length) ? next.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')+' huevos' : `${next.egg_quantity||0} huevos`}</p>${next.payment_method?`<div class="alert info">💡 Recordá: el pago es en <b>${METODOS_PAGO_LABEL[next.payment_method]||next.payment_method}</b>.</div>`:''}${next.payment_method==='mp'?`<div class="alert info" style="margin-top:6px">📄 Tené a mano el comprobante de tu pago — el repartidor te lo va a pedir para confirmar antes de dejarte el pedido.</div>`:''}`:estadoVacio('No tenés entregas próximas todavía.')}</div>
+  <div class="card"><h3>Tu próximo pedido</h3>${next?(()=>{
+    const productosConfirmados = (cuenta.mis_intereses||[]).filter(mi=>mi.status==='interested').map(mi=>({ mi, p: (cuenta.catalogo||[]).find(pr=>pr.id===mi.product_id) })).filter(x=>x.p)
+    const totalProductos = productosConfirmados.reduce((s,{mi,p})=>s+Number(p.price)*mi.quantity,0)
+    const precioSub = Number(subActiva?.price_at_signup||0)
+    const totalPedido = precioSub + totalProductos
+    const fechaTexto = esHoy && (next.customer_stage||next.status==='out_for_delivery') ? 'Hoy' : formatearFecha(next.delivery_date)
+    return `<p class="muted" style="font-size:12.5px;margin-bottom:2px">Se entregará el ${fechaTexto}</p>
+    <div class="row"><span>${fechaTexto}</span><span class="badge">${ESTADOS[next.status]||next.status}</span></div>
+    <div class="row"><span>${(next.plan_breakdown && Array.isArray(next.plan_breakdown) && next.plan_breakdown.length) ? next.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')+' huevos' : `${next.egg_quantity||0} huevos`}</span>${precioSub?`<span>$${precioSub.toLocaleString('es-AR')}</span>`:''}</div>
+    ${productosConfirmados.length?`<div style="margin-top:8px;border-top:1px solid #F0EBDD;padding-top:8px">
+      ${productosConfirmados.map(({mi,p})=>`<div class="row">
+        <span style="display:flex;align-items:center;gap:8px">
+          ${p.photo_url?`<img src="${p.photo_url}" style="width:32px;height:32px;border-radius:6px;object-fit:cover;flex-shrink:0"/>`:`<div style="width:32px;height:32px;border-radius:6px;background:#F5EFE0;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">🛒</div>`}
+          <span style="font-size:13px">${p.name}</span>
+        </span>
+        <span style="display:flex;align-items:center;gap:6px">
+          <button data-ajustar-interes="${mi.id}" data-nueva="${mi.quantity-1}" data-stock-max="${p.stock===null?'':p.stock}" style="width:24px;height:24px;border-radius:6px;background:#F5EFE0;color:#2F4D2A;border:none;font-size:13px;font-weight:700">−</button>
+          <b style="min-width:12px;text-align:center;font-size:12px">${mi.quantity}</b>
+          <button data-ajustar-interes="${mi.id}" data-nueva="${mi.quantity+1}" data-stock-max="${p.stock===null?'':p.stock}" style="width:24px;height:24px;border-radius:6px;background:#2F4D2A;color:#F5EFE0;border:none;font-size:13px;font-weight:700">+</button>
+          <button data-cancelar-interes="${mi.id}" style="width:24px;height:24px;border-radius:6px;background:#FFFFFF;color:#B03A2E;border:1px solid #E3DCC8;font-size:11px">🗑️</button>
+        </span></div>`).join('')}
+    </div>`:''}
+    <div class="alert info" style="margin-top:8px;text-align:center;font-weight:700">Total a pagar: $${totalPedido.toLocaleString('es-AR')}</div>
+    ${next.payment_method?`<div class="alert info" style="margin-top:6px">💡 Recordá: el pago es en <b>${METODOS_PAGO_LABEL[next.payment_method]||next.payment_method}</b>.</div>`:''}
+    ${next.payment_method==='mp'?`<div class="alert info" style="margin-top:6px">📄 Tené a mano el comprobante de tu pago — el repartidor te lo va a pedir para confirmar antes de dejarte el pedido.</div>`:''}`
+  })():estadoVacio('No tenés entregas próximas todavía.')}</div>
   <div class="card" id="card_repartidor"><h3>🚚 Tu repartidor</h3>${skeletonBloque(2)}</div>
   ${next && (next.customer_stage || next.status==='out_for_delivery') ? barraEstadoPedido(next.customer_stage, next.status, next.out_for_delivery_at, next.en_route_at) : ''}
   ${fechasMes.length?`<div class="card"><h3>📅 Tus próximas entregas</h3>${fechasMes.map((f,i)=>`<div class="row"><span>${formatearFecha(f)}</span>${i===0?'<span class="badge">Confirmada</span>':'<span class="muted" style="font-size:12px">Estimada</span>'}</div>`).join('')}<p class="muted" style="font-size:12px;margin-top:8px">Solo la primera fecha está confirmada como pedido. Las demás son estimadas según tu frecuencia y pueden moverse un poco.</p></div>`:''}
@@ -416,7 +442,8 @@ function cuentaPanel(){
     const desglose = subActivaResumen
       ? `Suscripción (${subActivaResumen.egg_quantity} huevos): $${precioSub.toLocaleString('es-AR')}\nProductos agregados: $${totalProductos.toLocaleString('es-AR')}\n\nTotal a pagar: $${totalGeneral.toLocaleString('es-AR')}`
       : `Productos agregados: $${totalProductos.toLocaleString('es-AR')}`
-    mostrarAlerta(`¡Listo! Te llevamos todo junto con tu próxima entrega.\n\n${desglose}`)
+    const fechaEntregaTexto = cuenta.next_order?.delivery_date ? formatearFecha(cuenta.next_order.delivery_date) : null
+    mostrarAlerta(`¡Listo! Te llevamos todo junto${fechaEntregaTexto?` el ${fechaEntregaTexto}`:' con tu próxima entrega'}.\n\n${desglose}`)
     const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
     if(fresh?.found) cuenta = fresh
     cuentaPanel()
@@ -966,24 +993,32 @@ function horaAR(iso){
 
 function barraEstadoPedido(stage, orderStatus, outForDeliveryAt, enRouteAt){
   const enReparto = orderStatus==='out_for_delivery' || stage==='en_route'
+  let rango = 0
+  if(stage==='preparing') rango = 1
+  if(stage==='prepared') rango = 2
+  if(enReparto) rango = 3
+  if(stage==='en_route') rango = 4
+  if(orderStatus==='delivered') rango = 5
   const etapas = [
-    { icono:'🥚', label:'Preparando', activo: stage==='preparing' || enReparto },
-    { icono:'📦', label:'En reparto', activo: enReparto },
-    { icono:'<span style="display:inline-block;transform:scaleX(-1)" class="nom-moto-camina">🛵</span>', label:'Hacia tu casa', activo: stage==='en_route' },
-    { icono:'🏠', label:'Entregado', activo: false }
+    { icono:'🥚', label:'Preparando', activo: rango>=1 },
+    { icono:'📦', label:'Preparado', activo: rango>=2 },
+    { icono:'🚚', label:'En reparto', activo: rango>=3 },
+    { icono:'<span style="display:inline-block;transform:scaleX(-1)" class="nom-moto-camina">🛵</span>', label:'Hacia tu casa', activo: rango>=4 },
+    { icono:'🏠', label:'Entregado', activo: rango>=5 }
   ]
-  const idxActual = etapas.reduce((acc,e,i)=> e.activo ? i : acc, -1)
-  return `<div style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;padding:14px 16px;margin-bottom:10px">
+  const idxActual = Math.max(0, rango-1)
+  return `<div style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;padding:14px 12px;margin-bottom:10px">
     <div style="font-size:13px;font-weight:700;color:#2F4D2A;margin-bottom:12px">Estado de tu pedido</div>
     <div style="display:flex;align-items:flex-start">
       ${etapas.map((e,i)=>`<div style="flex:1;text-align:center;position:relative">
-        ${i>0?`<div style="position:absolute;top:16px;left:-50%;width:100%;height:2px;background:${e.activo?'#8FAE6B':'#E3DCC8'}"></div>`:''}
-        <div style="width:32px;height:32px;border-radius:50%;margin:0 auto 6px;position:relative;z-index:1;background:${e.activo?'#2F4D2A':'#F1EFE8'};display:flex;align-items:center;justify-content:center;font-size:14px${i===idxActual?';animation:nomPulso 1.6s ease-out infinite':''}">${e.icono}</div>
-        <span style="font-size:10.5px;color:${e.activo?'#2F4D2A':'#8A8570'}">${e.label}</span>
+        ${i>0?`<div style="position:absolute;top:14px;left:-50%;width:100%;height:2px;background:${e.activo?'#8FAE6B':'#E3DCC8'}"></div>`:''}
+        <div style="width:28px;height:28px;border-radius:50%;margin:0 auto 5px;position:relative;z-index:1;background:${e.activo?'#2F4D2A':'#F1EFE8'};display:flex;align-items:center;justify-content:center;font-size:12px${i===idxActual && rango<5?';animation:nomPulso 1.6s ease-out infinite':''}">${e.icono}</div>
+        <span style="font-size:9px;color:${e.activo?'#2F4D2A':'#8A8570'}">${e.label}</span>
       </div>`).join('')}
     </div>
     ${stage==='en_route'?`<div style="margin-top:12px;background:#F5EFE0;border-radius:10px;padding:10px 12px;font-size:12px;color:#5F5E5A">💬 Tu repartidor ya está yendo hacia tu casa${enRouteAt?` (desde las ${horaAR(enRouteAt)} hs)`:''}, llega en los próximos minutos.</div>`:''}
     ${stage!=='en_route' && enReparto?`<div style="margin-top:12px;background:#F5EFE0;border-radius:10px;padding:10px 12px;font-size:12px;color:#5F5E5A">💬 Tu repartidor salió a repartir${outForDeliveryAt?` a las ${horaAR(outForDeliveryAt)} hs`:''}, tu entrega está en camino.</div>`:''}
+    ${stage==='prepared'?`<div style="margin-top:12px;background:#F5EFE0;border-radius:10px;padding:10px 12px;font-size:12px;color:#5F5E5A">💬 Tu pedido ya está armado, esperando que salga a repartir.</div>`:''}
     ${stage==='preparing' && !enReparto?`<div style="margin-top:12px;background:#F5EFE0;border-radius:10px;padding:10px 12px;font-size:12px;color:#5F5E5A">💬 Estamos preparando tu pedido con huevos recién recolectados.</div>`:''}
   </div>`
 }
@@ -1096,7 +1131,8 @@ function editarDatosForm(c){
 const ROLES_STAFF = [
   { value: 'admin', label: 'Administrador' },
   { value: 'campo', label: 'Personal de campo' },
-  { value: 'repartidor', label: 'Repartidor' }
+  { value: 'repartidor', label: 'Repartidor' },
+  { value: 'preparador', label: 'Preparador de pedidos' }
 ]
 
 function staffLogin(){
@@ -1127,7 +1163,7 @@ function staffLogin(){
     session = data.session
     myRole = roleRow.role
     staffProfile = roleRow
-    current = roleRow.profile_completed ? (myRole==='campo' ? 'campo' : myRole==='repartidor' ? 'repartidor' : 'admin') : 'staff-profile-setup'
+    current = roleRow.profile_completed ? (myRole==='campo' ? 'campo' : myRole==='repartidor' ? 'repartidor' : myRole==='preparador' ? 'preparador' : 'admin') : 'staff-profile-setup'
     render()
   }
 }
@@ -1207,7 +1243,7 @@ function staffProfileForm(isSetup){
       reader.readAsDataURL(photoFile)
     }
   }
-  if(!isSetup) document.querySelector('#btn_cancelar_perfil').onclick = ()=>{ current = myRole==='campo'?'campo':myRole==='repartidor'?'repartidor':'admin'; render() }
+  if(!isSetup) document.querySelector('#btn_cancelar_perfil').onclick = ()=>{ current = myRole==='campo'?'campo':myRole==='repartidor'?'repartidor':myRole==='preparador'?'preparador':'admin'; render() }
   document.querySelector('#btn_guardar_perfil').onclick = async ()=>{
     const errBox = document.querySelector('#err_sf')
     const full_name = document.querySelector('#sf_full_name').value.trim()
@@ -1238,7 +1274,7 @@ function staffProfileForm(isSetup){
     const { data, error } = await supabase.rpc('staff_update_profile', payload)
     if(error || !data?.ok){ errBox.textContent='No pudimos guardar. Probá de nuevo.'; errBox.style.display='block'; return }
     staffProfile = { ...p, full_name: payload.p_full_name, phone: payload.p_phone, secondary_phone: payload.p_secondary_phone, email: payload.p_email, street: payload.p_street, street_number: payload.p_street_number, city: payload.p_city, province: payload.p_province, postal_code: payload.p_postal_code, photo_url, profile_completed:true }
-    current = myRole==='campo'?'campo':myRole==='repartidor'?'repartidor':'admin'
+    current = myRole==='campo'?'campo':myRole==='repartidor'?'repartidor':myRole==='preparador'?'preparador':'admin'
     render()
   }
 }
@@ -1378,6 +1414,57 @@ async function miVehiculo(){
     if(data.alerta_service) mostrarAlerta(`⛽ Carga guardada ✅\n\n⚠️ Atención: faltan ${Math.round(data.faltan_km)} km para el próximo service.`)
     else mostrarAlerta('⛽ Carga guardada ✅')
     render()
+  }
+}
+
+async function preparador(){
+  const { data, error } = await supabase.rpc('preparador_pedidos_pendientes', {})
+  const pedidos = data || []
+  const hoy = new Date().toISOString().slice(0,10)
+  const grupos = {}
+  pedidos.forEach(p=>{ grupos[p.delivery_date] ??= []; grupos[p.delivery_date].push(p) })
+  const fechasOrdenadas = Object.keys(grupos).sort()
+  const contenido = fechasOrdenadas.length ? fechasOrdenadas.map(f=>{
+    const titulo = f===hoy ? 'Hoy' : formatearFecha(f)
+    return pCard(`
+      <div style="font-size:13px;font-weight:700;color:#2F4D2A;margin-bottom:8px">${titulo}</div>
+      ${grupos[f].map(p=>`<div class="row"><span><b>${p.last_name||''}</b>, ${p.first_name||''}<br><small class="muted">${(p.plan_breakdown&&p.plan_breakdown.length)?p.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')+' huevos':`${p.egg_quantity||0} huevos`}</small></span><button data-preparar="${p.id}" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:8px 14px;font-size:12px;font-weight:600">Preparar</button></div>`).join('')}
+    `, 'margin-bottom:10px')
+  }).join('') : estadoVacio('No hay pedidos pendientes de preparar por ahora.')
+  layout(`<h2>📦 Preparar pedidos</h2><p class="muted" style="margin-top:-8px;margin-bottom:12px">Podés ir armando con hasta 2 días de anticipación.</p>${contenido}`)
+  document.querySelectorAll('[data-preparar]').forEach(b=>b.onclick=()=>abrirPreparacion(b.dataset.preparar))
+}
+
+async function abrirPreparacion(id){
+  const { data: detalle, error } = await supabase.rpc('preparador_pedido_detalle', { p_order_id: id })
+  if(error || !detalle || detalle.error) return mostrarAlerta('No se pudo cargar el pedido')
+  const o = detalle.order, c = detalle.customer, sub = detalle.subscription||{}, productos = detalle.productos||[]
+  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><button class="btn ghost" id="btn_volver_preparador" style="padding:6px 12px">← Volver</button><h2 style="margin:0">Preparar pedido</h2></div>
+  <div class="card">
+    <h3>${c.last_name||''}, ${c.first_name||''}</h3>
+    <p class="muted">${c.neighborhood||''} · Entrega: ${formatearFecha(o.delivery_date)}</p>
+    ${o.important_note?`<div class="alert warning">⚠️ ${o.important_note}</div>`:''}
+  </div>
+  <div class="card">
+    <h3>✅ Checklist</h3>
+    <label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #F0EBDD"><input type="checkbox" class="check-prep" style="width:18px;height:18px"/> <span>🥚 ${FRECUENCIAS[sub.frequency]||sub.frequency||''} · ${sub.egg_quantity||'-'} huevos${sub.plan_breakdown?` (${sub.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')})`:''}</span></label>
+    ${productos.map(p=>`<label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #F0EBDD">
+      <input type="checkbox" class="check-prep" style="width:18px;height:18px"/>
+      ${p.photo_url?`<img src="${p.photo_url}" style="width:28px;height:28px;border-radius:6px;object-fit:cover"/>`:'<span>🛒</span>'}
+      <span>${p.quantity}× ${p.name}</span>
+    </label>`).join('')}
+    ${!productos.length?'<p class="muted" style="font-size:12px;margin-top:6px">Sin productos extra, solo huevos.</p>':''}
+    <button class="btn primary" id="btn_finalizar_preparado" style="width:100%;margin-top:14px" disabled>📦 Finalizar preparado</button>
+  </div>`)
+  document.querySelector('#btn_volver_preparador').onclick = ()=>{ current='preparador'; render() }
+  const actualizarBtnPrep = ()=>{ document.querySelector('#btn_finalizar_preparado').disabled = ![...document.querySelectorAll('.check-prep')].every(chk=>chk.checked) }
+  document.querySelectorAll('.check-prep').forEach(chk=>chk.onchange=actualizarBtnPrep)
+  supabase.rpc('preparador_marcar_preparando', { p_order_id: id })
+  document.querySelector('#btn_finalizar_preparado').onclick = async ()=>{
+    const { data, error: errFin } = await supabase.rpc('preparador_finalizar', { p_order_id: id })
+    if(errFin || !data?.ok){ mostrarAlerta('No se pudo finalizar: '+(errFin?.message||data?.error||'')); return }
+    mostrarAlerta('📦 ¡Pedido preparado! Ya está listo para el repartidor.')
+    current='preparador'; render()
   }
 }
 
@@ -1661,7 +1748,7 @@ async function repartidor(){
     const c=r.customers||{}
     const telLimpio=(c.phone||'').replace(/\D/g,'')
     const direccionCompleta = `${c.street||''} ${c.street_number||''}, ${c.neighborhood||''}, ${c.city||''}`
-    const estadoLabel = r.customer_stage==='en_route' ? '🛵 En camino (avisado)' : r.customer_stage==='preparing' ? '🥚 Preparando' : ''
+    const estadoLabel = r.customer_stage==='en_route' ? '🛵 En camino (avisado)' : r.customer_stage==='prepared' ? '✅ Preparado, listo para llevar' : r.customer_stage==='preparing' ? '🥚 Preparando' : ''
     return `<div style="margin-bottom:8px">
       <div style="font-weight:700;color:#2F4D2A">${c.street_number||''} · Cliente: ${c.first_name||''} ${c.last_name||''}</div>
       ${telLimpio?`<a href="tel:${telLimpio}" style="font-size:12px;color:#2F4D2A;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-top:4px;background:#F5EFE0;border-radius:8px;padding:5px 10px;font-weight:600">📞 Llamar · ${c.phone}</a>`:`<div style="font-size:12px;color:#8A8570;margin-top:2px">Sin teléfono</div>`}
@@ -2086,9 +2173,12 @@ async function openDelivery(id){
   if(errDet || !detalle || detalle.error) return mostrarAlerta('No se pudo cargar el pedido')
   const r = detalle.order, c = detalle.customer, sub = detalle.subscription || {}
   const credito = detalle.credit
+  const productos = detalle.productos || []
   const { data: settingsRaw } = await supabase.from('farm_settings').select('key,value').in('key',['transfer_cbu','transfer_alias','transfer_bank_name','transfer_holder_name','transfer_holder_doc','mp_alias','mp_wallet_name','mp_cbu','mp_holder_name','mp_holder_doc','wallet_discount_type','wallet_discount_value'])
   const cfg = Object.fromEntries((settingsRaw||[]).map(s=>[s.key,s.value]))
-  const montoOriginal = sub.price_at_signup || 0
+  const montoHuevos = sub.price_at_signup || 0
+  const totalProductos = productos.reduce((s,p)=>s+Number(p.price)*p.quantity,0)
+  const montoOriginal = montoHuevos + totalProductos
   const descuentoBilletera = sub.payment_method==='mp' ? calcularDescuentoBilletera(montoOriginal, cfg.wallet_discount_type, cfg.wallet_discount_value) : 0
   const montoTrasBilletera = montoOriginal - descuentoBilletera
   const montoDefault = credito ? Math.max(0, montoTrasBilletera - credito.discount_amount) : montoTrasBilletera
@@ -2100,12 +2190,22 @@ async function openDelivery(id){
       <h3>${c.street||''} ${c.street_number||''}</h3>
       <p>${c.first_name||''} ${c.last_name||''}</p>
       <p>📞 ${c.phone||'-'}</p>
-      <p>📦 ${FRECUENCIAS[sub.frequency]||sub.frequency||'-'} · ${sub.egg_quantity||'-'} huevos${sub.plan_breakdown?` (${sub.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')})`:''}</p>
       <p>💰 A cobrar: <b>$${Number(montoDefault).toLocaleString('es-AR')}</b>${(descuentoBilletera>0||credito)?` <span class="muted" style="text-decoration:line-through">$${Number(montoOriginal).toLocaleString('es-AR')}</span>`:''}</p>
       <p>💳 Método configurado: <b>${METODOS_PAGO_LABEL[sub.payment_method]||sub.payment_method||'-'}</b></p>
       <button class="btn ghost" onclick="window.open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent('${(c.street||'')+' '+(c.street_number||'')+' '+(c.neighborhood||'')}'),'_blank')">📍 Google Maps</button>
     </div>
     <div class="card">
+      <h3>✅ Checklist — llevá todo esto</h3>
+      <label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #F0EBDD"><input type="checkbox" class="check-entrega" style="width:18px;height:18px"/> <span>🥚 ${FRECUENCIAS[sub.frequency]||sub.frequency||''} · ${sub.egg_quantity||'-'} huevos${sub.plan_breakdown?` (${sub.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')})`:''}</span></label>
+      ${productos.map(p=>`<label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #F0EBDD">
+        <input type="checkbox" class="check-entrega" style="width:18px;height:18px"/>
+        ${p.photo_url?`<img src="${p.photo_url}" style="width:28px;height:28px;border-radius:6px;object-fit:cover"/>`:'<span>🛒</span>'}
+        <span>${p.quantity}× ${p.name}</span>
+      </label>`).join('')}
+      ${!productos.length?'<p class="muted" style="font-size:12px;margin-top:6px">Este pedido es solo de huevos, sin productos extra.</p>':''}
+    </div>
+  </div>
+  <div class="card">
       <h3>Confirmar entrega</h3>
       <div class="field"><label>DNI de quien recibe</label><input id="dni" autocomplete="off" /></div>
       <button class="btn primary" id="validate">Validar DNI</button>
@@ -2122,12 +2222,17 @@ async function openDelivery(id){
       <div id="err_confirm" class="alert danger" style="display:none"></div>
       <button class="btn primary" id="confirm" style="width:100%;margin-top:12px" disabled>✅ Confirmar entrega</button>
       <button class="btn ghost" id="failed" style="width:100%;margin-top:8px">❌ No pude entregar</button>
-    </div>
   </div>`)
   let receiverId=null
+  let dniValidado=false
   let metodoSel = sub.payment_method || 'cash'
   let comprobanteFile = null
   let comprobanteUrl = ''
+  const actualizarBotonConfirmar = ()=>{
+    const todoChequeado = [...document.querySelectorAll('.check-entrega')].every(chk=>chk.checked)
+    document.querySelector('#confirm').disabled = !(dniValidado && todoChequeado)
+  }
+  document.querySelectorAll('.check-entrega').forEach(chk=>chk.onchange=actualizarBotonConfirmar)
 
   const renderDatosTransferencia = ()=>{
     const box = document.querySelector('#datos_transferencia')
@@ -2168,7 +2273,7 @@ async function openDelivery(id){
     const {data,error}=await supabase.rpc('validate_delivery_receiver',{p_order_id:id,p_dni:dni})
     const out=document.querySelector('#validation')
     if(error||!data?.valid){out.innerHTML='<div class="alert danger">❌ DNI no autorizado.</div>';return}
-    receiverId=data.receiver_id; out.innerHTML=`<div class="alert info">✅ Identidad validada: <b>${data.receiver_name}</b></div>`; document.querySelector('#confirm').disabled=false
+    receiverId=data.receiver_id; dniValidado=true; out.innerHTML=`<div class="alert info">✅ Identidad validada: <b>${data.receiver_name}</b></div>`; actualizarBotonConfirmar()
   }
   document.querySelector('#confirm').onclick=async()=>{
     const errBox = document.querySelector('#err_confirm')
@@ -2281,7 +2386,7 @@ async function admin(){
   const TIPO_CAT_LABEL = { fixed:'Fijo', variable:'Variable', income:'Ingreso' }
   const count=s=>orders.filter(x=>x.status===s).length
   const pendientesDePago = subs.filter(s=>s.payment_status==='pending')
-  const rolLabel = {admin:'Administrador',campo:'Personal de campo',repartidor:'Repartidor'}
+  const rolLabel = {admin:'Administrador',campo:'Personal de campo',repartidor:'Repartidor',preparador:'Preparador de pedidos'}
   const AS = (id)=> adminOpenSection===id
   const accHead = (id, icon, titulo, badge)=> `<button type="button" class="acc-header" data-acc="${id}" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:14px 16px;cursor:pointer;gap:10px;background:${AS(id)?'#F5EFE0':'transparent'}"><span style="width:32px;height:32px;border-radius:9px;background:#EAF0DC;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">${icon}</span><span style="flex:1;font-weight:700;font-size:14.5px;color:#2F4D2A">${titulo}</span>${badge?pPill(badge,'#FBE4CC','#B85C00'):''}<span style="font-size:13px;color:#8A8570">${AS(id)?'▲':'▼'}</span></button><div class="acc-body" style="max-height:${AS(id)?'6000px':'0'};padding:${AS(id)?'4px 16px 16px 16px':'0 16px'}">`
   const statCard = (id,label,value)=> `<div data-stat="${id}" style="cursor:pointer;flex:0 0 auto;min-width:96px;background:#2F4D2A;border-radius:14px;padding:10px 14px;display:flex;flex-direction:column;gap:2px"><span style="color:#C9D8B0;font-size:11px;line-height:1.25">${label}</span><span style="color:#F5EFE0;font-size:20px;font-weight:700;line-height:1.15">${value}</span></div>`
@@ -2324,7 +2429,7 @@ async function admin(){
   ${accHead('personal','👥','Gestión de personal')}
     <div class="grid two">
       <div class="field"><label>Nombre</label><input id="staff_new_name"/></div>
-      <div class="field"><label>Rol</label><select id="staff_new_role"><option value="campo">Personal de campo</option><option value="repartidor">Repartidor</option><option value="admin">Administrador</option></select></div>
+      <div class="field"><label>Rol</label><select id="staff_new_role"><option value="campo">Personal de campo</option><option value="repartidor">Repartidor</option><option value="preparador">Preparador de pedidos</option><option value="admin">Administrador</option></select></div>
     </div>
     <div class="field"><label>Código de acceso (opcional — si lo dejás vacío, se genera uno automático)</label><input id="staff_new_code" placeholder="Ej: 123 (mín. 3 caracteres, letras o números)"/></div>
     <button class="btn primary" id="btn_crear_staff">➕ Generar código de acceso</button>
@@ -3703,7 +3808,7 @@ async function render(){
     lastPushedCurrent = current
   }
   navegandoPorHistorial = false
-  if(current==='inicio' && session && myRole){ current = myRole==='campo' ? 'campo' : myRole==='repartidor' ? 'repartidor' : 'admin' }
+  if(current==='inicio' && session && myRole){ current = myRole==='campo' ? 'campo' : myRole==='repartidor' ? 'repartidor' : myRole==='preparador' ? 'preparador' : 'admin' }
   const mismaPantalla = current === ultimaPantallaParaScroll
   const scrollPrevio = mismaPantalla ? window.scrollY : 0
   ultimaPantallaParaScroll = current
@@ -3718,6 +3823,7 @@ async function render(){
   else if(current==='repartidor-mapa') await mapaRepartidor();
   else if(current==='historial') await historialRepartidor();
   else if(current==='campo') await campo();
+  else if(current==='preparador') await preparador();
   else if(current==='vehiculo') await miVehiculo();
   else if(current==='vehiculo-stats') await vehiculoStats();
   else if(current==='vehiculo-historial') await vehiculoHistorial();
@@ -3742,7 +3848,7 @@ async function init(){
     staffProfile = roleRow || null
     if(!myRole){ session=null }
     else if(!roleRow.profile_completed){ current = 'staff-profile-setup' }
-    else { current = myRole==='campo' ? 'campo' : myRole==='repartidor' ? 'repartidor' : 'admin' }
+    else { current = myRole==='campo' ? 'campo' : myRole==='repartidor' ? 'repartidor' : myRole==='preparador' ? 'preparador' : 'admin' }
   }
   render()
 }
