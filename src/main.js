@@ -2546,6 +2546,11 @@ let pagoProveedorSeleccionado = null // supplier_id elegido en "Pagar pedido"
 let pagoPedidoSeleccionado = null // order_id elegido para pagar
 let pagoTipo = 'total' // 'total' | 'parcial'
 let pagoMontoParcial = ''
+let cuentaCorrienteClienteSeleccionado = null // customer_id de mayorista elegido en "Cuenta corriente de mayoristas"
+let cuentaCorrienteDetalleCache = {} // customer_id -> pedidos detalle
+let cobroPedidoSeleccionado = null // order_id elegido para cobrarle a un mayorista
+let cobroTipo = 'total'
+let cobroMontoParcial = ''
 let historialVehiculoActual = null
 
 async function verHistorialVehiculo(v){
@@ -2951,7 +2956,7 @@ async function fetchAdminData(){
     entriesRes, dashRes, vehiculosRes, alertasRes, driverLedgerRes,
     rankingRes, reviewsRes,
     suppliersRes, catalogRes, recordatoriosRes, rendicionVendedoresRes, sugerenciasRes, rankingSugerenciasRes,
-    pedidosProveedorRes, rankingProveedoresRes
+    pedidosProveedorRes, rankingProveedoresRes, cuentaCorrienteMayoristasRes
   ] = await Promise.all([
     q('orders','id,status,delivery_date,egg_quantity,important_note,time_restriction_manual'),
     q('customers','id'),
@@ -2982,7 +2987,8 @@ async function fetchAdminData(){
     supabase.rpc('admin_product_suggestions', {}),
     supabase.rpc('admin_suggestions_ranking', {}),
     supabase.rpc('admin_pedidos_proveedores', {}),
-    supabase.rpc('admin_ranking_proveedores', {})
+    supabase.rpc('admin_ranking_proveedores', {}),
+    supabase.rpc('admin_cuenta_corriente_mayoristas', {})
   ])
 
   const movimientos = movimientosRes.data || []
@@ -3015,8 +3021,9 @@ async function fetchAdminData(){
   const rankingSugerencias = rankingSugerenciasRes.data || []
   const pedidosProveedor = pedidosProveedorRes.data || []
   const rankingProveedores = rankingProveedoresRes.data || []
+  const cuentaCorrienteMayoristas = cuentaCorrienteMayoristasRes.data || []
 
-  return { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews,suppliers,catalogo,recordatorios,rendicionVendedores,sugerencias,rankingSugerencias,pedidosProveedor,rankingProveedores }
+  return { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews,suppliers,catalogo,recordatorios,rendicionVendedores,sugerencias,rankingSugerencias,pedidosProveedor,rankingProveedores,cuentaCorrienteMayoristas }
 }
 
 async function admin(){
@@ -3024,7 +3031,7 @@ async function admin(){
     layout(`<h2>Panel de administración</h2><div class="card">${skeletonBloque(5)}</div>`)
     adminData = await fetchAdminData()
   }
-  const { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews,suppliers,catalogo,recordatorios,rendicionVendedores,sugerencias,rankingSugerencias,pedidosProveedor,rankingProveedores } = adminData
+  const { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews,suppliers,catalogo,recordatorios,rendicionVendedores,sugerencias,rankingSugerencias,pedidosProveedor,rankingProveedores,cuentaCorrienteMayoristas } = adminData
   const capacidadBase = settingsMap.default_daily_capacity_maples || '300'
   const assignmentMode = settingsMap.assignment_mode || 'zone'
   const staffMap = Object.fromEntries(staff.map(s=>[s.user_id, s.full_name||'(sin nombre)']))
@@ -3644,6 +3651,20 @@ async function admin(){
     ${(()=>{
       const pedidoRecibiendo = pedidoProveedorRecibiendoId ? pedidosProveedor.find(o=>o.id===pedidoProveedorRecibiendoId) : null
 
+      if(pedidoProveedorGenerado){
+        return `<div style="text-align:center;padding:4px 0 8px">
+          <div style="font-size:26px">📋</div>
+          <h3 style="font-size:14px;color:#2F4D2A;margin:4px 0 2px">Pedido N° ${pedidoProveedorNumero||''} listo</h3>
+        </div>
+        <div style="background:#FFFDF7;border:1px solid #E3DCC8;border-radius:12px;padding:16px;white-space:pre-line;font-size:13px;line-height:1.9;color:#2F4D2A">${pedidoProveedorGenerado}</div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          ${(()=>{ const prov = suppliers.find(s=>s.id===proveedorPedidoSeleccionado); return prov?.contact_phone?`<button id="btn_enviar_whatsapp_proveedor" style="flex:1;background:#25D366;color:#fff;border:none;border-radius:10px;padding:10px 0;font-size:12px;font-weight:600">💬 WhatsApp</button>`:'' })()}
+          <button id="btn_imprimir_pedido_proveedor" style="flex:1;background:#FFFFFF;color:#2F4D2A;border:1px solid #E3DCC8;border-radius:10px;padding:10px 0;font-size:12px;font-weight:600">🖨️ Guardar como PDF</button>
+        </div>
+        <button id="btn_pedido_listo_volver" style="width:100%;margin-top:12px;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:11px 0;font-size:13px;font-weight:600">✅ Listo, volver a la lista</button>
+        `
+      }
+
       if(pedidoProveedorRecienRecibido){
         const r = pedidoProveedorRecienRecibido
         return `<div style="text-align:center;padding:6px 0 10px">
@@ -3803,17 +3824,46 @@ async function admin(){
       </div>
       <button id="btn_generar_pedido_proveedor" style="width:100%;margin-top:14px;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:11px 0;font-size:14px;font-weight:600">${pedidoProveedorEditandoId?'💾 Guardar cambios':'📋 Generar pedido'}</button>
       ${pedidoProveedorEditandoId?`<button id="btn_cancelar_edicion_pedido" style="width:100%;margin-top:8px;background:#FFFFFF;color:#8A8570;border:1px solid #E3DCC8;border-radius:10px;padding:9px 0;font-size:12.5px">Cancelar edición</button>`:''}
-      ${pedidoProveedorGenerado ? `
-        <div style="margin-top:16px;background:#FFFDF7;border:1px solid #E3DCC8;border-radius:12px;padding:16px;white-space:pre-line;font-size:13px;line-height:1.9;color:#2F4D2A">${pedidoProveedorNumero?`<div style="font-weight:700;margin-bottom:8px">N° de pedido: ${pedidoProveedorNumero}</div>`:''}${pedidoProveedorGenerado}</div>
-        <div style="display:flex;gap:8px;margin-top:10px">
-          ${prov?.contact_phone?`<button id="btn_enviar_whatsapp_proveedor" style="flex:1;background:#25D366;color:#fff;border:none;border-radius:10px;padding:10px 0;font-size:12px;font-weight:600">💬 WhatsApp</button>`:''}
-          <button id="btn_imprimir_pedido_proveedor" style="flex:1;background:#FFFFFF;color:#2F4D2A;border:1px solid #E3DCC8;border-radius:10px;padding:10px 0;font-size:12px;font-weight:600">🖨️ Guardar como PDF</button>
-        </div>
-      ` : ''}
       `
     })() : ''}
     `
     })()}
+  </div></div>
+  <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
+  ${accHead('cuenta_mayoristas','💼','Cuenta corriente de mayoristas', cuentaCorrienteMayoristas.filter(c=>c.saldo>0.5).length?String(cuentaCorrienteMayoristas.filter(c=>c.saldo>0.5).length):null)}
+    <p class="muted">Lo que cada comercio mayorista te debe por sus entregas ya realizadas — para cuando cobrás al entregar, en cuotas, o le das crédito.</p>
+    ${!cuentaCorrienteMayoristas.length?'<p class="muted" style="font-size:12.5px">Todavía no hay entregas facturadas a mayoristas.</p>':`
+    ${cuentaCorrienteMayoristas.map(c=>`<div class="row" style="cursor:pointer" data-ver-cuenta-mayorista="${c.customer_id}">
+      <span>${c.name}<br><small class="muted">Facturado: $${Number(c.total_facturado).toLocaleString('es-AR')} · Cobrado: $${Number(c.total_cobrado).toLocaleString('es-AR')}</small></span>
+      <b style="color:${c.saldo>0.5?'#B03A2E':'#2F4D2A'}">${c.saldo>0.5?'Debe $'+Number(c.saldo).toLocaleString('es-AR'):'✅ Al día'}</b>
+    </div>`).join('')}
+    ${cuentaCorrienteClienteSeleccionado ? (()=>{
+      const cliente = cuentaCorrienteMayoristas.find(c=>c.customer_id===cuentaCorrienteClienteSeleccionado)
+      const detalle = cuentaCorrienteDetalleCache[cuentaCorrienteClienteSeleccionado]
+      return `<div style="margin-top:12px;border-top:1px solid #F0EBDD;padding-top:12px">
+        <h4 style="font-size:13px;color:#2F4D2A;margin-bottom:8px">📜 Entregas de ${cliente?.name||''}</h4>
+        ${!detalle?'<p class="muted" style="font-size:12px">Cargando…</p>':
+          detalle.map(o=>{
+            const saldo = Number(o.monto_adeudado) - Number(o.monto_cobrado)
+            return `<div class="row" style="flex-direction:column;align-items:stretch;gap:4px">
+              <div style="display:flex;justify-content:space-between"><span>${new Date(o.delivery_date+'T00:00:00').toLocaleDateString('es-AR')}</span><b>$${Number(o.monto_adeudado).toLocaleString('es-AR')}</b></div>
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                ${saldo>0.5?`<button data-cobrar-pedido="${o.order_id}" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:6px 10px;font-size:11px;font-weight:600">💰 Cobrar (saldo $${saldo.toLocaleString('es-AR')})</button>`:`<span class="badge">✅ Pagado</span>`}
+              </div>
+              ${cobroPedidoSeleccionado===o.order_id ? `
+                <div class="grid two" style="margin-top:6px">
+                  <button type="button" id="btn_cobro_tipo_total" class="btn ${cobroTipo==='total'?'primary':'ghost'}">Total ($${saldo.toLocaleString('es-AR')})</button>
+                  <button type="button" id="btn_cobro_tipo_parcial" class="btn ${cobroTipo==='parcial'?'primary':'ghost'}">Parcial</button>
+                </div>
+                ${cobroTipo==='parcial'?`<div class="field" style="margin-top:6px"><label>Monto cobrado</label><input id="input_cobro_parcial" type="number" min="0" max="${saldo}" value="${cobroMontoParcial}"/></div>`:''}
+                <button id="btn_guardar_cobro_mayorista" style="width:100%;margin-top:6px;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:8px 0;font-size:12px;font-weight:600">Guardar cobro</button>
+              `:''}
+            </div>`
+          }).join('')
+        }
+      </div>`
+    })() : ''}
+    `}
   </div></div>
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('recordatorios','⏰','Recordatorios de sugerencias (3 días)', recordatorios.length?String(recordatorios.length):null)}
@@ -4567,6 +4617,13 @@ async function admin(){
     pedidoProveedorEditandoId = null; proveedorPedidoSeleccionado = null; pedidoProveedorCantidades = {}; pedidoProveedorGenerado = null; pedidoProveedorNumero = null
     render()
   }
+  const btnPedidoListoVolver = document.querySelector('#btn_pedido_listo_volver')
+  if(btnPedidoListoVolver) btnPedidoListoVolver.onclick = ()=>{
+    pedidoProveedorGenerado = null; pedidoProveedorNumero = null; pedidoProveedorItems = null
+    pedidoProveedorEditandoId = null; proveedorPedidoSeleccionado = null; pedidoProveedorCantidades = {}
+    adminData = null
+    render()
+  }
   document.querySelectorAll('[data-editar-pedido]').forEach(b=>b.onclick=()=>{
     const orden = pedidosProveedor.find(o=>o.id===b.dataset.editarPedido)
     if(!orden) return
@@ -4672,6 +4729,47 @@ async function admin(){
     if(error || !data?.ok){ mostrarAlerta(data?.error || error?.message || 'No se pudo registrar el pago.'); return }
     mostrarAlerta('✅ Pago de $'+monto.toLocaleString('es-AR')+' registrado')
     pagoProveedorSeleccionado = null; pagoPedidoSeleccionado = null; pagoTipo='total'; pagoMontoParcial=''
+    adminData = null
+    render()
+  }
+  document.querySelectorAll('[data-ver-cuenta-mayorista]').forEach(row=>row.onclick=async()=>{
+    const id = row.dataset.verCuentaMayorista
+    cuentaCorrienteClienteSeleccionado = cuentaCorrienteClienteSeleccionado===id ? null : id
+    cobroPedidoSeleccionado = null
+    if(cuentaCorrienteClienteSeleccionado && !cuentaCorrienteDetalleCache[id]){
+      const { data } = await supabase.rpc('admin_pedidos_mayorista_detalle', { p_customer_id: id })
+      cuentaCorrienteDetalleCache[id] = data || []
+    }
+    render()
+  })
+  document.querySelectorAll('[data-cobrar-pedido]').forEach(b=>b.onclick=(e)=>{
+    e.stopPropagation()
+    cobroPedidoSeleccionado = cobroPedidoSeleccionado===b.dataset.cobrarPedido ? null : b.dataset.cobrarPedido
+    cobroTipo = 'total'; cobroMontoParcial = ''
+    render()
+  })
+  const btnCobroTipoTotal = document.querySelector('#btn_cobro_tipo_total')
+  if(btnCobroTipoTotal) btnCobroTipoTotal.onclick = (e)=>{ e.stopPropagation(); cobroTipo='total'; render() }
+  const btnCobroTipoParcial = document.querySelector('#btn_cobro_tipo_parcial')
+  if(btnCobroTipoParcial) btnCobroTipoParcial.onclick = (e)=>{ e.stopPropagation(); cobroTipo='parcial'; render() }
+  const btnGuardarCobroMayorista = document.querySelector('#btn_guardar_cobro_mayorista')
+  if(btnGuardarCobroMayorista) btnGuardarCobroMayorista.onclick = async (e)=>{
+    e.stopPropagation()
+    const detalle = cuentaCorrienteDetalleCache[cuentaCorrienteClienteSeleccionado] || []
+    const orden = detalle.find(o=>o.order_id===cobroPedidoSeleccionado)
+    if(!orden) return
+    const saldo = Number(orden.monto_adeudado) - Number(orden.monto_cobrado)
+    let monto = saldo
+    if(cobroTipo==='parcial'){
+      monto = Number(document.querySelector('#input_cobro_parcial').value)
+      if(!monto || monto<=0){ mostrarAlerta('Ingresá un monto válido.'); return }
+      if(monto>saldo){ mostrarAlerta('Ese monto es mayor al saldo pendiente ($'+saldo.toLocaleString('es-AR')+').'); return }
+    }
+    const { data, error } = await supabase.rpc('admin_registrar_cobro_mayorista', { p_order_id: orden.order_id, p_amount: monto })
+    if(error || !data?.ok){ mostrarAlerta(data?.error || error?.message || 'No se pudo registrar el cobro.'); return }
+    mostrarAlerta('✅ Cobro de $'+monto.toLocaleString('es-AR')+' registrado')
+    cobroPedidoSeleccionado = null
+    delete cuentaCorrienteDetalleCache[cuentaCorrienteClienteSeleccionado]
     adminData = null
     render()
   }
@@ -4994,6 +5092,9 @@ window.addEventListener('popstate', (e)=>{
 })
 
 async function init(){
+  document.addEventListener('focusin', (e)=>{
+    if(e.target.tagName==='INPUT' && e.target.type==='number') e.target.select()
+  })
   const { data } = await supabase.auth.getSession()
   session = data.session
   if(session){
