@@ -3593,10 +3593,11 @@ async function admin(){
               </div>
               <p class="muted" style="font-size:11px;margin-bottom:10px">Precio actual: $${Number(p.price).toLocaleString('es-AR')}</p>
               <h4 style="font-size:13px;color:#2F4D2A;margin-bottom:6px">🏭 Precio mayorista (opcional)</h4>
-              <div style="display:flex;gap:6px;margin-bottom:10px">
+              <div style="display:flex;gap:6px;margin-bottom:6px">
                 <input id="mayorista_valor_${p.id}" type="number" min="0" value="${p.wholesale_price||''}" placeholder="Vacío = no se ofrece a mayoristas" style="flex:1"/>
                 <button data-guardar-mayorista="${p.id}" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:0 14px;font-size:12px;font-weight:600">Guardar</button>
               </div>
+              <button data-toggle-wholesale-only="${p.id}" data-wholesale-only="${p.wholesale_only}" style="width:100%;background:${p.wholesale_only?'#2F4D2A':'#FFFFFF'};color:${p.wholesale_only?'#F5EFE0':'#2F4D2A'};border:1px solid #E3DCC8;border-radius:10px;padding:8px 0;font-size:12px;font-weight:600;margin-bottom:10px">${p.wholesale_only?'🏭 Solo mayoristas (tocá para mostrar también a clientes de casa)':'Mostrar también a clientes de casa (tocá para dejarlo solo mayorista)'}</button>
               <h4 style="font-size:13px;color:#2F4D2A;margin-bottom:6px">Stock</h4>
               <div style="display:flex;gap:6px;margin-bottom:10px">
                 <input id="stock_valor_${p.id}" type="number" min="0" value="${p.stock===null?'':p.stock}" placeholder="Vacío = sin control" style="flex:1"/>
@@ -4240,6 +4241,15 @@ async function admin(){
     if(error){ mostrarAlerta('Error: '+error.message); return }
     adminData = null
     mostrarAlerta('Precio mayorista guardado ✅')
+    render()
+  })
+  document.querySelectorAll('[data-toggle-wholesale-only]').forEach(b=>b.onclick=async()=>{
+    const id = b.dataset.toggleWholesaleOnly
+    const actual = b.dataset.wholesaleOnly === 'true'
+    const { error } = await supabase.from('catalog_products').update({ wholesale_only: !actual }).eq('id', id)
+    if(error){ mostrarAlerta('Error: '+error.message); return }
+    adminData = null
+    mostrarAlerta(!actual ? '🏭 Ahora solo lo ven los mayoristas' : '✅ Ahora también lo ven los clientes de casa')
     render()
   })
   document.querySelectorAll('[data-guardar-categoria]').forEach(b=>b.onclick=async()=>{
