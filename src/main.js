@@ -697,6 +697,30 @@ function skeletonBloque(lineas){
   const n = lineas||3
   return `<div style="display:flex;flex-direction:column;gap:8px">${Array.from({length:n}).map((_,i)=>`<div class="nom-skeleton" style="height:14px;width:${i===n-1?'60%':'100%'}"></div>`).join('')}</div>`
 }
+const ORDEN_ZONAS = ['norte','sur','este','oeste']
+function detectarRestriccionHoraria(texto){
+  if(!texto) return null
+  const patrones = [
+    /despu[ée]s\s+de\s+las?\s*\d{1,2}(:\d{2})?\s*(hs?|horas?)?/i,
+    /antes\s+de\s+las?\s*\d{1,2}(:\d{2})?\s*(hs?|horas?)?/i,
+    /entre\s+las?\s*\d{1,2}(:\d{2})?\s*(hs?|horas?)?\s*y\s*(las?\s*)?\d{1,2}(:\d{2})?\s*(hs?|horas?)?/i,
+    /\bsolo\s+(por\s+la\s+)?(ma[ñn]ana|tarde|noche)\b/i
+  ]
+  for(const p of patrones){
+    const m = texto.match(p)
+    if(m) return m[0]
+  }
+  return null
+}
+function tieneRestriccionHoraria(order){
+  if(order.time_restriction_manual===true) return true
+  if(order.time_restriction_manual===false) return false
+  return !!detectarRestriccionHoraria(order.important_note)
+}
+function textoRestriccionHoraria(order){
+  if(order.time_restriction_manual===true) return order.important_note || 'Restricción marcada a mano'
+  return detectarRestriccionHoraria(order.important_note) || order.important_note || ''
+}
 function estadoVacio(mensaje, icono){
   return `<div style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;padding:28px 16px;text-align:center">
     <svg width="60" height="60" viewBox="0 0 72 72" style="margin:0 auto 10px;display:block"><circle cx="36" cy="40" r="22" fill="#EAF0DC"/><ellipse cx="36" cy="38" rx="12" ry="15" fill="#F5EFE0" stroke="#2F4D2A" stroke-width="1.5"/><circle cx="31" cy="34" r="2" fill="#2F4D2A"/><circle cx="41" cy="34" r="2" fill="#2F4D2A"/><path d="M31 43 Q36 47 41 43" stroke="#2F4D2A" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
@@ -1327,7 +1351,7 @@ let pedidoExpandido = null
 let pedidoDetalleCache = {}
 
 async function pedidos(){
-  const rows = await q('orders','id,order_number,delivery_date,status,egg_quantity,assigned_driver,assignment_locked,customers(first_name,last_name,neighborhood,street,street_number)')
+  const rows = await q('orders','id,order_number,delivery_date,status,egg_quantity,important_note,time_restriction_manual,assigned_driver,assignment_locked,customers(first_name,last_name,neighborhood,street,street_number)')
   const { data: staffRaw } = await supabase.from('staff_roles').select('user_id,full_name')
   const staffMap = Object.fromEntries((staffRaw||[]).map(s=>[s.user_id, s.full_name||'(sin nombre)']))
   const ordenados = [...rows].sort((a,b)=> new Date(b.delivery_date) - new Date(a.delivery_date))
@@ -1346,6 +1370,7 @@ async function pedidos(){
           <div style="font-weight:700;color:#2F4D2A">${c.first_name||''} ${c.last_name||''}</div>
           <div style="font-size:12px;color:#8A8570;margin-top:2px">${c.neighborhood||''} · ${c.street||''} ${c.street_number||''} · ${formatearFecha(r.delivery_date)}</div>
           <div style="font-size:12px;color:#8A8570;margin-top:2px">🚚 ${rep}${r.assignment_locked?' 🔒':''} · ${r.egg_quantity||0} huevos</div>
+          ${tieneRestriccionHoraria(r)?`<div style="font-size:11px;color:#B85C00;margin-top:2px">⏰ ${textoRestriccionHoraria(r)}</div>`:''}
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
           ${pPill(ESTADOS[r.status]||r.status)}
@@ -1373,6 +1398,14 @@ async function pedidos(){
             ${detalle.incidents.map(i=>`<div class="row"><span>${i.failure_reason||'Incidencia'}</span><span style="font-size:12px;color:#8A8570">${new Date(i.created_at).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span></div>`).join('')}
           </div>`:''}
           ${detalle.important_note?`<div class="alert warning" style="margin-top:12px">⚠️ ${detalle.important_note}</div>`:''}
+          <div style="margin-top:14px"><h3 style="font-size:14px;color:#2F4D2A;margin-bottom:8px">⏰ Restricción horaria</h3>
+            <p class="muted" style="font-size:12px;margin-bottom:8px">${detalle.time_restriction_manual===null||detalle.time_restriction_manual===undefined ? `Detección automática: ${tieneRestriccionHoraria(detalle)?`sí encontró (“${textoRestriccionHoraria(detalle)}”)`:'no encontró ninguna'}.` : detalle.time_restriction_manual ? 'Forzada manualmente como restricción.' : 'Forzada manualmente como sin restricción.'}</p>
+            <div style="display:flex;gap:6px">
+              <button data-restriccion="${r.id}" data-valor="null" style="flex:1;background:${detalle.time_restriction_manual===null||detalle.time_restriction_manual===undefined?'#2F4D2A':'#FFFFFF'};color:${detalle.time_restriction_manual===null||detalle.time_restriction_manual===undefined?'#F5EFE0':'#2F4D2A'};border:1px solid #E3DCC8;border-radius:8px;padding:7px 0;font-size:11px;font-weight:600">Automático</button>
+              <button data-restriccion="${r.id}" data-valor="true" style="flex:1;background:${detalle.time_restriction_manual===true?'#2F4D2A':'#FFFFFF'};color:${detalle.time_restriction_manual===true?'#F5EFE0':'#2F4D2A'};border:1px solid #E3DCC8;border-radius:8px;padding:7px 0;font-size:11px;font-weight:600">Forzar SÍ</button>
+              <button data-restriccion="${r.id}" data-valor="false" style="flex:1;background:${detalle.time_restriction_manual===false?'#2F4D2A':'#FFFFFF'};color:${detalle.time_restriction_manual===false?'#F5EFE0':'#2F4D2A'};border:1px solid #E3DCC8;border-radius:8px;padding:7px 0;font-size:11px;font-weight:600">Forzar NO</button>
+            </div>
+          </div>
         `}
       </div>
     </div>`
@@ -1398,6 +1431,16 @@ async function pedidos(){
     }
     render()
   })
+  document.querySelectorAll('[data-restriccion]').forEach(b=>b.onclick=async()=>{
+    const id = b.dataset.restriccion
+    const valor = b.dataset.valor==='true' ? true : b.dataset.valor==='false' ? false : null
+    const { error } = await supabase.from('orders').update({ time_restriction_manual: valor }).eq('id', id)
+    if(error){ mostrarAlerta('Error: '+error.message); return }
+    delete pedidoDetalleCache[id]
+    const { data } = await supabase.rpc('admin_order_detail', { p_order_id: id })
+    if(data?.found) pedidoDetalleCache[id] = data
+    render()
+  })
 }
 
 let repRutaFecha = null
@@ -1413,7 +1456,7 @@ async function repartidor(){
   const esFinde = diaSemana===0 || diaSemana===6
   const esPasado = fecha < hoy
 
-  const rows = await q('orders','id,status,delivery_date,important_note,assigned_driver,customer_stage,customers(id,first_name,last_name,phone,neighborhood,street,street_number,zone,city)')
+  const rows = await q('orders','id,status,delivery_date,important_note,time_restriction_manual,assigned_driver,customer_stage,customers(id,first_name,last_name,phone,neighborhood,street,street_number,zone,city)')
   const rowsDelDia = rows.filter(r=>r.delivery_date===fecha && (myRole==='admin' || r.assigned_driver===session?.user?.id))
 
   const { data: miVehiculoRaw } = await supabase.from('vehicles').select('type,brand,model,color,plate').eq('assigned_to', session.user.id).eq('active', true).maybeSingle()
@@ -1422,6 +1465,25 @@ async function repartidor(){
 
   let tituloChico = fecha===hoy ? 'Entregas de hoy' : fecha===manana ? 'Entregas de mañana' : 'Entregas'
   const subtitulo = formatearFecha(fecha)
+
+  const tarjetaCliente = (r)=>{
+    const c=r.customers||{}
+    const telLimpio=(c.phone||'').replace(/\D/g,'')
+    const direccionCompleta = `${c.street||''} ${c.street_number||''}, ${c.neighborhood||''}, ${c.city||''}`
+    const estadoLabel = r.customer_stage==='en_route' ? '🛵 En camino (avisado)' : r.customer_stage==='preparing' ? '🥚 Preparando' : ''
+    return `<div style="margin-bottom:8px">
+      <div style="font-weight:700;color:#2F4D2A">${c.street_number||''} · Cliente: ${c.first_name||''} ${c.last_name||''}</div>
+      ${telLimpio?`<a href="tel:${telLimpio}" style="font-size:12px;color:#2F4D2A;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-top:4px;background:#F5EFE0;border-radius:8px;padding:5px 10px;font-weight:600">📞 Llamar · ${c.phone}</a>`:`<div style="font-size:12px;color:#8A8570;margin-top:2px">Sin teléfono</div>`}
+      ${estadoLabel?`<div style="font-size:11px;color:#B85C00;margin-top:2px">${estadoLabel}</div>`:''}
+      ${tieneRestriccionHoraria(r)?`<div class="alert warning" style="margin-top:6px">⏰ ${textoRestriccionHoraria(r)}</div>`:''}
+      ${r.important_note && !tieneRestriccionHoraria(r)?`<div class="alert warning" style="margin-top:6px">⚠️ ${r.important_note}</div>`:''}
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <button data-delivery="${r.id}" style="flex:1;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:9px 0;font-size:11px;font-weight:600">Abrir</button>
+        <button data-maps="${encodeURIComponent(direccionCompleta)}" style="flex:1;background:#FFFFFF;color:#2F4D2A;border:1px solid #E3DCC8;border-radius:10px;padding:9px 0;font-size:11px;font-weight:600">🧭 Maps</button>
+        ${telLimpio?`<button data-avisar="${r.id}" data-tel="${telLimpio}" data-nombre="${c.first_name||''}" data-driver="${r.assigned_driver||session.user.id}" style="flex:1;background:#25D366;color:#fff;border:none;border-radius:10px;padding:9px 0;font-size:11px;font-weight:600">🛵 Voy</button>`:''}
+      </div>
+    </div>`
+  }
 
   let contenido = ''
   if(!rowsDelDia.length){
@@ -1440,48 +1502,65 @@ async function repartidor(){
       }).join('')}
     `)
   } else {
+    const pendientes = rowsDelDia.filter(r=>['pending','assigned','out_for_delivery','rescheduled'].includes(r.status))
+
+    // Cartel de restricciones horarias de hoy
+    const conRestriccion = pendientes.filter(tieneRestriccionHoraria)
+    const cartelRestricciones = conRestriccion.length ? `<div style="background:#FBE4CC;border-radius:12px;padding:12px 14px;margin-bottom:12px">
+      <div style="font-size:12px;font-weight:700;color:#B85C00;margin-bottom:6px">⏰ Restricciones horarias de hoy</div>
+      ${conRestriccion.map(r=>{ const c=r.customers||{}; return `<div style="font-size:12px;color:#7A4A0E">• ${c.first_name||''} ${c.last_name||''} (${c.neighborhood||''}) — ${textoRestriccionHoraria(r)}</div>` }).join('')}
+    </div>` : ''
+
+    // La parada actual ("Voy" ya tocado) sube arriba de todo
+    const actual = pendientes.find(r=>r.customer_stage==='en_route')
+    const tarjetaActual = actual ? `<div style="margin-bottom:2px"><span style="font-size:11px;color:#8A8570;font-weight:600">TU PARADA ACTUAL</span></div>${pCard(`
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px"><span style="font-size:11px;color:#8A8570;font-weight:600">📍 BARRIO</span></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <span style="font-size:16px;font-weight:700;color:#2F4D2A">${actual.customers?.neighborhood||'-'}</span>
+        <span style="background:#2F4D2A;color:#F5EFE0;font-size:10px;font-weight:600;padding:3px 9px;border-radius:20px">🛵 En camino</span>
+      </div>
+      ${tarjetaCliente(actual)}
+    `, 'margin-bottom:14px;border:2px solid #2F4D2A')}` : ''
+
+    // Resto: agrupado por Zona → Barrio (alfabético) → Calle (más pedidos primero)
+    const resto = pendientes.filter(r=>r!==actual)
     const grouped={}
-    rowsDelDia.filter(r=>['pending','assigned','out_for_delivery','rescheduled'].includes(r.status)).forEach(r=>{
-      const c=r.customers||{}; const b=c.neighborhood||'Sin barrio'; const s=c.street||'Sin calle';
-      grouped[b]??={}; grouped[b][s]??=[]; grouped[b][s].push(r)
+    resto.forEach(r=>{
+      const c=r.customers||{}; const z=c.zone||'sin_zona'; const b=c.neighborhood||'Sin barrio'; const s=c.street||'Sin calle';
+      grouped[z]??={}; grouped[z][b]??={}; grouped[z][b][s]??=[]; grouped[z][b][s].push(r)
     })
-    contenido = Object.entries(grouped).map(([b,streets])=>{
-      const primerCliente = Object.values(streets)[0]?.[0]?.customers||{}
-      return pCard(`
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px"><span style="font-size:11px;color:#8A8570;font-weight:600">📍 BARRIO</span></div>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
-          <span style="font-size:18px;font-weight:700;color:#2F4D2A">${b}</span>
-          ${zonaBadge(primerCliente.zone)}
-        </div>
-        <div style="font-size:12px;color:#8A8570;margin-bottom:10px">Ciudad: ${primerCliente.city||'-'}</div>
-        ${Object.entries(streets).sort((a,b)=>b[1].length-a[1].length).map(([s,rs])=>`
-          <div style="margin-top:10px;padding-top:10px;border-top:1px solid #F0EBDD">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-              <span style="font-weight:600;color:#2F4D2A;font-size:14px">Calle: ${s}</span>
-              ${pPill(`${rs.length} entrega(s)`)}
-            </div>
-            ${rs.map(r=>{
-              const c=r.customers||{}
-              const telLimpio=(c.phone||'').replace(/\D/g,'')
-              const direccionCompleta = `${c.street||''} ${c.street_number||''}, ${c.neighborhood||''}, ${c.city||''}`
-              const estadoLabel = r.customer_stage==='en_route' ? '🛵 En camino (avisado)' : r.customer_stage==='preparing' ? '🥚 Preparando' : ''
-              return `<div style="margin-bottom:8px">
-                <div style="font-weight:700;color:#2F4D2A">${c.street_number||''} · Cliente: ${c.first_name||''} ${c.last_name||''}</div>
-                ${telLimpio?`<a href="tel:${telLimpio}" style="font-size:12px;color:#2F4D2A;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-top:4px;background:#F5EFE0;border-radius:8px;padding:5px 10px;font-weight:600">📞 Llamar · ${c.phone}</a>`:`<div style="font-size:12px;color:#8A8570;margin-top:2px">Sin teléfono</div>`}
-                ${estadoLabel?`<div style="font-size:11px;color:#B85C00;margin-top:2px">${estadoLabel}</div>`:''}
-                ${r.important_note?`<div class="alert warning" style="margin-top:6px">⚠️ ${r.important_note}</div>`:''}
-                <div style="display:flex;gap:6px;margin-top:8px">
-                  <button data-delivery="${r.id}" style="flex:1;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:9px 0;font-size:11px;font-weight:600">Abrir</button>
-                  <button data-maps="${encodeURIComponent(direccionCompleta)}" style="flex:1;background:#FFFFFF;color:#2F4D2A;border:1px solid #E3DCC8;border-radius:10px;padding:9px 0;font-size:11px;font-weight:600">🧭 Maps</button>
-                  ${telLimpio?`<button data-avisar="${r.id}" data-tel="${telLimpio}" data-nombre="${c.first_name||''}" data-driver="${r.assigned_driver||session.user.id}" style="flex:1;background:#25D366;color:#fff;border:none;border-radius:10px;padding:9px 0;font-size:11px;font-weight:600">🛵 Voy</button>`:''}
-                </div>
-              </div>`
-            }).join('')}
+    const zonasOrdenadas = Object.keys(grouped).sort((a,b)=>{
+      const ia = ORDEN_ZONAS.indexOf(a), ib = ORDEN_ZONAS.indexOf(b)
+      return (ia===-1?99:ia) - (ib===-1?99:ib)
+    })
+    const contenidoResto = zonasOrdenadas.map(z=>{
+      const barrios = grouped[z]
+      const barriosOrdenados = Object.keys(barrios).sort((a,b)=>a.localeCompare(b,'es'))
+      return barriosOrdenados.map(b=>{
+        const streets = barrios[b]
+        const primerCliente = Object.values(streets)[0]?.[0]?.customers||{}
+        return pCard(`
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px"><span style="font-size:11px;color:#8A8570;font-weight:600">📍 BARRIO</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
+            <span style="font-size:18px;font-weight:700;color:#2F4D2A">${b}</span>
+            ${zonaBadge(primerCliente.zone)}
           </div>
-        `).join('')}
-      `, 'margin-bottom:10px')
+          <div style="font-size:12px;color:#8A8570;margin-bottom:10px">Ciudad: ${primerCliente.city||'-'}</div>
+          ${Object.entries(streets).sort((a,b)=>b[1].length-a[1].length).map(([s,rs])=>`
+            <div style="margin-top:10px;padding-top:10px;border-top:1px solid #F0EBDD">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                <span style="font-weight:600;color:#2F4D2A;font-size:14px">Calle: ${s}</span>
+                ${pPill(`${rs.length} entrega(s)`)}
+              </div>
+              ${rs.map(tarjetaCliente).join('')}
+            </div>
+          `).join('')}
+        `, 'margin-bottom:10px')
+      }).join('')
     }).join('')
-    if(!contenido) contenido = estadoVacio('No hay entregas pendientes para este día (puede que ya estén todas entregadas).')
+
+    contenido = cartelRestricciones + tarjetaActual + contenidoResto
+    if(!tarjetaActual && !contenidoResto) contenido = cartelRestricciones + estadoVacio('No hay entregas pendientes para este día (puede que ya estén todas entregadas).')
   }
 
   layout(`<h2>🚚 ${tituloChico}</h2>
@@ -1931,7 +2010,7 @@ async function fetchAdminData(){
     entriesRes, dashRes, vehiculosRes, alertasRes, driverLedgerRes,
     rankingRes, reviewsRes
   ] = await Promise.all([
-    q('orders','id,status,delivery_date,egg_quantity'),
+    q('orders','id,status,delivery_date,egg_quantity,important_note,time_restriction_manual'),
     q('customers','id'),
     q('subscriptions','id,payment_status,created_at,customers(first_name,last_name)'),
     q('staff_roles','user_id,role,full_name,created_at'),
@@ -2009,6 +2088,7 @@ async function admin(){
     const huevosHoy = ordersHoy.reduce((s,o)=>s+Number(o.egg_quantity||0),0)
     const ventasHoy = pagos.filter(p=>p.created_at.slice(0,10)===hoy).reduce((s,p)=>s+Number(p.amount||0),0)
     const totalAlertasHoy = (alertas.service?.length||0)+(alertas.vtv?.length||0)+(alertas.seguro?.length||0)+(alertas.carnet?.length||0)+(alertas.pagos_pendientes?.length||0)
+    const restriccionesHoy = ordersHoy.filter(o=>['pending','assigned','out_for_delivery','rescheduled'].includes(o.status) && tieneRestriccionHoraria(o)).length
     const fechaLinda = formatearFecha(hoy)
     return `<div style="background:#2F4D2A;border-radius:16px;padding:16px;margin-bottom:12px">
       <div style="color:#C9D8B0;font-size:12px;margin-bottom:2px">Resumen de hoy</div>
@@ -2020,6 +2100,7 @@ async function admin(){
         <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:9px 10px"><div style="color:#C9D8B0;font-size:11px">Vendido hoy</div><div style="color:#F5EFE0;font-size:17px;font-weight:700" data-count-target="${ventasHoy}" data-count-currency="1">$0</div></div>
       </div>
       ${totalAlertasHoy>0?`<div style="margin-top:10px;background:#E8833A;border-radius:10px;padding:8px 12px;color:#FFFFFF;font-size:12px;font-weight:600">⚠️ Tenés ${totalAlertasHoy} alerta${totalAlertasHoy===1?'':'s'} pendiente${totalAlertasHoy===1?'':'s'} en Vehículos y mantenimiento</div>`:''}
+      ${restriccionesHoy>0?`<div style="margin-top:10px;background:#B85C00;border-radius:10px;padding:8px 12px;color:#FFFFFF;font-size:12px;font-weight:600">⏰ Tenés ${restriccionesHoy} pedido${restriccionesHoy===1?'':'s'} con restricción horaria hoy</div>`:''}
     </div>`
   })()
 
