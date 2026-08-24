@@ -855,14 +855,34 @@ function mostrarConfirmacion(mensaje){
   })
 }
 function mostrarDetalleProducto(p){
+  const yaElegido = (cuenta?.mis_intereses||[]).find(mi=>mi.product_id===p.id && mi.status==='interested')
+  const yaNotificar = (cuenta?.mis_intereses||[]).find(mi=>mi.product_id===p.id && mi.status==='notify')
+  const sinStock = p.stock!==null && p.stock<=0
   const overlay = document.createElement('div')
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(20,20,18,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;animation:nomFadeIn 0.15s ease'
+  const accionHtml = yaElegido
+    ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span class="badge">✅ Confirmado</span>
+        <button id="modal_menos_${p.id}" style="width:30px;height:30px;border-radius:8px;background:#F5EFE0;color:#2F4D2A;border:none;font-size:16px;font-weight:700">−</button>
+        <b id="modal_cant_${p.id}" style="min-width:16px;text-align:center">${yaElegido.quantity}</b>
+        <button id="modal_mas_${p.id}" style="width:30px;height:30px;border-radius:8px;background:#2F4D2A;color:#F5EFE0;border:none;font-size:16px;font-weight:700">+</button>
+        <button id="modal_eliminar_${p.id}" style="width:30px;height:30px;border-radius:8px;background:#FFFFFF;color:#B03A2E;border:1px solid #E3DCC8;font-size:13px">🗑️</button>
+      </div>`
+    : sinStock
+      ? (yaNotificar ? `<span class="badge" style="background:#D3D1C7;color:#5F5E5A">🔔 Te vamos a avisar</span>` : `<button id="modal_notificar_${p.id}" style="background:#FFFFFF;color:#2F4D2A;border:1px solid #E3DCC8;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600">🔔 Avisame cuando haya</button>`)
+      : `<div style="display:flex;align-items:center;gap:10px">
+          <button id="modal_menos_${p.id}" style="width:34px;height:34px;border-radius:8px;background:#F5EFE0;color:#2F4D2A;border:none;font-size:18px;font-weight:700">−</button>
+          <b id="modal_cant_${p.id}" style="min-width:18px;text-align:center;font-size:16px">${carritoProductos[p.id]||0}</b>
+          <button id="modal_mas_${p.id}" style="width:34px;height:34px;border-radius:8px;background:#2F4D2A;color:#F5EFE0;border:none;font-size:18px;font-weight:700">+</button>
+        </div>`
   overlay.innerHTML = `<div style="background:#FFFFFF;border-radius:16px;max-width:360px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 8px 24px rgba(0,0,0,0.25);animation:nomPop 0.18s ease">
     ${p.photo_url?`<div style="width:100%;height:240px;background:#F5EFE0;border-radius:16px 16px 0 0;display:flex;align-items:center;justify-content:center;overflow:hidden"><img src="${p.photo_url}" style="max-width:100%;max-height:100%;object-fit:contain"/></div>`:`<div style="width:100%;height:180px;background:#F5EFE0;border-radius:16px 16px 0 0;display:flex;align-items:center;justify-content:center;font-size:44px">🛒</div>`}
     <div style="padding:18px 20px 20px">
       <div style="font-size:17px;font-weight:700;color:#2F4D2A;margin-bottom:8px">${p.name}</div>
       ${p.description?`<div style="font-size:13.5px;color:#5F5E5A;line-height:1.5;margin-bottom:14px;white-space:pre-line">${p.description}</div>`:''}
-      <div style="font-size:16px;font-weight:700;color:#2F4D2A;margin-bottom:16px">$${Number(p.price).toLocaleString('es-AR')} · ${p.unit_label||'unidad'}</div>
+      <div style="font-size:16px;font-weight:700;color:#2F4D2A;margin-bottom:6px">$${Number(p.price).toLocaleString('es-AR')} · ${p.unit_label||'unidad'}</div>
+      ${p.stock!==null && !sinStock?`<div style="font-size:12px;color:#8A8570;margin-bottom:14px">Quedan ${p.stock} unidades</div>`:'<div style="margin-bottom:14px"></div>'}
+      <div style="margin-bottom:16px">${accionHtml}</div>
       <button id="nom_modal_ok" style="width:100%;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:11px 0;font-size:14px;font-weight:600">Cerrar</button>
     </div>
   </div>`
@@ -870,6 +890,56 @@ function mostrarDetalleProducto(p){
   const cerrar = ()=>{ if(overlay.parentNode) document.body.removeChild(overlay) }
   overlay.querySelector('#nom_modal_ok').onclick = cerrar
   overlay.onclick = (e)=>{ if(e.target===overlay) cerrar() }
+
+  if(yaElegido){
+    overlay.querySelector(`#modal_menos_${p.id}`).onclick = async ()=>{
+      const nueva = yaElegido.quantity-1
+      const { data, error } = await supabase.rpc('customer_update_interest_quantity', { p_dni: cuenta.customer.dni, p_customer_id: cuenta.customer.id, p_interest_id: yaElegido.id, p_new_quantity: nueva })
+      if(error || !data?.ok){ mostrarAlerta(data?.error||error?.message||'No se pudo actualizar.'); return }
+      const { data: fresh } = await supabase.rpc('customer_login', { p_dni: cuenta.customer.dni })
+      if(fresh?.found) cuenta = fresh
+      cerrar(); cuentaPanel()
+    }
+    overlay.querySelector(`#modal_mas_${p.id}`).onclick = async ()=>{
+      const nueva = yaElegido.quantity+1
+      const { data, error } = await supabase.rpc('customer_update_interest_quantity', { p_dni: cuenta.customer.dni, p_customer_id: cuenta.customer.id, p_interest_id: yaElegido.id, p_new_quantity: nueva })
+      if(error || !data?.ok){ mostrarAlerta(data?.error||error?.message||'No se pudo actualizar.'); return }
+      const { data: fresh } = await supabase.rpc('customer_login', { p_dni: cuenta.customer.dni })
+      if(fresh?.found) cuenta = fresh
+      cerrar(); cuentaPanel()
+    }
+    overlay.querySelector(`#modal_eliminar_${p.id}`).onclick = async ()=>{
+      const confirmado = await mostrarConfirmacion('¿Cancelar este producto? Ya no te lo vamos a llevar.')
+      if(!confirmado) return
+      const { data, error } = await supabase.rpc('customer_cancel_interest', { p_dni: cuenta.customer.dni, p_customer_id: cuenta.customer.id, p_interest_id: yaElegido.id })
+      if(error || !data?.ok){ mostrarAlerta('No se pudo cancelar: '+(data?.error||error?.message||'')); return }
+      const { data: fresh } = await supabase.rpc('customer_login', { p_dni: cuenta.customer.dni })
+      if(fresh?.found) cuenta = fresh
+      cerrar(); cuentaPanel()
+    }
+  } else if(sinStock){
+    const btnNotificar = overlay.querySelector(`#modal_notificar_${p.id}`)
+    if(btnNotificar) btnNotificar.onclick = async ()=>{
+      const { data, error } = await supabase.rpc('customer_notify_stock', { p_dni: cuenta.customer.dni, p_customer_id: cuenta.customer.id, p_product_id: p.id })
+      if(error || !data?.ok){ mostrarAlerta('No se pudo registrar: '+(data?.error||error?.message||'')); return }
+      const { data: fresh } = await supabase.rpc('customer_login', { p_dni: cuenta.customer.dni })
+      if(fresh?.found) cuenta = fresh
+      cerrar(); cuentaPanel()
+    }
+  } else {
+    overlay.querySelector(`#modal_menos_${p.id}`).onclick = ()=>{
+      carritoProductos[p.id] = Math.max(0, (carritoProductos[p.id]||0)-1)
+      overlay.querySelector(`#modal_cant_${p.id}`).textContent = carritoProductos[p.id]||0
+      cuentaPanel()
+    }
+    overlay.querySelector(`#modal_mas_${p.id}`).onclick = ()=>{
+      const actual = carritoProductos[p.id]||0
+      if(p.stock!==null && actual+1>p.stock){ mostrarAlerta(`Solo quedan ${p.stock} unidades disponibles.`); return }
+      carritoProductos[p.id] = actual+1
+      overlay.querySelector(`#modal_cant_${p.id}`).textContent = carritoProductos[p.id]
+      cuentaPanel()
+    }
+  }
 }
 function mostrarConfeti(mensaje){
   const overlay = document.createElement('div')
