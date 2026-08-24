@@ -203,6 +203,7 @@ function iniciarPollingCuenta(){
   const idsDisponibles = (data)=> (data?.credits||[]).filter(c=>c.status==='available').map(c=>c.id).sort().join(',')
   let ultimaFirma = firmaEstado(cuenta)
   let ultimosDisponibles = idsDisponibles(cuenta)
+  let ultimoEntregadoId = cuenta?.ultimo_entregado?.id || null
   cuentaPollInterval = setInterval(async ()=>{
     if(current!=='cuenta' || !cuenta){ clearInterval(cuentaPollInterval); cuentaPollInterval=null; return }
     const { data } = await supabase.rpc('customer_login', { p_dni: cuenta.customer.dni })
@@ -210,11 +211,15 @@ function iniciarPollingCuenta(){
     const nuevaFirma = firmaEstado(data)
     const nuevosDisponibles = idsDisponibles(data)
     const huboNuevoCredito = nuevosDisponibles !== ultimosDisponibles && nuevosDisponibles.split(',').filter(Boolean).length > ultimosDisponibles.split(',').filter(Boolean).length
-    if(nuevaFirma !== ultimaFirma || huboNuevoCredito){
+    const nuevoEntregadoId = data?.ultimo_entregado?.id || null
+    const huboNuevaEntrega = nuevoEntregadoId && nuevoEntregadoId !== ultimoEntregadoId
+    if(nuevaFirma !== ultimaFirma || huboNuevoCredito || huboNuevaEntrega){
       ultimaFirma = nuevaFirma
       ultimosDisponibles = nuevosDisponibles
+      ultimoEntregadoId = nuevoEntregadoId
       cuenta = data
-      if(huboNuevoCredito) mostrarConfeti('¡Ganaste $1.000 de descuento por recomendar! Se aplica solo en tu próximo pedido.')
+      if(huboNuevaEntrega) mostrarConfeti(`¡Tu pedido fue entregado! 🥚\nGracias por elegir NÓMADES, esperamos que disfrutes tus huevos de campo.`)
+      else if(huboNuevoCredito) mostrarConfeti('¡Ganaste $1.000 de descuento por recomendar! Se aplica solo en tu próximo pedido.')
       else reproducirSonidoAviso()
       if(current==='cuenta') cuentaPanel()
     }
