@@ -691,6 +691,7 @@ if(!document.querySelector('#nom_anim_styles')){
     @keyframes nomFadeIn{from{opacity:0}to{opacity:1}}
     @keyframes nomPop{from{opacity:0;transform:scale(0.94)}to{opacity:1;transform:scale(1)}}
     @keyframes nomCaer{from{transform:translateY(0) rotate(0deg);opacity:1}to{transform:translateY(220px) rotate(220deg);opacity:0}}
+    @keyframes nomPulso{0%{box-shadow:0 0 0 0 rgba(47,77,42,0.45)}70%{box-shadow:0 0 0 10px rgba(47,77,42,0)}100%{box-shadow:0 0 0 0 rgba(47,77,42,0)}}
     .acc-body{overflow:hidden;transition:max-height 0.25s ease,padding 0.25s ease}
     .acc-arrow{display:inline-block;transition:transform 0.2s ease}
   `
@@ -727,12 +728,13 @@ function barraEstadoPedido(stage, orderStatus, outForDeliveryAt, enRouteAt){
     { icono:'<span style="display:inline-block;transform:scaleX(-1)">🛵</span>', label:'Hacia tu casa', activo: stage==='en_route' },
     { icono:'🏠', label:'Entregado', activo: false }
   ]
+  const idxActual = etapas.reduce((acc,e,i)=> e.activo ? i : acc, -1)
   return `<div style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;padding:14px 16px;margin-bottom:10px">
     <div style="font-size:13px;font-weight:700;color:#2F4D2A;margin-bottom:12px">Estado de tu pedido</div>
     <div style="display:flex;align-items:flex-start">
       ${etapas.map((e,i)=>`<div style="flex:1;text-align:center;position:relative">
         ${i>0?`<div style="position:absolute;top:16px;left:-50%;width:100%;height:2px;background:${e.activo?'#8FAE6B':'#E3DCC8'}"></div>`:''}
-        <div style="width:32px;height:32px;border-radius:50%;margin:0 auto 6px;position:relative;z-index:1;background:${e.activo?'#2F4D2A':'#F1EFE8'};display:flex;align-items:center;justify-content:center;font-size:14px">${e.icono}</div>
+        <div style="width:32px;height:32px;border-radius:50%;margin:0 auto 6px;position:relative;z-index:1;background:${e.activo?'#2F4D2A':'#F1EFE8'};display:flex;align-items:center;justify-content:center;font-size:14px${i===idxActual?';animation:nomPulso 1.6s ease-out infinite':''}">${e.icono}</div>
         <span style="font-size:10.5px;color:${e.activo?'#2F4D2A':'#8A8570'}">${e.label}</span>
       </div>`).join('')}
     </div>
