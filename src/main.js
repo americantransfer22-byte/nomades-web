@@ -407,7 +407,7 @@ function cuentaLogin(){
   document.querySelector('#btn_dni_login').onclick = async ()=>{
     const dni = document.querySelector('#dni_login').value.trim()
     const box = document.querySelector('#err_login')
-    if(!/^\d{7,8}$/.test(dni)){ box.textContent='Ingresá un DNI válido (7 u 8 números, sin puntos).'; box.style.display='block'; return }
+    if(!/^(\d{7,8}|\d{11})$/.test(dni)){ box.textContent='Ingresá tu DNI (7 u 8 números) o CUIT (11), sin puntos ni guiones.'; box.style.display='block'; return }
     const { data, error } = await supabase.rpc('customer_login', { p_dni: dni })
     if(error || !data?.found){ box.textContent='No encontramos ese DNI registrado. Si sos nuevo, suscribite primero.'; box.style.display='block'; return }
     cuenta = data; current='cuenta'; render()
@@ -2088,7 +2088,7 @@ async function mayoristaSignupForm(){
 
 function mayoristaLogin(){
   layout(`<h2>🏭 Acceso mayoristas</h2><div class="card">
-    <p class="muted">Ingresá con el DNI de tu cuenta mayorista NÓMADES.</p>
+    <p class="muted">Ingresá con el DNI o CUIT de tu cuenta mayorista NÓMADES.</p>
     <div class="field"><label>DNI</label><input id="dni_mayorista" inputmode="numeric" placeholder="Sin puntos"/></div>
     <div id="err_mayorista_login" class="alert danger" style="display:none"></div>
     <button class="btn primary" id="btn_dni_mayorista" style="width:100%">Entrar</button>
@@ -2098,7 +2098,7 @@ function mayoristaLogin(){
   document.querySelector('#btn_dni_mayorista').onclick = async ()=>{
     const dni = document.querySelector('#dni_mayorista').value.trim()
     const box = document.querySelector('#err_mayorista_login')
-    if(!/^\d{7,8}$/.test(dni)){ box.textContent='Ingresá un DNI válido (7 u 8 números, sin puntos).'; box.style.display='block'; return }
+    if(!/^(\d{7,8}|\d{11})$/.test(dni)){ box.textContent='Ingresá tu DNI (7 u 8 números) o CUIT (11), sin puntos ni guiones.'; box.style.display='block'; return }
     const { data, error } = await supabase.rpc('customer_login', { p_dni: dni })
     if(error || !data?.found){ box.textContent='No encontramos ese DNI.'; box.style.display='block'; return }
     if(data.customer.customer_type !== 'mayorista'){ box.textContent='Este DNI no está registrado como cuenta mayorista. Si te parece un error, consultá con NÓMADES.'; box.style.display='block'; return }
@@ -2470,7 +2470,7 @@ async function vendedor(){
     if(cityEl) cityEl.onchange = ()=> e.city = cityEl.value
     document.querySelector('#btn_confirmar_venta').onclick = async ()=>{
       const errBox = document.querySelector('#err_venta')
-      if(!e.first_name.trim() || !e.last_name.trim() || !/^\d{7,8}$/.test(e.dni.trim())){ errBox.textContent='Completá nombre, apellido y un DNI válido.'; errBox.style.display='block'; return }
+      if(!e.first_name.trim() || !e.last_name.trim() || !/^(\d{7,8}|\d{11})$/.test(e.dni.trim())){ errBox.textContent='Completá nombre, apellido y un DNI o CUIT válido.'; errBox.style.display='block'; return }
       if(!e.zone){ errBox.textContent='Elegí una zona.'; errBox.style.display='block'; return }
       const total = totalCant()
       if(total<=0){ errBox.textContent='Elegí al menos un maple.'; errBox.style.display='block'; return }
@@ -5562,7 +5562,7 @@ async function admin(){
   if(btnBuscarDniManual) btnBuscarDniManual.onclick = async ()=>{
     const dni = document.querySelector('#buscar_dni_manual').value.trim()
     const resultBox = document.querySelector('#resultado_dni_manual')
-    if(!/^\d{7,8}$/.test(dni)){ resultBox.innerHTML = '<div class="alert danger">Ingresá un DNI válido (7 u 8 números).</div>'; return }
+    if(!/^(\d{7,8}|\d{11})$/.test(dni)){ resultBox.innerHTML = '<div class="alert danger">Ingresá un DNI (7 u 8 números) o CUIT (11).</div>'; return }
     const { data, error } = await supabase.rpc('admin_buscar_cliente_por_dni', { p_dni: dni })
     if(error || !data?.found){ resultBox.innerHTML = '<div class="alert danger">No se encontró ningún cliente con ese DNI.</div>'; return }
     resultBox.innerHTML = `<div class="alert info" style="margin-top:10px">
@@ -6281,7 +6281,7 @@ async function telefonico(){
     document.querySelector('#tel_buscar').onclick = async ()=>{
       const dni = document.querySelector('#tel_dni').value.trim()
       const box = document.querySelector('#tel_err_dni')
-      if(!/^\d{7,8}$/.test(dni)){ box.textContent='El DNI tiene que tener 7 u 8 números, sin puntos.'; box.style.display='block'; return }
+      if(!/^(\d{7,8}|\d{11})$/.test(dni)){ box.textContent='Ingresá DNI (7 u 8 números) o CUIT (11), sin puntos.'; box.style.display='block'; return }
       telState.dni = dni
       const { data, error } = await supabase.rpc('telefono_buscar_cliente', { p_dni: dni })
       if(error || !data?.ok){ box.textContent='No se pudo buscar: '+(data?.error||error?.message||''); box.style.display='block'; return }
