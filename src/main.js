@@ -1495,19 +1495,22 @@ function horaAR(iso){
 }
 
 function barraEstadoPedido(stage, orderStatus, outForDeliveryAt, enRouteAt){
-  const enReparto = orderStatus==='out_for_delivery' || stage==='en_route'
-  let rango = 0
-  if(stage==='preparing') rango = 1
-  if(stage==='prepared') rango = 2
-  if(enReparto) rango = 3
-  if(stage==='en_route') rango = 4
-  if(orderStatus==='delivered') rango = 5
+  const enReparto = orderStatus==='out_for_delivery' || stage==='en_route' || stage==='llegado'
+  let rango = 1
+  if(stage==='preparing') rango = 2
+  if(stage==='prepared') rango = 3
+  if(enReparto) rango = 4
+  if(stage==='en_route' || stage==='llegado') rango = 5
+  if(stage==='llegado') rango = 6
+  if(orderStatus==='delivered') rango = 7
   const etapas = [
-    { icono:'🥚', label:'Preparando', activo: rango>=1 },
-    { icono:'📦', label:'Preparado', activo: rango>=2 },
-    { icono:'🚚', label:'En reparto', activo: rango>=3 },
-    { icono:'<span style="display:inline-block;transform:scaleX(-1)" class="nom-moto-camina">🛵</span>', label:'Hacia tu casa', activo: rango>=4 },
-    { icono:'🏠', label:'Entregado', activo: rango>=5 }
+    { icono:'✓', label:'Confirmado', activo: rango>=1 },
+    { icono:'🥚', label:'Preparando', activo: rango>=2 },
+    { icono:'📦', label:'Listo', activo: rango>=3 },
+    { icono:'🚚', label:'En reparto', activo: rango>=4 },
+    { icono:'<span style="display:inline-block;transform:scaleX(-1)" class="nom-moto-camina">🛵</span>', label:'Yendo', activo: rango>=5 },
+    { icono:'📍', label:'Llegó', activo: rango>=6 },
+    { icono:'🏠', label:'Entregado', activo: rango>=7 }
   ]
   const idxActual = Math.max(0, rango-1)
   return `<div style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;padding:14px 12px;margin-bottom:10px">
@@ -1948,137 +1951,191 @@ async function mayoristaLanding(){
 }
 
 const mayoristaAlta = { first_name:'', last_name:'', dni:'', phone:'', email:'', street:'', street_number:'', neighborhood:'', city:'Rosario', province:'Santa Fe', zone:'', carrito:{}, frequency:'weekly', payment_method:'transfer' }
+const CONDICIONES_IVA = [
+  { value:'responsable_inscripto', label:'Responsable inscripto' },
+  { value:'monotributo', label:'Monotributista' },
+  { value:'consumidor_final', label:'Consumidor final' }
+]
+const CONDICION_IVA_LABEL = {
+  responsable_inscripto:'Responsable inscripto',
+  monotributo:'Monotributista',
+  consumidor_final:'Consumidor final'
+}
+
 async function mayoristaSignupForm(){
   const c = mayoristaAlta
-  const { data: planesRaw } = await supabase.from('plan_prices').select('id,egg_quantity,price,grade,unidad').eq('active', true).eq('customer_type','mayorista').order('egg_quantity')
-  const planes = planesRaw || []
-  const { data: prodRaw } = await supabase.from('catalog_products')
-    .select('id,name,photo_url,unit_label,units_per_bulto,price,wholesale_price,category')
-    .eq('active', true).order('name')
-  const productosAlta = (prodRaw||[]).map(p=>({ ...p, precio: p.wholesale_price || p.price }))
-  c.productos = c.productos || {}
-  const totalCant = ()=>Object.entries(c.carrito).reduce((s,[id,n])=>{ const pl=planes.find(p=>p.id===id); return s + (pl?Number(pl.egg_quantity):0)*n }, 0)
-  const totalPrecio = ()=>Object.entries(c.carrito).reduce((s,[id,n])=>{ const pl=planes.find(p=>p.id===id); return s+(pl?Number(pl.price):0)*n }, 0)
-  const totalMaples = ()=>Object.values(c.carrito).reduce((s,n)=>s+Number(n||0),0)
-  const totalProductos = ()=>Object.entries(c.productos||{}).reduce((s,[id,n])=>{
-    const p = productosAlta.find(x=>x.id===id); return s + (p?Number(p.precio):0)*n
-  }, 0)
+  c.condicion_iva = c.condicion_iva || ''
+  c.fiscal_igual = c.fiscal_igual !== false
   let enviando = false
+
   const dibujar = ()=>{
-    layout(`<h2>🏭 Alta de cuenta mayorista</h2>
-    <div class="card">
-      <div class="grid two">
-        <div class="field"><label>Nombre / razón social *</label><input id="ma_first_name" value="${c.first_name}"/></div>
-        <div class="field"><label>Apellido *</label><input id="ma_last_name" value="${c.last_name}"/></div>
-        <div class="field"><label>DNI/CUIT *</label><input id="ma_dni" inputmode="numeric" value="${c.dni}" placeholder="Sin puntos"/></div>
-        <div class="field"><label>Teléfono *</label><input id="ma_phone" inputmode="tel" value="${c.phone}"/></div>
-      </div>
-      <div class="field"><label>Email</label><input id="ma_email" type="email" value="${c.email}"/></div>
-      <div class="grid two">
-        <div class="field"><label>Calle</label><input id="ma_street" value="${c.street}"/></div>
-        <div class="field"><label>Número</label><input id="ma_street_number" value="${c.street_number}"/></div>
-      </div>
-      <div class="field"><label>Barrio / referencia</label><input id="ma_neighborhood" value="${c.neighborhood}"/></div>
-      <div class="grid two">
-        <div class="field"><label>Ciudad</label><input id="ma_city" value="${c.city}"/></div>
-        <div class="field"><label>Provincia</label><input id="ma_province" value="${c.province}"/></div>
-      </div>
-    </div>
-    <div class="card"><h3>Tu pedido de huevos</h3>
-      ${planes.length? planes.map(pl=>{
-        const etiqueta = pl.grade ? (GRADO_LABEL[pl.grade]||pl.grade) : `${pl.egg_quantity} huevos`
-        const unidadTxt = pl.unidad==='caja'?'caja':pl.unidad==='cajon'?'cajón':'maple'
-        const porHuevo = pl.egg_quantity ? Math.round(Number(pl.price)/pl.egg_quantity) : 0
-        return `<div style="background:${NOM.superficie};border:1px solid ${NOM.borde};border-radius:14px;padding:12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:11px">
-          <div style="flex:1;min-width:0">
-            <div style="font-size:14px;font-weight:500;color:${NOM.tinta}">${etiqueta}</div>
-            <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">${unidadTxt} de ${pl.egg_quantity} · $${Number(pl.price).toLocaleString('es-AR')}</div>
-            ${porHuevo?`<div style="font-size:11.5px;color:${NOM.verde};margin-top:2px">$${porHuevo.toLocaleString('es-AR')} por huevo</div>`:''}
-          </div>
-          <span style="display:flex;align-items:center;gap:8px;flex-shrink:0">
-            <button type="button" data-ma-menos="${pl.id}" class="btn ghost" style="padding:7px 14px">−</button>
-            <b style="min-width:22px;text-align:center;display:inline-block">${c.carrito[pl.id]||0}</b>
-            <button type="button" data-ma-mas="${pl.id}" class="btn ghost" style="padding:7px 14px">+</button>
-          </span>
-        </div>`
-      }).join('') : `<div style="background:${NOM.verdeClaro};border-radius:12px;padding:14px;text-align:center">
-        <p style="margin:0;font-size:13px;color:#5F5E5A;line-height:1.5">Todavía no publicamos la lista mayorista. Escribinos y te la pasamos por WhatsApp.</p>
-      </div>`}
-      <div class="alert info" style="margin-top:4px;font-size:12px">Todos los maples son de 30 huevos.</div>
-    </div>
-
-    ${productosAlta.length?`<div class="card"><h3>Almacén (precio mayorista)</h3>
-      <p class="muted" style="margin-bottom:10px;font-size:12.5px">Sumalos al mismo pedido y viajan con los huevos.</p>
-      ${productosAlta.map(p=>{
-        const cargado = (c.productos[p.id]||0) > 0
-        return `<div style="background:${NOM.superficie};border:1px solid ${NOM.borde};${cargado?`border-left:3px solid ${NOM.verde};border-radius:0 14px 14px 0`:'border-radius:14px'};padding:11px 12px;margin-bottom:8px;display:flex;gap:11px;align-items:center">
-          ${p.photo_url
-            ? `<img src="${p.photo_url}" alt="" style="width:44px;height:44px;border-radius:10px;object-fit:cover;flex-shrink:0;background:${NOM.verdeClaro}"/>`
-            : `<div style="width:44px;height:44px;border-radius:10px;background:${NOM.verdeClaro};display:flex;align-items:center;justify-content:center;flex-shrink:0">${ico('carrito',19,NOM.verde)}</div>`}
-          <div style="flex:1;min-width:0">
-            <div style="font-size:13.5px;font-weight:500;color:${NOM.tinta};line-height:1.3">${p.name}</div>
-            <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">$${Number(p.precio).toLocaleString('es-AR')} · ${p.unit_label||'unidad'}${p.units_per_bulto>1?` · bulto ${p.units_per_bulto}`:''}</div>
-          </div>
-          <span style="display:flex;align-items:center;gap:8px;flex-shrink:0">
-            <button type="button" data-ma-prod-menos="${p.id}" class="btn ghost" style="padding:7px 13px">−</button>
-            <b style="min-width:22px;text-align:center;display:inline-block">${c.productos[p.id]||0}</b>
-            <button type="button" data-ma-prod-mas="${p.id}" class="btn ghost" style="padding:7px 13px">+</button>
-          </span>
-        </div>`
-      }).join('')}
-    </div>`:''}
+    layout(`<h2>Creá tu cuenta mayorista</h2>
+    <p class="muted" style="margin:-6px 0 14px;font-size:12.5px">Un minuto y ya podés comprar con precio mayorista.</p>
 
     <div class="card">
-      <div class="alert info" style="margin-top:0"><b>${totalMaples()} maple(s) · ${totalCant()} huevos</b> · $${(totalPrecio()+totalProductos()).toLocaleString('es-AR')}${totalProductos()>0?`<br><small>Huevos $${totalPrecio().toLocaleString('es-AR')} · Almacén $${totalProductos().toLocaleString('es-AR')}</small>`:''}</div>
-      <div class="field" style="margin-top:10px"><label>Frecuencia</label><div class="grid three">${Object.entries(FRECUENCIAS).map(([v,l])=>`<button type="button" data-ma-frecuencia="${v}" class="btn ${c.frequency===v?'primary':'ghost'}">${l}</button>`).join('')}</div></div>
-      <div class="field"><label>Forma de pago</label><div class="grid three">
-        <button type="button" data-ma-metodo="transfer" class="btn ${c.payment_method==='transfer'?'primary':'ghost'}">Transferencia</button>
-        <button type="button" data-ma-metodo="mp" class="btn ${c.payment_method==='mp'?'primary':'ghost'}">Mercado Pago</button>
-        <button type="button" data-ma-metodo="cash" class="btn ${c.payment_method==='cash'?'primary':'ghost'}">Efectivo</button>
-      </div></div>
+      <h3>Cómo lo conocen</h3>
+      <div class="field"><label>Nombre del comercio *</label><input id="ma_nombre_comercial" value="${c.nombre_comercial||''}" placeholder="Ej: Granja de las Flores"/></div>
+      <div class="field"><label>Rubro</label><input id="ma_rubro" value="${c.rubro||''}" placeholder="Ej: almacén, kiosco, supermercado"/></div>
     </div>
-    <div id="err_alta_mayorista" class="alert danger" style="display:none"></div>
-    <button class="btn primary" id="btn_confirmar_alta_mayorista" style="width:100%" ${enviando?'disabled':''}>${enviando?'Enviando…':'Confirmar y crear mi cuenta'}</button>
+
+    <div class="card">
+      <h3>Cómo factura</h3>
+      <p class="muted" style="font-size:12.5px;margin:0 0 12px">Los datos que van en el comprobante. Pueden ser distintos al nombre del comercio.</p>
+      <div class="grid two">
+        <div class="field"><label>Nombre o razón social *</label><input id="ma_first_name" value="${c.first_name||''}"/></div>
+        <div class="field"><label>Apellido</label><input id="ma_last_name" value="${c.last_name||''}"/></div>
+      </div>
+      <div class="field"><label>CUIT o DNI *</label><input id="ma_dni" inputmode="numeric" value="${c.dni||''}" placeholder="Sin puntos ni guiones"/></div>
+      <div class="field"><label>Condición ante el IVA *</label>
+        <div class="grid three">
+          ${CONDICIONES_IVA.map(x=>`<button type="button" class="btn ${c.condicion_iva===x.value?'primary':'ghost'}" data-ma-iva="${x.value}" style="font-size:12px;padding:11px 6px">${x.label}</button>`).join('')}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Dónde entregamos</h3>
+      <div class="grid two">
+        <div class="field"><label>Calle *</label><input id="ma_street" value="${c.street||''}"/></div>
+        <div class="field"><label>Número *</label><input id="ma_street_number" value="${c.street_number||''}"/></div>
+      </div>
+      <div class="field"><label>Barrio o referencia</label><input id="ma_neighborhood" value="${c.neighborhood||''}"/></div>
+      <div class="grid two">
+        <div class="field"><label>Ciudad</label><input id="ma_city" value="${c.city||'Rosario'}"/></div>
+        <div class="field"><label>Provincia</label><input id="ma_province" value="${c.province||'Santa Fe'}"/></div>
+      </div>
+      <div class="field"><label>Zona *</label>
+        <div class="grid two">${ZONAS.map(z=>`<button type="button" class="btn ${c.zone===z.value?'primary':'ghost'}" data-ma-zona="${z.value}">${z.label}</button>`).join('')}</div>
+      </div>
+      <div class="field"><label>¿Cuándo recibís mercadería?</label><input id="ma_recepcion" value="${c.recepcion_nota||''}" placeholder="Ej: martes y viernes de 8 a 11"/></div>
+
+      <button type="button" data-ma-fiscal-igual style="width:100%;background:${c.fiscal_igual?NOM.verdeClaro:'#FFFFFF'};border:1px solid ${c.fiscal_igual?NOM.verde:NOM.borde};border-radius:11px;padding:12px;display:flex;align-items:center;gap:10px;margin-top:6px;text-align:left">
+        ${ico(c.fiscal_igual?'check':'cerrar', 18, c.fiscal_igual?NOM.verde:'#A8A89E')}
+        <span style="font-size:12.5px;color:${NOM.tinta}">El domicilio fiscal es el mismo</span>
+      </button>
+
+      ${!c.fiscal_igual?`<div style="border-top:1px solid ${NOM.borde};margin-top:14px;padding-top:14px">
+        <p style="margin:0 0 10px;font-size:13px;font-weight:500;color:${NOM.tinta}">Domicilio fiscal</p>
+        <div class="grid two">
+          <div class="field"><label>Calle</label><input id="ma_f_street" value="${c.fiscal_street||''}"/></div>
+          <div class="field"><label>Número</label><input id="ma_f_number" value="${c.fiscal_street_number||''}"/></div>
+        </div>
+        <div class="grid two">
+          <div class="field"><label>Ciudad</label><input id="ma_f_city" value="${c.fiscal_city||''}"/></div>
+          <div class="field"><label>Provincia</label><input id="ma_f_province" value="${c.fiscal_province||''}"/></div>
+        </div>
+        <div class="field"><label>Código postal</label><input id="ma_f_cp" value="${c.fiscal_postal_code||''}"/></div>
+      </div>`:''}
+    </div>
+
+    <div class="card">
+      <h3>Con quién hablamos</h3>
+      <div class="field"><label>Teléfono del local *</label><input id="ma_tel_local" inputmode="tel" value="${c.telefono_local||''}"/></div>
+      <div class="grid two">
+        <div class="field"><label>Nombre del dueño o encargado</label><input id="ma_contacto_nombre" value="${c.contacto_nombre||''}"/></div>
+        <div class="field"><label>Su teléfono</label><input id="ma_contacto_tel" inputmode="tel" value="${c.contacto_telefono||''}"/></div>
+      </div>
+      <div class="field"><label>Email para comprobantes</label><input id="ma_email" type="email" value="${c.email||''}"/></div>
+    </div>
+
+    <div class="card">
+      <div style="background:${NOM.verdeClaro};border-radius:12px;padding:14px">
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          ${ico('check',19,NOM.verde)}
+          <div>
+            <div style="font-size:13.5px;font-weight:500;color:${NOM.tinta}">Después de crear la cuenta</div>
+            <div style="font-size:12.5px;color:#5F5E5A;line-height:1.5;margin-top:3px">Entrás a la tienda con precios mayoristas y armás tu pedido: huevos por tamaño, almacén y todo lo que vayamos sumando.</div>
+          </div>
+        </div>
+      </div>
+      <div id="err_alta_mayorista" class="alert danger" style="display:none;margin-top:12px"></div>
+    </div>
+
+    <button class="btn primary" id="btn_confirmar_alta_mayorista" style="width:100%" ${enviando?'disabled':''}>${enviando?'Creando…':'Crear mi cuenta'}</button>
     <button class="btn ghost" id="btn_volver_landing" style="width:100%;margin-top:8px">← Volver</button>`)
-    const ids = ['first_name','last_name','dni','phone','email','street','street_number','neighborhood','city','province']
-    ids.forEach(id=>{ const el=document.querySelector('#ma_'+id); if(el) el.oninput=()=>c[id]=el.value })
-    document.querySelectorAll('[data-ma-mas]').forEach(b=>b.onclick=()=>{ c.carrito[b.dataset.maMas]=(c.carrito[b.dataset.maMas]||0)+1; dibujar() })
-    document.querySelectorAll('[data-ma-menos]').forEach(b=>b.onclick=()=>{ if(c.carrito[b.dataset.maMenos]>0) c.carrito[b.dataset.maMenos]--; dibujar() })
-    document.querySelectorAll('[data-ma-frecuencia]').forEach(b=>b.onclick=()=>{ c.frequency=b.dataset.maFrecuencia; dibujar() })
-    document.querySelectorAll('[data-ma-metodo]').forEach(b=>b.onclick=()=>{ c.payment_method=b.dataset.maMetodo; dibujar() })
-    document.querySelectorAll('[data-ma-prod-mas]').forEach(b=>b.onclick=()=>{ const id=b.dataset.maProdMas; c.productos[id]=(c.productos[id]||0)+1; dibujar() })
-    document.querySelectorAll('[data-ma-prod-menos]').forEach(b=>b.onclick=()=>{ const id=b.dataset.maProdMenos; if(c.productos[id]>0) c.productos[id]--; dibujar() })
+
+    const guardarCampos = ()=>{
+      const g = (id)=>document.querySelector(id)?.value.trim()||''
+      c.nombre_comercial = g('#ma_nombre_comercial')
+      c.rubro = g('#ma_rubro')
+      c.first_name = g('#ma_first_name')
+      c.last_name = g('#ma_last_name')
+      c.dni = g('#ma_dni')
+      c.street = g('#ma_street')
+      c.street_number = g('#ma_street_number')
+      c.neighborhood = g('#ma_neighborhood')
+      c.city = g('#ma_city')
+      c.province = g('#ma_province')
+      c.recepcion_nota = g('#ma_recepcion')
+      c.telefono_local = g('#ma_tel_local')
+      c.contacto_nombre = g('#ma_contacto_nombre')
+      c.contacto_telefono = g('#ma_contacto_tel')
+      c.email = g('#ma_email')
+      if(!c.fiscal_igual){
+        c.fiscal_street = g('#ma_f_street')
+        c.fiscal_street_number = g('#ma_f_number')
+        c.fiscal_city = g('#ma_f_city')
+        c.fiscal_province = g('#ma_f_province')
+        c.fiscal_postal_code = g('#ma_f_cp')
+      }
+    }
+
+    document.querySelectorAll('[data-ma-iva]').forEach(b=>b.onclick=()=>{ guardarCampos(); c.condicion_iva = b.dataset.maIva; dibujar() })
+    document.querySelectorAll('[data-ma-zona]').forEach(b=>b.onclick=()=>{ guardarCampos(); c.zone = b.dataset.maZona; dibujar() })
+    const btnFiscal = document.querySelector('[data-ma-fiscal-igual]')
+    if(btnFiscal) btnFiscal.onclick = ()=>{ guardarCampos(); c.fiscal_igual = !c.fiscal_igual; dibujar() }
     document.querySelector('#btn_volver_landing').onclick = ()=>{ current='mayorista-landing'; render() }
+
     document.querySelector('#btn_confirmar_alta_mayorista').onclick = async ()=>{
+      guardarCampos()
       const box = document.querySelector('#err_alta_mayorista')
-      if(!c.first_name.trim() || !c.last_name.trim()){ box.textContent='Falta el nombre.'; box.style.display='block'; return }
-      if(!/^(\d{7,8}|\d{11})$/.test(c.dni.trim())){ box.textContent='Ingresá el DNI (7 u 8 números) o el CUIT (11 números), sin puntos ni guiones.'; box.style.display='block'; return }
-      if(!c.phone.trim()){ box.textContent='Falta el teléfono.'; box.style.display='block'; return }
-      if(totalCant()<=0){ box.textContent='Elegí al menos un tamaño de maple.'; box.style.display='block'; return }
+      const fallar = (msg)=>{ box.textContent = msg; box.style.display='block'; box.scrollIntoView({behavior:'smooth',block:'center'}) }
+
+      if(!c.nombre_comercial) return fallar('Poné el nombre del comercio.')
+      if(!c.first_name) return fallar('Falta el nombre o razón social para facturar.')
+      if(!/^(\d{7,8}|\d{11})$/.test(c.dni)) return fallar('Ingresá el CUIT (11 números) o el DNI (7 u 8), sin puntos ni guiones.')
+      if(!c.condicion_iva) return fallar('Elegí la condición ante el IVA.')
+      if(!c.street || !c.street_number) return fallar('Falta la dirección donde entregamos.')
+      if(!c.zone) return fallar('Elegí tu zona.')
+      if(!c.telefono_local) return fallar('Falta el teléfono del local.')
+
       box.style.display='none'
       enviando = true; dibujar()
-      const breakdown = Object.entries(c.carrito).filter(([,q])=>q>0).map(([pid,qty])=>{
-        const pl = planes.find(p=>p.id===pid) || {}
-        return { size: Number(pl.egg_quantity||30), qty, grade: pl.grade || null, plan_id: pid }
-      })
+
       const { data, error } = await supabase.rpc('mayorista_signup', {
-        p_customer: { first_name:c.first_name.trim(), last_name:c.last_name.trim(), dni:c.dni.trim(), phone:c.phone.trim(), email:c.email.trim(), street:c.street.trim(), street_number:c.street_number.trim(), neighborhood:c.neighborhood.trim(), city:c.city.trim()||'Rosario', province:c.province.trim()||'Santa Fe', zone:c.zone },
-        p_subscription: { frequency:c.frequency, egg_quantity: totalCant(), payment_method:c.payment_method, plan_breakdown: breakdown, price: totalPrecio() }
+        p_customer: {
+          first_name: c.first_name, last_name: c.last_name,
+          dni: c.dni, phone: c.telefono_local,
+          email: c.email, street: c.street, street_number: c.street_number,
+          neighborhood: c.neighborhood, city: c.city || 'Rosario',
+          province: c.province || 'Santa Fe', zone: c.zone,
+          nombre_comercial: c.nombre_comercial, rubro: c.rubro,
+          condicion_iva: c.condicion_iva,
+          telefono_local: c.telefono_local,
+          contacto_nombre: c.contacto_nombre, contacto_telefono: c.contacto_telefono,
+          email_comprobantes: c.email,
+          recepcion_nota: c.recepcion_nota,
+          fiscal_igual_local: c.fiscal_igual,
+          fiscal_street: c.fiscal_igual ? null : c.fiscal_street,
+          fiscal_street_number: c.fiscal_igual ? null : c.fiscal_street_number,
+          fiscal_city: c.fiscal_igual ? null : c.fiscal_city,
+          fiscal_province: c.fiscal_igual ? null : c.fiscal_province,
+          fiscal_postal_code: c.fiscal_igual ? null : c.fiscal_postal_code
+        },
+        p_subscription: { frequency:'weekly', egg_quantity: 0, payment_method:'cash', plan_breakdown: [], price: 0 }
       })
+
       enviando = false
-      if(error || !data?.ok){ box.textContent = data?.error || 'No pudimos crear tu cuenta. Probá de nuevo.'; box.style.display='block'; dibujar(); return }
-      const prodElegidos = Object.entries(c.productos||{}).filter(([,q])=>q>0)
-      if(prodElegidos.length && data.customer_id){
-        for(const [pid, qty] of prodElegidos){
-          await supabase.from('customer_product_interest').insert({
-            customer_id: data.customer_id, product_id: pid, quantity: qty,
-            target_order_id: data.order_id || null, status: 'pendiente'
-          })
-        }
+      if(error || !data?.ok){
+        dibujar()
+        const b2 = document.querySelector('#err_alta_mayorista')
+        if(b2){ b2.textContent = data?.error || 'No pudimos crear tu cuenta. Probá de nuevo.'; b2.style.display='block' }
+        return
       }
-      const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni.trim() })
+
+      const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
       if(fresh?.found) cuenta = fresh
-      mostrarAlerta(data.status==='active' ? '✅ Cuenta creada. Próxima entrega: '+data.next_delivery_date : '🕒 Cuenta creada — quedaste en lista de espera para ese volumen, te contactamos apenas se libere lugar.')
+      mostrarAlerta(`¡Bienvenido${(c.nombre_comercial||'').trim()?', '+c.nombre_comercial.trim():''}! Ya podés armar tu primer pedido.`)
       current = 'mayorista-panel'
       render()
     }
@@ -2086,60 +2143,19 @@ async function mayoristaSignupForm(){
   dibujar()
 }
 
-function mayoristaLogin(){
-  layout(`<h2>🏭 Acceso mayoristas</h2><div class="card">
-    <p class="muted">Ingresá con el DNI o CUIT de tu cuenta mayorista NÓMADES.</p>
-    <div class="field"><label>DNI</label><input id="dni_mayorista" inputmode="numeric" placeholder="Sin puntos"/></div>
-    <div id="err_mayorista_login" class="alert danger" style="display:none"></div>
-    <button class="btn primary" id="btn_dni_mayorista" style="width:100%">Entrar</button>
-    <button class="btn ghost" id="btn_volver_landing_login" style="width:100%;margin-top:8px">← Volver</button>
-  </div>`)
-  document.querySelector('#btn_volver_landing_login').onclick = ()=>{ current='mayorista-landing'; render() }
-  document.querySelector('#btn_dni_mayorista').onclick = async ()=>{
-    const dni = document.querySelector('#dni_mayorista').value.trim()
-    const box = document.querySelector('#err_mayorista_login')
-    if(!/^(\d{7,8}|\d{11})$/.test(dni)){ box.textContent='Ingresá tu DNI (7 u 8 números) o CUIT (11), sin puntos ni guiones.'; box.style.display='block'; return }
-    const { data, error } = await supabase.rpc('customer_login', { p_dni: dni })
-    if(error || !data?.found){ box.textContent='No encontramos ese DNI.'; box.style.display='block'; return }
-    if(data.customer.customer_type !== 'mayorista'){ box.textContent='Este DNI no está registrado como cuenta mayorista. Si te parece un error, consultá con NÓMADES.'; box.style.display='block'; return }
-    cuenta = data
-    current = 'mayorista-panel'
-    render()
-  }
-}
-
 let mayoristaCarrito = {}
 let mayoristaCarritoProductosNuevo = {}
+let mayoristaFrecuencia = null
 
-async function cargarLoDeSiempre(c, redibujar){
-  const box = document.querySelector('#card_repetir')
-  if(!box) return
-  const { data } = await supabase.rpc('ultimo_pedido_cliente', { p_dni: c.dni, p_customer_id: c.id })
-  if(!data?.ok || !data.hay){ box.style.display = 'none'; return }
 
-  const bd = data.plan_breakdown || []
-  const prods = data.productos || []
-  const resumen = [
-    ...bd.map(b=>`${b.qty}× ${b.grade?(GRADO_LABEL[b.grade]||b.grade):`maple ${b.size}`}`),
-    ...prods.map(p=>`${p.cantidad}× ${p.nombre}`)
-  ]
-  if(!resumen.length){ box.style.display='none'; return }
-
-  box.innerHTML = `<h3>Lo de siempre</h3>
-    <p class="muted" style="font-size:12.5px;margin:0 0 10px">Lo que pediste el ${formatearFecha(data.delivery_date)}</p>
-    <div style="background:${NOM.fondo};border-radius:11px;padding:12px;margin-bottom:11px">
-      ${resumen.map(t=>`<div style="display:flex;gap:9px;align-items:center;padding:4px 0;font-size:13px;color:${NOM.tinta}">${ico('check',15,NOM.verde)}<span>${t}</span></div>`).join('')}
-      ${Number(data.total)>0?`<div style="border-top:1px solid ${NOM.borde};margin-top:9px;padding-top:9px;font-size:13px;font-weight:500;color:${NOM.verde}">Fueron $${Number(data.total).toLocaleString('es-AR')}</div>`:''}
-    </div>
-    <button class="btn primary" id="btn_repetir_pedido" style="width:100%">Pedir lo mismo</button>`
-
-  document.querySelector('#btn_repetir_pedido').onclick = ()=>{
-    Object.keys(mayoristaCarrito).forEach(k=>delete mayoristaCarrito[k])
-    bd.forEach(b=>{ if(b.plan_id) mayoristaCarrito[b.plan_id] = b.qty })
-    prods.forEach(p=>{ mayoristaCarritoProductosNuevo[p.product_id] = p.cantidad })
-    mostrarAlerta('Listo, cargamos el mismo pedido. Revisá abajo y confirmá.')
-    if(redibujar) redibujar()
-  }
+function saludoHora(){
+  const h = new Date().getHours()
+  if(h < 12) return 'Buen día'
+  if(h < 19) return 'Buenas tardes'
+  return 'Buenas noches'
+}
+function nombreComercio(c){
+  return (c.nombre_comercial || `${c.first_name||''} ${c.last_name||''}`).trim()
 }
 
 async function mayoristaPanel(){
@@ -2147,160 +2163,390 @@ async function mayoristaPanel(){
   if(!cuenta){ current='mayorista-login'; render(); return }
   const c = cuenta.customer
   const next = cuenta.next_order
-  const hoy = new Date().toISOString().slice(0,10)
-  const esHoy = next && next.delivery_date === hoy
-  const { data: planesRaw } = await supabase.from('plan_prices').select('id,egg_quantity,price,grade,unidad').eq('active', true).eq('customer_type','mayorista').order('egg_quantity')
+
+  const [{ data: planesRaw }, { data: prodRaw }, { data: revisarRaw }, { data: ultimoRaw }, { data: cuentaRaw }] = await Promise.all([
+    supabase.from('plan_prices').select('id,egg_quantity,price,grade,unidad').eq('active', true).eq('customer_type','mayorista').order('egg_quantity'),
+    supabase.from('catalog_products').select('id,name,photo_url,unit_label,units_per_bulto,price,wholesale_price,category').eq('active', true).order('name'),
+    supabase.rpc('pedido_para_revisar', { p_dni: c.dni, p_customer_id: c.id }),
+    supabase.rpc('ultimo_pedido_cliente', { p_dni: c.dni, p_customer_id: c.id }),
+    supabase.rpc('estado_cuenta_comercio', { p_dni: c.dni, p_customer_id: c.id })
+  ])
+  const hayQueRevisar = revisarRaw?.hay ? revisarRaw : null
+  const estadoCuenta = cuentaRaw?.ok ? cuentaRaw : null
+
   const planes = planesRaw || []
-  const { data: catalogoMayorista } = await supabase.rpc('mayorista_catalogo', {})
-  const productosMayoristas = catalogoMayorista || []
-  const subActiva = cuenta.subscriptions.find(s=>s.status==='active')
-  let frecuenciaSel = subActiva?.frequency || 'weekly'
-  let metodoSel = subActiva?.payment_method || 'transfer'
+  const productos = (prodRaw||[]).map(p=>({ ...p, precio: p.wholesale_price || p.price }))
+  const ultimo = ultimoRaw?.hay ? ultimoRaw : null
+  const subActiva = (cuenta.subscriptions||[]).find(s=>s.status==='active')
+
   if(subActiva && !Object.keys(mayoristaCarrito).length){
     (subActiva.plan_breakdown||[]).forEach(b=>{ if(b.plan_id) mayoristaCarrito[b.plan_id] = b.qty })
   }
-  const totalCant = ()=>Object.entries(mayoristaCarrito).reduce((s,[id,n])=>{ const pl=planes.find(p=>p.id===id); return s + (pl?Number(pl.egg_quantity):0)*n }, 0)
-  const totalPrecio = ()=>Object.entries(mayoristaCarrito).reduce((s,[id,n])=>{ const pl=planes.find(p=>p.id===id); return s+(pl?Number(pl.price):0)*n }, 0)
+
+  const categorias = {}
+  productos.forEach(p=>{
+    const cat = p.category || 'Otros'
+    categorias[cat] ??= []
+    categorias[cat].push(p)
+  })
+  const nombresCategorias = Object.keys(categorias).sort()
+
   const totalMaples = ()=>Object.values(mayoristaCarrito).reduce((s,n)=>s+Number(n||0),0)
+  const totalHuevos = ()=>Object.entries(mayoristaCarrito).reduce((s,[id,n])=>{ const pl=planes.find(p=>p.id===id); return s+(pl?Number(pl.egg_quantity):0)*n }, 0)
+  const totalHuevosPrecio = ()=>Object.entries(mayoristaCarrito).reduce((s,[id,n])=>{ const pl=planes.find(p=>p.id===id); return s+(pl?Number(pl.price):0)*n }, 0)
+  const totalProdPrecio = ()=>Object.entries(mayoristaCarritoProductosNuevo||{}).reduce((s,[id,n])=>{ const p=productos.find(x=>x.id===id); return s+(p?Number(p.precio):0)*n }, 0)
+  const totalGeneral = ()=>totalHuevosPrecio()+totalProdPrecio()
+  const itemsEnCarrito = ()=>Object.values(mayoristaCarrito).filter(n=>n>0).length + Object.values(mayoristaCarritoProductosNuevo||{}).filter(n=>n>0).length
+
+  const iconoCategoria = (cat)=>{
+    const c2 = (cat||'').toLowerCase()
+    if(c2.includes('aceite')||c2.includes('vinagre')) return 'botella'
+    if(c2.includes('conserva')||c2.includes('lata')) return 'carrito'
+    if(c2.includes('fideo')||c2.includes('pasta')) return 'huevo'
+    if(c2.includes('limpieza')) return 'carrito'
+    if(c2.includes('carne')||c2.includes('vacío')) return 'carrito'
+    return 'carrito'
+  }
+
+  const barraCarrito = ()=>{
+    if(!totalGeneral()) return ''
+    return `<div style="position:sticky;bottom:92px;z-index:6;background:${NOM.verde};border-radius:14px;padding:13px 15px;margin-top:12px;display:flex;justify-content:space-between;align-items:center;gap:11px">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:11px;color:${NOM.verdePastel}">${itemsEnCarrito()} ítem(s)${totalMaples()?` · ${totalMaples()} maple(s)`:''}</div>
+        <div style="font-size:21px;font-weight:500;color:#F5EFE0;font-variant-numeric:tabular-nums">$${totalGeneral().toLocaleString('es-AR')}</div>
+      </div>
+      <button class="btn" id="btn_ver_pedido_may" style="background:#F5EFE0;color:${NOM.verde};border:none;padding:10px 16px;font-size:13px;font-weight:500;flex-shrink:0">Ver pedido</button>
+    </div>`
+  }
+
+  const filaProducto = (p)=>{
+    const n = (mayoristaCarritoProductosNuevo||{})[p.id] || 0
+    const bulto = p.units_per_bulto > 1
+    return `<div style="background:${NOM.superficie};border:1px solid ${NOM.borde};${n>0?`border-left:3px solid ${NOM.verde};border-radius:0 13px 13px 0`:'border-radius:13px'};padding:11px;margin-bottom:8px;display:flex;gap:11px;align-items:center">
+      ${p.photo_url
+        ? `<img src="${p.photo_url}" alt="" style="width:46px;height:46px;border-radius:10px;object-fit:cover;flex-shrink:0;background:${NOM.verdeClaro}"/>`
+        : `<div style="width:46px;height:46px;border-radius:10px;background:${NOM.verdeClaro};display:flex;align-items:center;justify-content:center;flex-shrink:0">${ico('carrito',20,NOM.verde)}</div>`}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13.5px;font-weight:500;color:${NOM.tinta};line-height:1.3">${p.name}</div>
+        <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">$${Number(p.precio).toLocaleString('es-AR')} · ${p.unit_label||'unidad'}</div>
+        ${bulto?`<div style="font-size:11px;color:${NOM.verde};margin-top:2px">bulto de ${p.units_per_bulto} · $${(Number(p.precio)*p.units_per_bulto).toLocaleString('es-AR')}</div>`:''}
+      </div>
+      <span style="display:flex;align-items:center;gap:7px;flex-shrink:0">
+        <button type="button" data-may-pmenos="${p.id}" class="btn ghost" style="padding:7px 12px">−</button>
+        <b style="min-width:20px;text-align:center;display:inline-block">${n}</b>
+        <button type="button" data-may-pmas="${p.id}" class="btn ghost" style="padding:7px 12px">+</button>
+      </span>
+    </div>`
+  }
+
+  const filaHuevo = (pl)=>{
+    const n = mayoristaCarrito[pl.id] || 0
+    const etiqueta = pl.grade ? (GRADO_LABEL[pl.grade]||pl.grade) : `${pl.egg_quantity} huevos`
+    const porHuevo = pl.egg_quantity ? Math.round(Number(pl.price)/pl.egg_quantity) : 0
+    return `<div style="background:${NOM.superficie};border:1px solid ${NOM.borde};${n>0?`border-left:3px solid ${NOM.verde};border-radius:0 13px 13px 0`:'border-radius:13px'};padding:11px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:11px">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:500;color:${NOM.tinta}">${etiqueta}</div>
+        <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">maple de ${pl.egg_quantity} · $${Number(pl.price).toLocaleString('es-AR')}</div>
+        ${porHuevo?`<div style="font-size:11px;color:${NOM.verde};margin-top:2px">$${porHuevo.toLocaleString('es-AR')} por huevo</div>`:''}
+      </div>
+      <span style="display:flex;align-items:center;gap:7px;flex-shrink:0">
+        <button type="button" data-may-menos="${pl.id}" class="btn ghost" style="padding:7px 12px">−</button>
+        <b style="min-width:20px;text-align:center;display:inline-block">${n}</b>
+        <button type="button" data-may-mas="${pl.id}" class="btn ghost" style="padding:7px 12px">+</button>
+      </span>
+    </div>`
+  }
 
   const dibujar = ()=>{
-    layout(`<h2>🏭 Hola, ${c.first_name}</h2>
-    <div id="card_hoy_banner"></div>
-    <div class="card" id="card_repartidor"><h3>🚚 Tu repartidor</h3>${skeletonBloque(2)}</div>
-    ${next && (next.customer_stage || next.status==='out_for_delivery') ? barraEstadoPedido(next.customer_stage, next.status, next.out_for_delivery_at, next.en_route_at) : ''}
-    <div class="card" id="card_repetir"></div>
-    <div class="card" id="card_subs"><h3>Tu pedido de huevos</h3>
-      ${subActiva?`<p class="muted">Próxima entrega: ${subActiva.next_delivery_date?formatearFecha(subActiva.next_delivery_date):'-'}${subActiva.status==='paused'?' · <span class="badge" style="background:#8A8570">⏸️ Pausada</span>':''}${subActiva.status==='paused'&&subActiva.paused_until?` (hasta ${formatearFecha(subActiva.paused_until)})`:''}</p>`:'<p class="muted">Todavía no tenés un pedido activo — armalo abajo.</p>'}
-      ${planes.length? planes.map(pl=>{
-        const etiqueta = pl.grade ? (GRADO_LABEL[pl.grade]||pl.grade) : `${pl.egg_quantity} huevos`
-        const unidadTxt = pl.unidad==='caja'?'caja':pl.unidad==='cajon'?'cajón':'maple'
-        const porHuevo = pl.egg_quantity ? Math.round(Number(pl.price)/pl.egg_quantity) : 0
-        const cargado = (mayoristaCarrito[pl.id]||0) > 0
-        return `<div style="background:${NOM.superficie};border:1px solid ${NOM.borde};${cargado?`border-left:3px solid ${NOM.verde};border-radius:0 14px 14px 0`:'border-radius:14px'};padding:12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:11px">
-          <div style="flex:1;min-width:0">
-            <div style="font-size:14px;font-weight:500;color:${NOM.tinta}">${etiqueta}</div>
-            <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">${unidadTxt} de ${pl.egg_quantity} · $${Number(pl.price).toLocaleString('es-AR')}</div>
-            ${porHuevo?`<div style="font-size:11.5px;color:${NOM.verde};margin-top:2px">$${porHuevo.toLocaleString('es-AR')} por huevo</div>`:''}
-          </div>
-          <span style="display:flex;align-items:center;gap:8px;flex-shrink:0">
-            <button type="button" data-may-menos="${pl.id}" class="btn ghost" style="padding:7px 14px">−</button>
-            <b style="min-width:22px;text-align:center;display:inline-block">${mayoristaCarrito[pl.id]||0}</b>
-            <button type="button" data-may-mas="${pl.id}" class="btn ghost" style="padding:7px 14px">+</button>
-          </span>
-        </div>`
-      }).join('') : `<div style="background:${NOM.verdeClaro};border-radius:12px;padding:14px;text-align:center"><p style="margin:0;font-size:13px;color:#5F5E5A;line-height:1.5">Todavía no publicamos la lista. Escribinos y te la pasamos.</p></div>`}
-      <div class="alert info" style="margin-top:4px;font-size:12px">Todos los maples son de 30 huevos.</div>
-      <div class="alert info" style="margin-top:8px"><b>${totalMaples()} maple(s) · ${totalCant()} huevos</b> · $${totalPrecio().toLocaleString('es-AR')}</div>
-      <div class="field" style="margin-top:10px"><label>Frecuencia</label><div class="grid three">${Object.entries(FRECUENCIAS).map(([v,l])=>`<button type="button" data-may-frecuencia="${v}" class="btn ${frecuenciaSel===v?'primary':'ghost'}">${l}</button>`).join('')}</div></div>
-      <div class="field"><label>Forma de pago</label><div class="grid three">
-        <button type="button" data-may-metodo="cash" class="btn ${metodoSel==='cash'?'primary':'ghost'}">Efectivo</button>
-        <button type="button" data-may-metodo="transfer" class="btn ${metodoSel==='transfer'?'primary':'ghost'}">Transferencia</button>
-        <button type="button" data-may-metodo="mp" class="btn ${metodoSel==='mp'?'primary':'ghost'}">Mercado Pago</button>
-      </div></div>
-      <div id="err_mayorista" class="alert danger" style="display:none"></div>
-      <button class="btn primary" id="btn_confirmar_mayorista" style="width:100%;margin-top:10px">${subActiva?'Actualizar pedido':'Confirmar pedido'}</button>
-      ${subActiva && subActiva.status==='active'?`<button class="btn ghost" data-pausar="${subActiva.id}" style="width:100%;margin-top:8px">⏸️ Pausar pedidos</button>`:''}
-      ${subActiva && subActiva.status==='paused'?`<button class="btn primary" data-reanudar="${subActiva.id}" style="width:100%;margin-top:8px">▶️ Reanudar</button>`:''}
-    </div>
-    ${productosMayoristas.length?`<div class="card"><h3>🛒 Otros productos (precio mayorista)</h3>
-      ${productosMayoristas.map(p=>{
-        const sinStock = p.stock!==null && p.stock<=0
-        const yaElegido = (cuenta.mis_intereses||[]).find(mi=>mi.product_id===p.id)
-        const enCarritoNuevo = mayoristaCarritoProductosNuevo[p.id]||0
-        return `<div class="row" style="flex-direction:column;align-items:stretch">
-          <div style="display:flex;justify-content:space-between;align-items:center">
-            <span>${p.name}<br><small class="muted">$${Number(p.price).toLocaleString('es-AR')} · ${p.unit_label||'unidad'}</small>${p.stock!==null && !sinStock?`<br><small class="muted">Quedan ${p.stock} unidades</small>`:''}${sinStock?`<br><small style="color:#B03A2E">Sin stock por ahora</small>`:''}</span>
-            ${yaElegido?`<span style="display:flex;align-items:center;gap:8px"><button data-ma-ajustar="${yaElegido.id}" data-nueva="${yaElegido.quantity-1}" class="btn ghost" style="padding:6px 12px">−</button><b>${yaElegido.quantity}</b><button data-ma-ajustar="${yaElegido.id}" data-nueva="${yaElegido.quantity+1}" data-stock-max="${p.stock===null?'':p.stock}" class="btn ghost" style="padding:6px 12px">+</button></span>`
-            : sinStock?`<span class="badge" style="background:#D3D1C7;color:#5F5E5A">Sin stock</span>`
-            : `<span style="display:flex;align-items:center;gap:8px"><button data-ma-prod-menos="${p.id}" class="btn ghost" style="padding:6px 12px">−</button><b>${enCarritoNuevo}</b><button data-ma-prod-mas="${p.id}" data-stock-max="${p.stock===null?'':p.stock}" class="btn ghost" style="padding:6px 12px">+</button></span>`}
-          </div>
-        </div>`
-      }).join('')}
-      ${Object.values(mayoristaCarritoProductosNuevo).some(q=>q>0)?`<button class="btn primary" id="btn_confirmar_productos_mayorista" style="width:100%;margin-top:10px">Agregar al pedido</button>`:''}
-    </div>`:''}
-    ${cuenta.historial_entregas && cuenta.historial_entregas.length ? `<div class="card"><h3>📦 Historial de entregas</h3>${cuenta.historial_entregas.map(h=>`<div class="row"><span>${formatearFecha(h.delivery_date)}${h.es_telefonico||h.channel==='phone'?`<br>${pPill('📞 Pedido telefónico','#FAEEDA','#854F0B')}${h.taken_by_name?`<small class="muted"> lo cargó ${h.taken_by_name}</small>`:''}`:''}${h.envio_bonificado?`<br><small class="muted">envío bonificado</small>`:(h.envio?`<br><small class="muted">+ $${Number(h.envio).toLocaleString('es-AR')} de envío</small>`:'')}</span><span style="text-align:right">${h.egg_quantity||0} huevos${h.monto?`<br><b>$${Number(h.monto).toLocaleString('es-AR')}</b>`:''}</span></div>`).join('')}</div>`:''}
-    <div class="card" id="card_pagos"><h3>💳 Historial de pagos</h3>${skeletonBloque(3)}</div>
-    <div class="card" id="card_datos"><h3>Tus datos</h3><p>🪪 DNI ${c.dni||'-'}</p><p>🏠 ${TIPOS_VIA[c.street_type]||'Calle'} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'} (CP ${c.postal_code||'-'})</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
-    <button class="btn ghost" id="btn_logout_mayorista">Cerrar sesión</button>`)
-    cargarRepartidor(c, esHoy)
-    cargarHistorialPagos(c)
-    const btnEditar = document.querySelector('#btn_editar_datos')
-    if(btnEditar) btnEditar.onclick = ()=>editarDatosForm(c)
-    document.querySelectorAll('[data-pausar]').forEach(b=>b.onclick = async ()=>{
-      const fecha = prompt('¿Hasta qué fecha querés pausar? (opcional, formato AAAA-MM-DD). Dejá vacío si no sabés todavía.')
-      if(fecha===null) return
-      const { data, error } = await supabase.rpc('customer_pause_subscription', { p_dni: c.dni, p_customer_id: c.id, p_subscription_id: b.dataset.pausar, p_resume_date: fecha||null })
-      if(error || !data?.ok){ mostrarAlerta('No se pudo pausar: '+(data?.error||error?.message||'')); return }
-      mostrarAlerta('⏸️ Pedidos pausados. No te vamos a entregar ni cobrar hasta que los reanudes.')
-      const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
-      if(fresh?.found) cuenta = fresh
-      mayoristaPanel()
-    })
-    document.querySelectorAll('[data-reanudar]').forEach(b=>b.onclick = async ()=>{
-      const { data, error } = await supabase.rpc('customer_resume_subscription', { p_dni: c.dni, p_customer_id: c.id, p_subscription_id: b.dataset.reanudar })
-      if(error || !data?.ok){ mostrarAlerta('No se pudo reanudar: '+(data?.error||error?.message||'')); return }
-      mostrarAlerta(data.next_delivery_date ? `▶️ Reanudado. Próxima entrega: ${formatearFecha(data.next_delivery_date)}` : '▶️ Reanudado.')
-      const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
-      if(fresh?.found) cuenta = fresh
-      mayoristaPanel()
-    })
-    document.querySelectorAll('[data-may-mas]').forEach(b=>b.onclick=()=>{ mayoristaCarrito[b.dataset.mayMas]=(mayoristaCarrito[b.dataset.mayMas]||0)+1; dibujar() })
-    document.querySelectorAll('[data-may-menos]').forEach(b=>b.onclick=()=>{ if(mayoristaCarrito[b.dataset.mayMenos]>0) mayoristaCarrito[b.dataset.mayMenos]--; dibujar() })
-    document.querySelectorAll('[data-may-frecuencia]').forEach(b=>b.onclick=()=>{ frecuenciaSel=b.dataset.mayFrecuencia; dibujar() })
-    document.querySelectorAll('[data-may-metodo]').forEach(b=>b.onclick=()=>{ metodoSel=b.dataset.mayMetodo; dibujar() })
-    document.querySelectorAll('[data-ma-prod-mas]').forEach(b=>b.onclick=()=>{
-      const id=b.dataset.maProdMas, stockMax=b.dataset.stockMax
-      const actual = mayoristaCarritoProductosNuevo[id]||0
-      if(stockMax!=='' && actual+1>Number(stockMax)){ mostrarAlerta(`Solo quedan ${stockMax} unidades disponibles.`); return }
-      mayoristaCarritoProductosNuevo[id] = actual+1; dibujar()
-    })
-    document.querySelectorAll('[data-ma-prod-menos]').forEach(b=>b.onclick=()=>{
-      const id=b.dataset.maProdMenos
-      mayoristaCarritoProductosNuevo[id] = Math.max(0,(mayoristaCarritoProductosNuevo[id]||0)-1); dibujar()
-    })
-    document.querySelectorAll('[data-ma-ajustar]').forEach(b=>b.onclick=async()=>{
-      const nueva = Number(b.dataset.nueva)
-      const stockMax = b.dataset.stockMax
-      if(stockMax!==undefined && stockMax!=='' && nueva>Number(stockMax)){ mostrarAlerta(`Solo quedan ${stockMax} unidades disponibles.`); return }
-      const { data, error } = await supabase.rpc('customer_update_interest_quantity', { p_dni: c.dni, p_customer_id: c.id, p_interest_id: b.dataset.maAjustar, p_new_quantity: nueva })
-      if(error || !data?.ok){ mostrarAlerta(data?.error || error?.message || 'No se pudo actualizar.'); return }
-      const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
-      if(fresh?.found) cuenta = fresh
-      mayoristaPanel()
-    })
-    const btnConfirmarProductosMayorista = document.querySelector('#btn_confirmar_productos_mayorista')
-    if(btnConfirmarProductosMayorista) btnConfirmarProductosMayorista.onclick = async ()=>{
-      const items = Object.entries(mayoristaCarritoProductosNuevo).filter(([,q])=>q>0)
-      for(const [productId, cantidad] of items){
-        const { data, error } = await supabase.rpc('customer_mark_interest', { p_dni: c.dni, p_customer_id: c.id, p_product_id: productId, p_quantity: cantidad })
-        if(error || !data?.ok){ mostrarAlerta('No se pudo sumar uno de los productos: '+(data?.error||error?.message||'')); return }
-      }
-      mayoristaCarritoProductosNuevo = {}
-      const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
-      if(fresh?.found) cuenta = fresh
-      mostrarAlerta('¡Sumado a tu próximo pedido!')
-      mayoristaPanel()
+    if(mayoristaVista === 'categoria' && mayoristaCategoria){
+      const esHuevos = mayoristaCategoria === '__huevos__'
+      const items = esHuevos ? planes : (categorias[mayoristaCategoria]||[])
+      layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <button class="btn ghost" id="btn_volver_tienda" style="padding:6px 12px">←</button>
+        <h2 style="margin:0;font-size:19px">${esHuevos?'Huevos':mayoristaCategoria}</h2>
+      </div>
+      ${esHuevos && !planes.length
+        ? `<div style="background:${NOM.verdeClaro};border-radius:12px;padding:14px"><p style="margin:0;font-size:13px;color:#5F5E5A;line-height:1.5">Todavía no publicamos la lista de huevos. Escribinos y te la pasamos al toque.</p></div>`
+        : items.map(x=>esHuevos?filaHuevo(x):filaProducto(x)).join('')}
+      ${esHuevos&&planes.length?`<div class="alert info" style="font-size:12px">Todos los maples son de 30 huevos.</div>`:''}
+      ${barraCarrito()}`)
+      engancharTienda()
+      return
     }
-    document.querySelector('#btn_logout_mayorista').onclick = ()=>{ mayoristaCarrito={}; mayoristaCarritoProductosNuevo={}; cuenta=null; current='mayorista-login'; render() }
-    document.querySelector('#btn_confirmar_mayorista').onclick = async ()=>{
-      const errBox = document.querySelector('#err_mayorista')
-      const total = totalCant()
-      if(total<=0){ errBox.textContent='Elegí al menos un tamaño.'; errBox.style.display='block'; return }
+
+    if(mayoristaVista === 'historial'){
+      const h = estadoCuenta?.historial || []
+      layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <button class="btn ghost" id="btn_volver_tienda" style="padding:6px 12px">←</button>
+        <h2 style="margin:0;font-size:19px">Mis compras</h2>
+      </div>
+      ${estadoCuenta?`<div class="card">
+        <div class="row" style="border:0;padding:5px 0"><span style="font-size:13px;color:${NOM.tintaSuave}">Saldo pendiente</span><span style="font-size:15px;font-weight:500;color:${Number(estadoCuenta.deuda)>0?NOM.ambar:NOM.tinta};font-variant-numeric:tabular-nums">$${Number(estadoCuenta.deuda||0).toLocaleString('es-AR')}</span></div>
+        ${Number(estadoCuenta.a_favor)>0?`<div class="row" style="border:0;padding:5px 0"><span style="font-size:13px;color:${NOM.tintaSuave}">A favor</span><span style="font-size:15px;font-weight:500;color:${NOM.verde};font-variant-numeric:tabular-nums">$${Number(estadoCuenta.a_favor).toLocaleString('es-AR')}</span></div>`:''}
+        <p class="muted" style="font-size:11.5px;margin:9px 0 0">${estadoCuenta.cuenta_corriente?`Tenés ${estadoCuenta.dias_plazo} días para pagar cada entrega.`:'Pagás contra entrega.'}</p>
+      </div>`:''}
+      ${h.length ? h.map(x=>`<div style="background:${NOM.superficie};border:1px solid ${NOM.borde};border-radius:13px;padding:12px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+          <div>
+            <div style="font-size:13.5px;font-weight:500;color:${NOM.tinta}">${formatearFecha(x.delivery_date)}</div>
+            <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">Pedido N° ${x.order_number||'-'}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:14px;font-weight:500;font-variant-numeric:tabular-nums">$${Number(x.total||0).toLocaleString('es-AR')}</div>
+            ${Number(x.saldo)>0
+              ? `<div style="font-size:11.5px;color:${NOM.ambar};margin-top:2px">Debe $${Number(x.saldo).toLocaleString('es-AR')}</div>`
+              : `<div style="font-size:11.5px;color:${NOM.verde};margin-top:2px">Pagado</div>`}
+          </div>
+        </div>
+      </div>`).join('') : estadoVacio('Acá van a aparecer tus compras cuando arranquemos.')}`)
+      document.querySelector('#btn_volver_tienda').onclick = ()=>{ mayoristaVista='tienda'; dibujar() }
+      return
+    }
+
+    if(mayoristaVista === 'pedido'){
+      const lineas = []
+      Object.entries(mayoristaCarrito).filter(([,n])=>n>0).forEach(([id,n])=>{
+        const pl = planes.find(p=>p.id===id); if(!pl) return
+        lineas.push({ tipo:'huevo', id, nombre: pl.grade?(GRADO_LABEL[pl.grade]||pl.grade):`Maple ${pl.egg_quantity}`, sub:`maple de ${pl.egg_quantity}`, cant:n, precio:Number(pl.price)*n })
+      })
+      Object.entries(mayoristaCarritoProductosNuevo||{}).filter(([,n])=>n>0).forEach(([id,n])=>{
+        const p = productos.find(x=>x.id===id); if(!p) return
+        lineas.push({ tipo:'prod', id, nombre:p.name, sub:p.unit_label||'unidad', cant:n, precio:Number(p.precio)*n, foto:p.photo_url })
+      })
+
+      layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <button class="btn ghost" id="btn_volver_tienda" style="padding:6px 12px">←</button>
+        <h2 style="margin:0;font-size:19px">Tu pedido</h2>
+      </div>
+
+      ${lineas.length ? lineas.map(l=>`<div style="background:${NOM.superficie};border:1px solid ${NOM.borde};border-radius:13px;padding:11px;margin-bottom:8px;display:flex;gap:11px;align-items:center">
+        ${l.foto
+          ? `<img src="${l.foto}" alt="" style="width:42px;height:42px;border-radius:9px;object-fit:cover;flex-shrink:0"/>`
+          : `<div style="width:42px;height:42px;border-radius:9px;background:${NOM.verdeClaro};display:flex;align-items:center;justify-content:center;flex-shrink:0">${ico(l.tipo==='huevo'?'huevo':'carrito',18,NOM.verde)}</div>`}
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13.5px;font-weight:500;color:${NOM.tinta};line-height:1.3">${l.nombre}</div>
+          <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">${l.sub} · $${l.precio.toLocaleString('es-AR')}</div>
+        </div>
+        <span style="display:flex;align-items:center;gap:7px;flex-shrink:0">
+          <button type="button" data-ped-menos="${l.tipo}:${l.id}" class="btn ghost" style="padding:6px 11px">−</button>
+          <b style="min-width:20px;text-align:center;display:inline-block">${l.cant}</b>
+          <button type="button" data-ped-mas="${l.tipo}:${l.id}" class="btn ghost" style="padding:6px 11px">+</button>
+          <button type="button" data-ped-quitar="${l.tipo}:${l.id}" class="btn ghost" style="padding:6px 9px;color:${NOM.rojo}">${ico('cerrar',15,NOM.rojo)}</button>
+        </span>
+      </div>`).join('') : estadoVacio(`Todavía no cargaste nada${(c.first_name||'').trim()?', '+c.first_name.trim():''}. Arrancá por los huevos.`)}
+
+      ${lineas.length?`<div class="card">
+        <div class="row" style="border:0;padding:5px 0"><span style="font-size:13px;color:${NOM.tintaSuave}">Huevos</span><span style="font-size:13px;font-variant-numeric:tabular-nums">$${totalHuevosPrecio().toLocaleString('es-AR')}</span></div>
+        <div class="row" style="border:0;padding:5px 0"><span style="font-size:13px;color:${NOM.tintaSuave}">Almacén</span><span style="font-size:13px;font-variant-numeric:tabular-nums">$${totalProdPrecio().toLocaleString('es-AR')}</span></div>
+        <div class="row" style="border-top:1px solid ${NOM.borde};padding:9px 0 0;margin-top:5px"><span style="font-size:14px;font-weight:500">Total</span><span style="font-size:19px;font-weight:500;color:${NOM.verde};font-variant-numeric:tabular-nums">$${totalGeneral().toLocaleString('es-AR')}</span></div>
+
+        <div class="field" style="margin-top:14px"><label>Cada cuánto lo querés</label>
+          <div class="grid three">${Object.entries(FRECUENCIAS).map(([v,l])=>`<button type="button" class="btn ${(mayoristaFrecuencia||subActiva?.frequency||'weekly')===v?'primary':'ghost'}" data-may-frec="${v}">${l}</button>`).join('')}</div>
+        </div>
+        <div id="err_may_pedido" class="alert danger" style="display:none"></div>
+        <button class="btn primary" id="btn_confirmar_may" style="width:100%">${subActiva?'Actualizar mi pedido':'Confirmar pedido'}</button>
+      </div>`:''}`)
+      engancharPedido()
+      return
+    }
+
+    // ===== TIENDA =====
+    const resumenUltimo = ultimo ? [
+      ...(ultimo.plan_breakdown||[]).map(b=>`${b.qty} ${b.grade?(GRADO_LABEL[b.grade]||b.grade).toLowerCase():`maple ${b.size}`}`),
+      ...(ultimo.productos||[]).map(p=>`${p.cantidad} ${p.nombre.toLowerCase()}`)
+    ].join(' · ') : ''
+
+    layout(`<div style="background:${NOM.verde};border-radius:16px;padding:17px;margin-bottom:12px">
+      <div style="font-size:13px;color:${NOM.verdePastel}">${saludoHora()},</div>
+      <div style="font-size:22px;font-weight:500;color:#F5EFE0;line-height:1.2;margin-top:4px">${nombreComercio(c)}</div>
+      ${next
+        ? `<div style="font-size:12.5px;color:#C9D8B0;line-height:1.5;margin-top:9px">Tu próxima entrega es el ${formatearFecha(next.delivery_date).toLowerCase()}. ¿Necesitás algo más?</div>`
+        : `<div style="font-size:12.5px;color:#C9D8B0;line-height:1.5;margin-top:9px">¿Arrancamos con tu primer pedido?</div>`}
+    </div>
+
+    ${hayQueRevisar?`<div style="background:${NOM.ambar};border-radius:16px;padding:16px;margin-bottom:12px">
+      <div style="font-size:12px;color:#FBE9D4">${hayQueRevisar.repartidor_nombre||'El repartidor'} ya está en tu puerta</div>
+      <div style="font-size:17px;font-weight:500;color:#FFFFFF;margin-top:4px;line-height:1.25">Revisá tranquilo y después firmamos</div>
+      <button class="btn" id="btn_ir_revisar" style="width:100%;margin-top:12px;background:#FFFFFF;color:${NOM.ambar};border:none;padding:12px 0;font-size:14px;font-weight:500">Revisar ahora</button>
+    </div>`:''}
+
+    ${next && (next.customer_stage || next.status==='out_for_delivery') ? barraEstadoPedido(next.customer_stage, next.status, next.out_for_delivery_at, next.en_route_at) : ''}
+    <div class="card" id="card_repartidor"><h3>Tu repartidor</h3>${skeletonBloque(2)}</div>
+
+    ${estadoCuenta && (Number(estadoCuenta.deuda)>0 || Number(estadoCuenta.a_favor)>0) ? `<div class="card">
+      <h3>Tu cuenta</h3>
+      <div class="grid two" style="gap:8px">
+        ${Number(estadoCuenta.deuda)>0?`<div style="background:#FBE9D4;border-radius:11px;padding:12px">
+          <div style="font-size:11px;color:#B8641E">Te quedó pendiente</div>
+          <div style="font-size:19px;font-weight:500;color:#B8641E;font-variant-numeric:tabular-nums">$${Number(estadoCuenta.deuda).toLocaleString('es-AR')}</div>
+        </div>`:''}
+        ${Number(estadoCuenta.a_favor)>0?`<div style="background:${NOM.verdeClaro};border-radius:11px;padding:12px">
+          <div style="font-size:11px;color:${NOM.verde}">A favor</div>
+          <div style="font-size:19px;font-weight:500;color:${NOM.verde};font-variant-numeric:tabular-nums">$${Number(estadoCuenta.a_favor).toLocaleString('es-AR')}</div>
+        </div>`:''}
+      </div>
+      <button class="btn ghost" id="btn_ver_historial_may" style="width:100%;margin-top:10px">Ver mis compras</button>
+    </div>`:''}
+
+    ${ultimo && resumenUltimo ? `<div style="background:${NOM.superficie};border:1px solid ${NOM.borde};border-left:3px solid ${NOM.verde};border-radius:0 14px 14px 0;padding:13px;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:11px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:500;color:${NOM.tinta}">¿Lo mismo de la vez pasada?</div>
+          <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:3px;line-height:1.4">${resumenUltimo}</div>
+          ${Number(ultimo.total)>0?`<div style="font-size:11.5px;color:${NOM.verde};margin-top:3px">$${Number(ultimo.total).toLocaleString('es-AR')}</div>`:''}
+        </div>
+        <button class="btn primary" id="btn_lo_de_siempre" style="padding:9px 14px;font-size:12.5px;flex-shrink:0">Cargar</button>
+      </div>
+      <p class="muted" style="font-size:11px;margin:8px 0 0">Lo cargamos y después sacás o agregás lo que quieras.</p>
+    </div>`:''}
+
+    <h2 style="font-size:17px;margin:0 0 11px">¿Qué necesitás?</h2>
+    <div class="grid two" style="margin-bottom:14px">
+      <div data-may-cat="__huevos__" style="background:${NOM.superficie};border:1px solid ${NOM.borde};border-radius:14px;overflow:hidden;cursor:pointer">
+        <div style="height:74px;background:${NOM.verdeClaro};display:flex;align-items:center;justify-content:center">${ico('huevo',26,NOM.verde)}</div>
+        <div style="padding:11px">
+          <div style="font-size:13.5px;font-weight:500;color:${NOM.tinta}">Huevos</div>
+          <div style="font-size:11px;color:${NOM.tintaSuave};margin-top:2px">${planes.length?`${planes.length} tamaño(s)`:'consultá la lista'}</div>
+        </div>
+      </div>
+      ${nombresCategorias.map(cat=>`<div data-may-cat="${cat}" style="background:${NOM.superficie};border:1px solid ${NOM.borde};border-radius:14px;overflow:hidden;cursor:pointer">
+        <div style="height:74px;background:${NOM.verdeClaro};display:flex;align-items:center;justify-content:center">${ico(iconoCategoria(cat),26,NOM.verde)}</div>
+        <div style="padding:11px">
+          <div style="font-size:13.5px;font-weight:500;color:${NOM.tinta};line-height:1.3">${cat}</div>
+          <div style="font-size:11px;color:${NOM.tintaSuave};margin-top:2px">${categorias[cat].length} producto(s)</div>
+        </div>
+      </div>`).join('')}
+    </div>
+
+    ${barraCarrito()}
+
+    ${subActiva?`<div class="card">
+      <h3>Tu suscripción</h3>
+      <p class="muted" style="font-size:12.5px;margin:0 0 10px">${subActiva.status==='paused'?'Está pausada':'Activa'}${subActiva.next_delivery_date?` · próxima ${formatearFecha(subActiva.next_delivery_date)}`:''}</p>
+      ${subActiva.status==='active'?`<button class="btn ghost" data-pausar="${subActiva.id}" style="width:100%">Pausar pedidos</button>`:''}
+      ${subActiva.status==='paused'?`<button class="btn primary" data-reanudar="${subActiva.id}" style="width:100%">Reanudar</button>`:''}
+    </div>`:''}
+
+    <button class="btn ghost" id="btn_salir_may" style="width:100%;margin-top:8px">Cerrar sesión</button>`)
+
+    document.querySelectorAll('[data-may-cat]').forEach(el=>el.onclick=()=>{
+      mayoristaCategoria = el.dataset.mayCat
+      mayoristaVista = 'categoria'
+      dibujar()
+    })
+    const btnSiempre = document.querySelector('#btn_lo_de_siempre')
+    if(btnSiempre) btnSiempre.onclick = ()=>{
+      Object.keys(mayoristaCarrito).forEach(k=>delete mayoristaCarrito[k])
+      Object.keys(mayoristaCarritoProductosNuevo).forEach(k=>delete mayoristaCarritoProductosNuevo[k])
+      ;(ultimo.plan_breakdown||[]).forEach(b=>{ if(b.plan_id) mayoristaCarrito[b.plan_id] = b.qty })
+      ;(ultimo.productos||[]).forEach(p=>{ mayoristaCarritoProductosNuevo[p.product_id] = p.cantidad })
+      mayoristaVista = 'pedido'
+      dibujar()
+    }
+    const btnRevisar = document.querySelector('#btn_ir_revisar')
+    if(btnRevisar) btnRevisar.onclick = ()=>revisionConformidad(hayQueRevisar.order_id, c, 'cliente')
+    const btnHistorial = document.querySelector('#btn_ver_historial_may')
+    if(btnHistorial) btnHistorial.onclick = ()=>{ mayoristaVista='historial'; dibujar() }
+    const btnVer = document.querySelector('#btn_ver_pedido_may')
+    if(btnVer) btnVer.onclick = ()=>{ mayoristaVista='pedido'; dibujar() }
+    const btnSalir = document.querySelector('#btn_salir_may')
+    if(btnSalir) btnSalir.onclick = ()=>{ cuenta=null; mayoristaVista='tienda'; current='inicio'; render() }
+    engancharSuscripcion()
+    cargarRepartidorAsignado()
+  }
+
+  const engancharTienda = ()=>{
+    document.querySelector('#btn_volver_tienda').onclick = ()=>{ mayoristaVista='tienda'; mayoristaCategoria=null; dibujar() }
+    document.querySelectorAll('[data-may-mas]').forEach(b=>b.onclick=()=>{ const k=b.dataset.mayMas; mayoristaCarrito[k]=(mayoristaCarrito[k]||0)+1; dibujar() })
+    document.querySelectorAll('[data-may-menos]').forEach(b=>b.onclick=()=>{ const k=b.dataset.mayMenos; if(mayoristaCarrito[k]>0) mayoristaCarrito[k]--; dibujar() })
+    document.querySelectorAll('[data-may-pmas]').forEach(b=>b.onclick=()=>{ const k=b.dataset.mayPmas; mayoristaCarritoProductosNuevo[k]=(mayoristaCarritoProductosNuevo[k]||0)+1; dibujar() })
+    document.querySelectorAll('[data-may-pmenos]').forEach(b=>b.onclick=()=>{ const k=b.dataset.mayPmenos; if(mayoristaCarritoProductosNuevo[k]>0) mayoristaCarritoProductosNuevo[k]--; dibujar() })
+    const btnVer = document.querySelector('#btn_ver_pedido_may')
+    if(btnVer) btnVer.onclick = ()=>{ mayoristaVista='pedido'; dibujar() }
+  }
+
+  const engancharPedido = ()=>{
+    document.querySelector('#btn_volver_tienda').onclick = ()=>{ mayoristaVista='tienda'; mayoristaCategoria=null; dibujar() }
+    const mover = (clave, delta)=>{
+      const [tipo, id] = clave.split(':')
+      const bolsa = tipo==='huevo' ? mayoristaCarrito : mayoristaCarritoProductosNuevo
+      bolsa[id] = Math.max(0, (bolsa[id]||0) + delta)
+      if(bolsa[id]===0) delete bolsa[id]
+      dibujar()
+    }
+    document.querySelectorAll('[data-ped-mas]').forEach(b=>b.onclick=()=>mover(b.dataset.pedMas, 1))
+    document.querySelectorAll('[data-ped-menos]').forEach(b=>b.onclick=()=>mover(b.dataset.pedMenos, -1))
+    document.querySelectorAll('[data-ped-quitar]').forEach(b=>b.onclick=()=>{
+      const [tipo, id] = b.dataset.pedQuitar.split(':')
+      const bolsa = tipo==='huevo' ? mayoristaCarrito : mayoristaCarritoProductosNuevo
+      delete bolsa[id]
+      dibujar()
+    })
+    document.querySelectorAll('[data-may-frec]').forEach(b=>b.onclick=()=>{ mayoristaFrecuencia = b.dataset.mayFrec; dibujar() })
+
+    const btnConf = document.querySelector('#btn_confirmar_may')
+    if(btnConf) btnConf.onclick = async ()=>{
+      const box = document.querySelector('#err_may_pedido')
+      if(!totalGeneral()){ box.textContent='Tu pedido está vacío.'; box.style.display='block'; return }
+      btnConf.disabled = true
+      btnConf.textContent = 'Enviando…'
+
       const breakdown = Object.entries(mayoristaCarrito).filter(([,q])=>q>0).map(([pid,qty])=>{
         const pl = planes.find(p=>p.id===pid) || {}
-        return { size: Number(pl.egg_quantity||30), qty, grade: pl.grade || null, plan_id: pid }
+        return { size: Number(pl.egg_quantity||30), qty, grade: pl.grade||null, plan_id: pid }
       })
-      const { data, error } = await supabase.rpc('mayorista_hacer_pedido', { p_dni: c.dni, p_customer_id: c.id, p_egg_quantity: total, p_frequency: frecuenciaSel, p_payment_method: metodoSel, p_plan_breakdown: breakdown, p_price: totalPrecio() })
-      if(error || !data?.ok){ errBox.textContent = 'No se pudo confirmar: '+(data?.error||error?.message||''); errBox.style.display='block'; return }
-      mostrarAlerta(`¡Listo! Próxima entrega: ${formatearFecha(data.next_delivery_date)}`)
+
+      const { data, error } = await supabase.rpc('customer_update_subscription', {
+        p_dni: c.dni, p_customer_id: c.id,
+        p_subscription_id: subActiva?.id || null,
+        p_egg_quantity: totalHuevos(),
+        p_frequency: mayoristaFrecuencia || subActiva?.frequency || 'weekly',
+        p_preferred_weekday: null,
+        p_plan_breakdown: breakdown,
+        p_price: totalHuevosPrecio()
+      })
+
+      if(error || !data?.ok){
+        btnConf.disabled = false
+        btnConf.textContent = subActiva?'Actualizar mi pedido':'Confirmar pedido'
+        box.textContent = 'No pudimos guardar el pedido. Probá de nuevo.'
+        box.style.display='block'
+        return
+      }
+
+      const prodElegidos = Object.entries(mayoristaCarritoProductosNuevo||{}).filter(([,q])=>q>0)
+      for(const [pid, qty] of prodElegidos){
+        await supabase.from('customer_product_interest').insert({
+          customer_id: c.id, product_id: pid, quantity: qty,
+          target_order_id: data.order_id || null, status: 'pendiente'
+        })
+      }
+
       const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
       if(fresh?.found) cuenta = fresh
-      current = 'mayorista-panel'; render()
+      Object.keys(mayoristaCarritoProductosNuevo).forEach(k=>delete mayoristaCarritoProductosNuevo[k])
+      mostrarAlerta(data.status==='waitlist'
+        ? 'Por ahora estamos a tope, pero quedaste anotado. Te avisamos apenas se libere lugar.'
+        : 'Listo, ya lo anotamos. Te lo llevamos el '+formatearFecha(data.next_delivery_date).toLowerCase())
+      mayoristaVista = 'tienda'
+      render()
     }
   }
+
+  const engancharSuscripcion = ()=>{
+    document.querySelectorAll('[data-pausar]').forEach(b=>b.onclick=async()=>{
+      const { error } = await supabase.rpc('customer_pause_subscription', { p_dni: c.dni, p_customer_id: c.id, p_subscription_id: b.dataset.pausar, p_until: null })
+      if(!error){ const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni }); if(fresh?.found) cuenta = fresh; render() }
+    })
+    document.querySelectorAll('[data-reanudar]').forEach(b=>b.onclick=async()=>{
+      const { error } = await supabase.rpc('customer_resume_subscription', { p_dni: c.dni, p_customer_id: c.id, p_subscription_id: b.dataset.reanudar })
+      if(!error){ const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni }); if(fresh?.found) cuenta = fresh; render() }
+    })
+  }
+
   dibujar()
-  cargarLoDeSiempre(c, dibujar)
 }
+
 
 async function preparador(){
   const { data, error } = await supabase.rpc('preparador_pedidos_pendientes', {})
@@ -3474,6 +3720,268 @@ async function historialRepartidor(){
   layout(`<h2>📋 Historial de entregas</h2>${html}`)
 }
 
+// ============ REVISIÓN Y CONFORMIDAD DE LA ENTREGA ============
+async function revisionConformidad(orderId, clienteRef, desde){
+  const dni = desde === 'repartidor' ? clienteRef.dni : cuenta.customer.dni
+  const customerId = desde === 'repartidor' ? clienteRef.id : cuenta.customer.id
+
+  const { data } = await supabase.rpc('pedido_para_revisar', { p_dni: dni, p_customer_id: customerId })
+  if(!data?.ok || !data.hay){
+    mostrarAlerta('No hay ningún pedido esperando revisión.')
+    if(desde === 'repartidor') openDelivery(orderId); else render()
+    return
+  }
+
+  const items = (data.items||[]).map(it=>({ ...it, recibida: it.cantidad }))
+  let resolucion = null
+  let enviando = false
+
+  const hayFaltante = ()=>items.some(it=>Number(it.recibida) < Number(it.cantidad))
+  const montoFaltante = ()=>items.reduce((s,it)=>{
+    const falta = Math.max(0, Number(it.cantidad) - Number(it.recibida))
+    return s + falta * Number(it.precio_unitario||0)
+  }, 0)
+
+  const dibujar = ()=>{
+    const falta = hayFaltante()
+    const montoF = montoFaltante()
+
+    layout(`<div style="background:${NOM.verde};border-radius:16px;padding:16px;margin-bottom:13px">
+      <div style="font-size:12px;color:${NOM.verdePastel}">${data.repartidor_nombre||'El repartidor'} ya está en tu puerta</div>
+      <div style="font-size:18px;font-weight:500;color:#F5EFE0;margin-top:4px;line-height:1.25">Revisá tranquilo y después firmamos</div>
+      ${data.order_number?`<div style="font-size:11.5px;color:${NOM.verdePastel};margin-top:6px">Pedido N° ${data.order_number}</div>`:''}
+    </div>
+
+    <div class="card">
+      <p class="muted" style="margin:0 0 12px;font-size:12.5px">Si algo llegó de menos, tocá la tilde y ajustá la cantidad. Sin problema.</p>
+      ${items.map((it,i)=>{
+        const completo = Number(it.recibida) >= Number(it.cantidad)
+        return `<div style="border-bottom:1px solid ${NOM.borde};padding:11px 0;display:flex;gap:11px;align-items:center">
+          <button type="button" data-toggle-item="${i}" style="background:none;border:none;padding:0;flex-shrink:0;cursor:pointer">
+            ${ico(completo?'check':'cerrar', 21, completo?NOM.verde:NOM.ambar)}
+          </button>
+          ${it.photo_url
+            ? `<img src="${it.photo_url}" alt="" style="width:38px;height:38px;border-radius:9px;object-fit:cover;flex-shrink:0"/>`
+            : `<div style="width:38px;height:38px;border-radius:9px;background:${NOM.verdeClaro};display:flex;align-items:center;justify-content:center;flex-shrink:0">${ico(it.tipo==='huevo'?'huevo':'carrito',17,NOM.verde)}</div>`}
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13.5px;color:${NOM.tinta};line-height:1.3"><b>${it.cantidad}</b> × ${it.nombre}</div>
+            ${!completo?`<div style="font-size:11.5px;color:${NOM.ambar};margin-top:2px">Llegaron ${it.recibida}</div>`:''}
+          </div>
+          ${!completo?`<span style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+            <button type="button" data-rec-menos="${i}" class="btn ghost" style="padding:6px 11px">−</button>
+            <b style="min-width:18px;text-align:center;display:inline-block">${it.recibida}</b>
+            <button type="button" data-rec-mas="${i}" class="btn ghost" style="padding:6px 11px">+</button>
+          </span>`:''}
+        </div>`
+      }).join('')}
+    </div>
+
+    ${falta?`<div class="card" style="border:2px solid ${NOM.ambar}">
+      <h3 style="color:${NOM.ambar}">Faltaron $${montoF.toLocaleString('es-AR')} de mercadería</h3>
+      <p class="muted" style="font-size:12.5px;margin:0 0 12px">Perdón por eso. ¿Cómo preferís que lo arreglemos?</p>
+      <button type="button" class="btn ${resolucion==='descuento'?'primary':'ghost'}" data-resol="descuento" style="width:100%;margin-bottom:8px;text-align:left;padding:12px 14px">
+        <div style="font-size:13.5px;font-weight:500">Pago solo lo que llegó</div>
+        <div style="font-size:11.5px;opacity:0.75;margin-top:2px">Se descuenta del total de este pedido</div>
+      </button>
+      <button type="button" class="btn ${resolucion==='nota_credito'?'primary':'ghost'}" data-resol="nota_credito" style="width:100%;text-align:left;padding:12px 14px">
+        <div style="font-size:13.5px;font-weight:500">Pago todo y me queda a favor</div>
+        <div style="font-size:11.5px;opacity:0.75;margin-top:2px">Se descuenta del próximo pedido</div>
+      </button>
+    </div>`:''}
+
+    <div class="card">
+      <h3>Firmá la conformidad</h3>
+      <p class="muted" style="font-size:12.5px;margin:0 0 12px">Para cerrar necesitamos tus datos y los de quien te entregó.</p>
+      <div class="field"><label>Tu nombre *</label><input id="cf_firmante_nombre" placeholder="Quien recibe"/></div>
+      <div class="field"><label>Tu DNI *</label><input id="cf_firmante_dni" inputmode="numeric" placeholder="Sin puntos"/></div>
+      <div style="border-top:1px solid ${NOM.borde};margin:14px 0;padding-top:14px">
+        <div class="field"><label>Nombre del repartidor *</label><input id="cf_rep_nombre" value="${data.repartidor_nombre||''}"/></div>
+        <div class="field"><label>DNI del repartidor *</label><input id="cf_rep_dni" inputmode="numeric" placeholder="Pedíselo"/></div>
+      </div>
+      <div class="field"><label>Observación (opcional)</label><input id="cf_obs" placeholder="Ej: un maple con dos rotos"/></div>
+
+      <div style="background:${NOM.fondo};border-radius:11px;padding:12px;margin-bottom:12px">
+        <div class="row" style="border:0;padding:3px 0"><span style="font-size:12.5px;color:${NOM.tintaSuave}">Total del pedido</span><span style="font-size:13px;font-variant-numeric:tabular-nums">$${Number(data.total||0).toLocaleString('es-AR')}</span></div>
+        ${falta&&resolucion==='descuento'?`<div class="row" style="border:0;padding:3px 0"><span style="font-size:12.5px;color:${NOM.ambar}">Descuento por faltante</span><span style="font-size:13px;color:${NOM.ambar};font-variant-numeric:tabular-nums">−$${montoF.toLocaleString('es-AR')}</span></div>`:''}
+        <div class="row" style="border-top:1px solid ${NOM.borde};padding:8px 0 0;margin-top:5px"><span style="font-size:13.5px;font-weight:500">A pagar</span><span style="font-size:18px;font-weight:500;color:${NOM.verde};font-variant-numeric:tabular-nums">$${(falta&&resolucion==='descuento'?Number(data.total)-montoF:Number(data.total)).toLocaleString('es-AR')}</span></div>
+      </div>
+
+      <div id="err_conf" class="alert danger" style="display:none"></div>
+      <button class="btn primary" id="btn_dar_conformidad" style="width:100%" ${enviando?'disabled':''}>${enviando?'Registrando…':'Dar conformidad'}</button>
+      ${desde==='repartidor'?`<button class="btn ghost" id="btn_cancelar_conf" style="width:100%;margin-top:8px">Cancelar</button>`:''}
+    </div>`)
+
+    document.querySelectorAll('[data-toggle-item]').forEach(b=>b.onclick=()=>{
+      const i = Number(b.dataset.toggleItem)
+      items[i].recibida = Number(items[i].recibida) >= Number(items[i].cantidad) ? Math.max(0, Number(items[i].cantidad)-1) : Number(items[i].cantidad)
+      if(!hayFaltante()) resolucion = null
+      dibujar()
+    })
+    document.querySelectorAll('[data-rec-mas]').forEach(b=>b.onclick=()=>{
+      const i = Number(b.dataset.recMas)
+      items[i].recibida = Math.min(Number(items[i].cantidad), Number(items[i].recibida)+1)
+      if(!hayFaltante()) resolucion = null
+      dibujar()
+    })
+    document.querySelectorAll('[data-rec-menos]').forEach(b=>b.onclick=()=>{
+      const i = Number(b.dataset.recMenos)
+      items[i].recibida = Math.max(0, Number(items[i].recibida)-1)
+      dibujar()
+    })
+    document.querySelectorAll('[data-resol]').forEach(b=>b.onclick=()=>{ resolucion = b.dataset.resol; dibujar() })
+
+    const btnCancelar = document.querySelector('#btn_cancelar_conf')
+    if(btnCancelar) btnCancelar.onclick = ()=>openDelivery(orderId)
+
+    document.querySelector('#btn_dar_conformidad').onclick = async ()=>{
+      const box = document.querySelector('#err_conf')
+      const fn = document.querySelector('#cf_firmante_nombre').value.trim()
+      const fd = document.querySelector('#cf_firmante_dni').value.trim()
+      const rn = document.querySelector('#cf_rep_nombre').value.trim()
+      const rd = document.querySelector('#cf_rep_dni').value.trim()
+
+      if(!fn || !fd){ box.textContent='Poné tu nombre y DNI.'; box.style.display='block'; return }
+      if(!/^\d{7,8}$/.test(fd)){ box.textContent='Tu DNI tiene que tener 7 u 8 números.'; box.style.display='block'; return }
+      if(!rn || !rd){ box.textContent='Poné el nombre y DNI del repartidor.'; box.style.display='block'; return }
+      if(!/^\d{7,8}$/.test(rd)){ box.textContent='El DNI del repartidor tiene que tener 7 u 8 números.'; box.style.display='block'; return }
+      if(hayFaltante() && !resolucion){ box.textContent='Elegí cómo resolvemos el faltante.'; box.style.display='block'; return }
+
+      enviando = true; dibujar()
+      const { data: res, error } = await supabase.rpc('dar_conformidad', {
+        p_dni: dni, p_customer_id: customerId, p_order_id: data.order_id,
+        p_items: items.map(it=>({ clave: it.clave, cantidad: it.cantidad, recibida: it.recibida, precio_unitario: it.precio_unitario, nombre: it.nombre })),
+        p_firmante_nombre: fn, p_firmante_dni: fd,
+        p_repartidor_nombre: rn, p_repartidor_dni: rd,
+        p_desde: desde || 'cliente',
+        p_resolucion: resolucion,
+        p_observaciones: document.querySelector('#cf_obs').value.trim() || null
+      })
+      enviando = false
+
+      if(error || !res?.ok){
+        dibujar()
+        const b2 = document.querySelector('#err_conf')
+        if(b2){ b2.textContent = res?.error || 'No se pudo registrar la conformidad.'; b2.style.display='block' }
+        return
+      }
+
+      if(desde === 'repartidor'){
+        cobrarEnEntrega(data.order_id)
+      } else {
+        mostrarAlerta(res.todo_conforme
+          ? 'Gracias, quedó todo en orden.'
+          : `Registrado. ${res.resolucion==='nota_credito'?`Te quedan $${Number(res.faltante).toLocaleString('es-AR')} a favor para el próximo pedido.`:`Se descontaron $${Number(res.faltante).toLocaleString('es-AR')} del total.`}`)
+        render()
+      }
+    }
+  }
+  dibujar()
+}
+
+// ============ EL REPARTIDOR REGISTRA LO QUE COBRÓ ============
+async function cobrarEnEntrega(orderId){
+  const { data } = await supabase.rpc('datos_cobro_entrega', { p_order_id: orderId })
+  if(!data || data.error) return mostrarAlerta('No se pudo cargar el cobro')
+
+  let metodo = 'cash'
+  let comprobante = null
+  const esperado = Number(data.esperado||0)
+
+  const dibujar = ()=>{
+    const inp = document.querySelector('#cobro_ent_monto')
+    const cobrado = inp ? Number(inp.value)||0 : esperado
+    const saldo = Math.max(0, esperado - cobrado)
+
+    layout(`<h2>Cobrar</h2>
+    <div class="card">
+      <p class="muted" style="margin:0 0 3px">${data.cliente||''}</p>
+      ${data.firmante?`<p class="muted" style="font-size:12px;margin:0 0 12px">Firmó ${data.firmante}${data.todo_conforme?'':' · con faltante'}</p>`:''}
+
+      <div style="background:${NOM.verdeClaro};border-radius:12px;padding:13px;margin-bottom:14px">
+        <div style="font-size:11.5px;color:#5F5E5A">A cobrar</div>
+        <div style="font-size:27px;font-weight:500;color:${NOM.verde};font-variant-numeric:tabular-nums;line-height:1.1">$${esperado.toLocaleString('es-AR')}</div>
+        ${Number(data.deuda_previa||0)>0?`<div style="font-size:12px;color:${NOM.ambar};margin-top:5px">Además arrastra $${Number(data.deuda_previa).toLocaleString('es-AR')} de antes</div>`:''}
+      </div>
+
+      <div class="field"><label>¿Cuánto te pagó?</label><input id="cobro_ent_monto" type="number" inputmode="numeric" value="${esperado}"/></div>
+      <div class="field"><label>¿Con qué?</label>
+        <div class="grid two">
+          <button type="button" class="btn ${metodo==='cash'?'primary':'ghost'}" data-cobro-met="cash">Efectivo</button>
+          <button type="button" class="btn ${metodo==='transfer'?'primary':'ghost'}" data-cobro-met="transfer">Transferencia</button>
+        </div>
+      </div>
+      ${metodo==='transfer'?`<div class="field"><label>Foto del comprobante</label><input type="file" id="cobro_ent_comp" accept="image/*"/></div>`:''}
+
+      <div id="aviso_saldo"></div>
+      <div id="err_cobro_ent" class="alert danger" style="display:none"></div>
+      <button class="btn primary" id="btn_guardar_cobro_ent" style="width:100%">Guardar y seguir</button>
+      <button class="btn ghost" id="btn_sin_cobrar" style="width:100%;margin-top:8px">Se lo dejo en cuenta</button>
+    </div>`)
+
+    const inp2 = document.querySelector('#cobro_ent_monto')
+    const avisar = ()=>{
+      const c = Number(inp2.value)||0
+      const s = Math.max(0, esperado - c)
+      const box = document.querySelector('#aviso_saldo')
+      if(s > 0){
+        box.innerHTML = `<div style="background:#FBE9D4;border-radius:11px;padding:12px;margin-bottom:12px">
+          <div style="font-size:13px;font-weight:500;color:#B8641E">Le quedan $${s.toLocaleString('es-AR')} para la próxima</div>
+          <div style="font-size:12px;color:#5F5E5A;margin-top:3px">Lo va a ver en su cuenta al instante.</div>
+        </div>`
+      } else if(c > esperado){
+        box.innerHTML = `<div style="background:${NOM.verdeClaro};border-radius:11px;padding:12px;margin-bottom:12px">
+          <div style="font-size:13px;font-weight:500;color:${NOM.verde}">Le quedan $${(c-esperado).toLocaleString('es-AR')} a favor</div>
+        </div>`
+      } else box.innerHTML = ''
+    }
+    inp2.oninput = avisar
+    avisar()
+
+    document.querySelectorAll('[data-cobro-met]').forEach(b=>b.onclick=()=>{ metodo=b.dataset.cobroMet; comprobante=null; dibujar() })
+    const inpComp = document.querySelector('#cobro_ent_comp')
+    if(inpComp) inpComp.onchange = (e)=>{ comprobante = e.target.files[0]||null }
+
+    const guardar = async (monto)=>{
+      const btn = document.querySelector('#btn_guardar_cobro_ent')
+      btn.disabled = true
+      btn.textContent = 'Guardando…'
+      let url = null
+      if(comprobante){
+        const path = `entrega/${orderId}_${Date.now()}.${(comprobante.name.split('.').pop()||'jpg')}`
+        const { error: upErr } = await supabase.storage.from('payment-receipts').upload(path, comprobante)
+        if(!upErr){ const { data: pub } = supabase.storage.from('payment-receipts').getPublicUrl(path); url = pub.publicUrl }
+      }
+      const { data: res, error } = await supabase.rpc('cobrar_en_entrega', {
+        p_order_id: orderId, p_monto: monto, p_metodo: metodo, p_receipt_url: url
+      })
+      if(error || !res?.ok){
+        btn.disabled = false
+        btn.textContent = 'Guardar y seguir'
+        const box = document.querySelector('#err_cobro_ent')
+        box.textContent = 'No se pudo registrar: '+(res?.error||error?.message||'')
+        box.style.display='block'
+        return
+      }
+      mostrarAlerta(Number(res.saldo_pendiente)>0
+        ? `Listo, entrega cerrada.\n\nLe quedaron $${Number(res.saldo_pendiente).toLocaleString('es-AR')} pendientes para la próxima.`
+        : 'Listo, entrega cerrada y cobrada.')
+      current = 'repartidor'
+      render()
+    }
+
+    document.querySelector('#btn_guardar_cobro_ent').onclick = ()=>{
+      const monto = Number(document.querySelector('#cobro_ent_monto').value)||0
+      if(monto <= 0){ const box=document.querySelector('#err_cobro_ent'); box.textContent='Poné cuánto te pagó, o usá "Se lo dejo en cuenta".'; box.style.display='block'; return }
+      guardar(monto)
+    }
+    document.querySelector('#btn_sin_cobrar').onclick = async ()=>{
+      const ok = await mostrarConfirmacion('¿Se lo dejás en cuenta?\n\nTodo el monto va a quedar como saldo pendiente.')
+      if(ok) guardar(0)
+    }
+  }
+  dibujar()
+}
+
 async function openDelivery(id){
   const { data: detalle, error: errDet } = await supabase.rpc('delivery_detail', { p_order_id: id })
   if(errDet || !detalle || detalle.error) return mostrarAlerta('No se pudo cargar el pedido')
@@ -3520,6 +4028,15 @@ async function openDelivery(id){
       <p>📞 ${c.phone||'-'}</p>
       <p>💰 A cobrar: <b>$${Number(montoDefault).toLocaleString('es-AR')}</b>${(descuentoBilletera>0||credito)?` <span class="muted" style="text-decoration:line-through">$${Number(montoOriginal).toLocaleString('es-AR')}</span>`:''}</p>
       <p>💳 Método configurado: <b>${METODOS_PAGO_LABEL[sub.payment_method]||sub.payment_method||'-'}</b></p>
+      ${c.customer_type==='mayorista'?`
+        ${r.customer_stage==='llegado'
+          ? `<div style="background:${NOM.verdeClaro};border-radius:12px;padding:12px;margin-bottom:9px">
+              <div style="font-size:13px;font-weight:500;color:${NOM.tinta}">Avisaste que llegaste</div>
+              <div style="font-size:12px;color:#5F5E5A;margin-top:3px">El comercio ya puede revisar el pedido desde su cuenta.</div>
+              <button class="btn ghost" id="btn_revisar_con_repartidor" style="width:100%;margin-top:9px">Revisar acá con el encargado</button>
+            </div>`
+          : `<button class="btn primary" id="btn_llegue" style="width:100%;margin-bottom:9px">Avisar que llegué</button>`}
+      `:''}
       <button class="btn ghost" data-remito="${id}" style="width:100%;margin-bottom:8px">Imprimir remito</button>
       <button class="btn ghost" onclick="window.open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent('${(c.street||'')+' '+(c.street_number||'')+' '+(c.neighborhood||'')}'),'_blank')">📍 Google Maps</button>
     </div>
@@ -3622,6 +4139,16 @@ async function openDelivery(id){
     renderDatosTransferencia()
   })
 
+  const btnLlegue = document.querySelector('#btn_llegue')
+  if(btnLlegue) btnLlegue.onclick = async ()=>{
+    btnLlegue.disabled = true
+    btnLlegue.textContent = 'Avisando…'
+    const { data, error } = await supabase.rpc('marcar_llegue', { p_order_id: id })
+    if(error || !data?.ok){ btnLlegue.disabled=false; btnLlegue.textContent='Avisar que llegué'; mostrarAlerta('No se pudo avisar. Probá de nuevo.'); return }
+    openDelivery(id)
+  }
+  const btnRevisarRep = document.querySelector('#btn_revisar_con_repartidor')
+  if(btnRevisarRep) btnRevisarRep.onclick = ()=>revisionConformidad(id, c, 'repartidor')
   const btnRemito = document.querySelector('[data-remito]')
   if(btnRemito) btnRemito.onclick = ()=>documentoRemito(id)
   const btnGenerarLink = document.querySelector('#btn_generar_link_pago')
@@ -7045,7 +7572,7 @@ async function altaComercio(){
     .select('id,name,photo_url,unit_label,price,wholesale_price').eq('active', true).order('name')
   const productos = (prodRaw||[]).map(p=>({ ...p, precio: p.wholesale_price || p.price }))
 
-  const f = { first_name:'', dni:'', phone:'', street:'', street_number:'', neighborhood:'', zone:'', recepcion_nota:'', cuenta_corriente:false, dias_plazo:0, nota:'' }
+  const f = { first_name:'', dni:'', phone:'', street:'', street_number:'', neighborhood:'', zone:'', recepcion_nota:'', cuenta_corriente:false, dias_plazo:0, nota:'', condicion_iva:'' }
   const carrito = {}
   const carritoProd = {}
   let paso = 1
@@ -7066,6 +7593,11 @@ async function altaComercio(){
       <div class="field"><label>Nombre del comercio *</label><input id="ac_nombre" value="${f.first_name}" placeholder="Ej: Almacén Don Pedro"/></div>
       <div class="field"><label>DNI o CUIT *</label><input id="ac_dni" inputmode="numeric" value="${f.dni}" placeholder="Sin puntos ni guiones"/></div>
       <div class="field"><label>Teléfono *</label><input id="ac_phone" inputmode="tel" value="${f.phone}"/></div>
+      <div class="field"><label>Condición ante el IVA</label>
+        <div class="grid three">
+          ${CONDICIONES_IVA.map(x=>`<button type="button" class="btn ${f.condicion_iva===x.value?'primary':'ghost'}" data-ac-iva="${x.value}" style="font-size:11.5px;padding:11px 5px">${x.label}</button>`).join('')}
+        </div>
+      </div>
       <div class="grid two">
         <div class="field"><label>Calle</label><input id="ac_street" value="${f.street}"/></div>
         <div class="field"><label>Número</label><input id="ac_num" value="${f.street_number}"/></div>
@@ -7137,6 +7669,12 @@ async function altaComercio(){
 
     if(paso===1){
       const g = (id)=>document.querySelector(id)?.value.trim()||''
+      document.querySelectorAll('[data-ac-iva]').forEach(b=>b.onclick=()=>{
+        f.first_name=g('#ac_nombre'); f.dni=g('#ac_dni'); f.phone=g('#ac_phone')
+        f.street=g('#ac_street'); f.street_number=g('#ac_num'); f.neighborhood=g('#ac_barrio')
+        f.recepcion_nota=g('#ac_recepcion'); f.nota=g('#ac_nota')
+        f.condicion_iva = b.dataset.acIva; dibujar()
+      })
       document.querySelectorAll('[data-ac-zona]').forEach(b=>b.onclick=()=>{
         f.first_name=g('#ac_nombre'); f.dni=g('#ac_dni'); f.phone=g('#ac_phone')
         f.street=g('#ac_street'); f.street_number=g('#ac_num'); f.neighborhood=g('#ac_barrio')
@@ -7178,7 +7716,7 @@ async function altaComercio(){
         })
         const prodPayload = Object.entries(carritoProd).filter(([,q])=>q>0).map(([product_id,quantity])=>({ product_id, quantity }))
         const { data, error } = await supabase.rpc('vendedor_alta_comercio', {
-          p_customer: { ...f, cuenta_corriente: f.cuenta_corriente, dias_plazo: f.dias_plazo },
+          p_customer: { ...f, cuenta_corriente: f.cuenta_corriente, dias_plazo: f.dias_plazo, condicion_iva: f.condicion_iva || null },
           p_subscription: { frequency: f.frequency||'weekly', egg_quantity: totalHuevos(), payment_method: f.cuenta_corriente?'transfer':'cash', plan_breakdown: breakdown, price: totalPrecio() },
           p_productos: prodPayload,
           p_nota: f.nota || null
