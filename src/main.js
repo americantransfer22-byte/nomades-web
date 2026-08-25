@@ -1,5 +1,57 @@
 import { supabase } from './services/supabase.js'
 
+// ============ SISTEMA VISUAL NÓMADES ============
+const NOM = {
+  fondo:'#F7F4EC', superficie:'#FFFFFF', tinta:'#1C2617', tintaSuave:'#8A8A80',
+  verde:'#2F4D2A', verdeClaro:'#EAF0DC', verdePastel:'#9FB88A',
+  ambar:'#C4761F', ambarClaro:'#FBE9D4', rojo:'#B03A2E',
+  borde:'rgba(28,38,23,0.09)', bordeFuerte:'rgba(28,38,23,0.16)'
+}
+
+const IC = {
+  panel:'<path d="M4 19V10M10 19V5M16 19v-6"/>',
+  paquete:'<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M4 7.5L12 12l8-4.5M12 12v9"/>',
+  telefono:'<path d="M5 4h4l2 5-2.5 1.5a11 11 0 005 5L15 13l5 2v4a1 1 0 01-1 1A16 16 0 014 5a1 1 0 011-1z"/>',
+  personas:'<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0112 0M16 6a3 3 0 010 6M18 20a5 5 0 00-2-4"/>',
+  mas:'<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>',
+  camion:'<path d="M2 7h11v9H2zM13 10h4l3 3v3h-7z"/><circle cx="6" cy="18" r="1.8"/><circle cx="17" cy="18" r="1.8"/>',
+  moneda:'<circle cx="12" cy="12" r="8"/><path d="M15 9.5A3 3 0 0012 8c-1.7 0-3 .9-3 2s1.3 2 3 2 3 .9 3 2-1.3 2-3 2a3 3 0 01-3-1.5M12 6.5v11"/>',
+  planilla:'<path d="M8 4h8a1 1 0 011 1v15a1 1 0 01-1 1H8a1 1 0 01-1-1V5a1 1 0 011-1z"/><path d="M10 3h4v3h-4zM10 11h5M10 15h5"/>',
+  carrito:'<circle cx="9" cy="19" r="1.6"/><circle cx="17" cy="19" r="1.6"/><path d="M3 4h2l2.5 10h10L20 7H6"/>',
+  estrella:'<path d="M12 4l2.4 5 5.6.7-4 3.9 1 5.4-5-2.7-5 2.7 1-5.4-4-3.9 5.6-.7z"/>',
+  huevo:'<path d="M12 3c3.5 0 6 4.8 6 9a6 6 0 01-12 0c0-4.2 2.5-9 6-9z"/>',
+  mapa:'<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/>',
+  moto:'<circle cx="5" cy="17" r="3"/><circle cx="19" cy="17" r="3"/><path d="M8 17h8l-4-7H8M14 10h4l2 4"/>',
+  canasta:'<path d="M4 9h16l-1.5 10h-13z"/><path d="M8 9l2-5M16 9l-2-5"/>',
+  calendario:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/>',
+  tarjeta:'<rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20M6 15h4"/>',
+  recibo:'<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
+  trofeo:'<path d="M8 4h8v5a4 4 0 01-8 0z"/><path d="M8 6H5v1a3 3 0 003 3M16 6h3v1a3 3 0 01-3 3M10 14h4l.5 6h-5z"/>',
+  vendedor:'<circle cx="12" cy="7" r="3"/><path d="M5 21a7 7 0 0114 0"/><path d="M15 12l1.5 3 3-1"/>',
+  idea:'<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 00-3.5 10.9c.4.3.5.7.5 1.1h6c0-.4.1-.8.5-1.1A6 6 0 0012 3z"/>',
+  lupa:'<circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/>',
+  engranaje:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',
+  salir:'<path d="M14 4h4a1 1 0 011 1v14a1 1 0 01-1 1h-4"/><path d="M9 8l-4 4 4 4M5 12h11"/>',
+  flecha:'<path d="M15 6l-6 6 6 6"/>',
+  historial:'<circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/>',
+  fabrica:'<path d="M3 21V10l6 4V10l6 4V6l6 3v12z"/>',
+  campana:'<path d="M6 16V10a6 6 0 1112 0v6l2 2H4z"/><path d="M10 21h4"/>'
+}
+
+function ico(nombre, size, color){
+  const p = IC[nombre]
+  if(!p) return ''
+  const s = size || 20
+  return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${color||'currentColor'}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;vertical-align:middle">${p}</svg>`
+}
+
+const EMOJI_ICONO = {
+  '🔍':'lupa','👥':'personas','🗺️':'mapa','🚚':'camion','🏍️':'moto','🧺':'canasta',
+  '🥚':'huevo','📅':'calendario','💳':'tarjeta','🧾':'recibo','🏆':'trofeo','⭐':'estrella',
+  '🛒':'carrito','📋':'planilla','💼':'moneda','⏰':'campana','📞':'telefono','🧑‍💼':'vendedor',
+  '💡':'idea','💰':'moneda','📊':'panel','📦':'paquete','⚙️':'engranaje'
+}
+
 const app = document.querySelector('#app')
 let current = 'inicio'
 let session = null
@@ -8,15 +60,22 @@ let myRoles = [] // todos los roles de la persona
 let cuenta = null // datos del cliente logueado por DNI
 let staffProfile = null // datos del perfil del trabajador logueado
 let adminOpenSection = null // qué sección del acordeón de admin está abierta
+let adminAreaAbierta = null // qué área del panel está abierta (null = pantalla de áreas)
 let adminDetalleTipo = null // qué tarjeta de resumen se está viendo en detalle
 
+const ICONOS_NAV = {
+  admin:'panel', pedidos:'paquete', telefonico:'telefono', clientes:'personas', preparador:'canasta',
+  repartidor:'camion', campo:'huevo', vendedor:'vendedor', vehiculo:'moto', historial:'historial',
+  'mis-suscriptores':'personas', 'mis-comisiones':'moneda', perfil:'engranaje', logout:'salir'
+}
+
 const MENU_POR_ROL = {
-  admin: [['clientes','Clientes'],['pedidos','Pedidos'],['telefonico','Pedido telefónico'],['preparador','Preparar pedidos'],['repartidor','Repartidor'],['campo','Campo'],['vendedor','Vender'],['admin','Administración'],['vehiculo','Mi vehículo']],
+  admin: [['admin','Hoy'],['pedidos','Pedidos'],['telefonico','Teléfono'],['clientes','Clientes'],['preparador','Preparar'],['repartidor','Repartidor'],['campo','Campo'],['vendedor','Vender'],['vehiculo','Mi vehículo']],
   campo: [['campo','Campo']],
-  repartidor: [['repartidor','Repartidor'],['historial','Historial'],['vehiculo','Mi vehículo']],
-  preparador: [['preparador','Preparar pedidos']],
-  vendedor: [['vendedor','Vender'],['mis-suscriptores','Mis suscriptores'],['mis-comisiones','Mis comisiones']],
-  telefonico: [['telefonico','Pedido telefónico']]
+  repartidor: [['repartidor','Ruta'],['historial','Historial'],['vehiculo','Mi vehículo']],
+  preparador: [['preparador','Preparar']],
+  vendedor: [['vendedor','Vender'],['mis-suscriptores','Suscriptores'],['mis-comisiones','Comisiones']],
+  telefonico: [['telefonico','Teléfono']]
 }
 
 function rolesActivos(){
@@ -77,15 +136,64 @@ async function geocodificarDireccion(direccion){
   return null
 }
 
+let menuMasAbierto = false
+
 function layout(content){
   const esMayorista = current==='mayorista-login' || current==='mayorista-panel' || current==='mayorista-landing' || current==='mayorista-signup'
-  const nav = esMayorista ? [] : session ? (current==='staff-profile-setup' ? [['logout','Salir']] : [...navStaffFor(),['logout','Salir']]) : [['inicio','Inicio'],['cuenta','Mi cuenta']]
-  app.innerHTML = `<div class="shell"><div class="top"><div class="brand" style="display:flex;align-items:center;gap:8px">NÓMADES <span class="muted" style="font-size:12px">${esMayorista?'Portal mayoristas':'Huevos de libre pastoreo'}</span></div><div class="nav">${nav.map(([k,l])=>`<button class="btn ${current===k?'primary':'ghost'}" data-nav="${k}">${l}</button>`).join('')}</div></div>${content}${(!session && !esMayorista)?`<div style="text-align:center;margin-top:24px"><a href="#" id="staff_link" class="muted" style="font-size:12px">Acceso del equipo</a></div>`:''}</div>`
+  const setupPerfil = current==='staff-profile-setup'
+  const items = (esMayorista || setupPerfil) ? [] : session ? navStaffFor() : []
+
+  // Las 4 primeras van a la barra; el resto vive en "Más"
+  const principales = items.slice(0, 4)
+  const secundarios = items.slice(4)
+  const enSecundarios = secundarios.some(([k])=>k===current)
+
+  const barra = (items.length && !esMayorista && !setupPerfil) ? `
+    <nav style="position:fixed;left:0;right:0;bottom:0;z-index:900;background:#FFFFFF;border-top:1px solid #E3DCC8;display:flex;padding:6px 4px calc(6px + env(safe-area-inset-bottom));box-shadow:0 -2px 12px rgba(0,0,0,0.06)">
+      ${principales.map(([k,l])=>`<button data-nav="${k}" style="flex:1;background:none;border:none;padding:7px 2px 5px;display:flex;flex-direction:column;align-items:center;gap:3px">
+        ${ico(ICONOS_NAV[k]||'panel', 21, current===k?NOM.verde:'#A8A89E')}
+        <span style="font-size:10px;font-weight:500;color:${current===k?NOM.verde:NOM.tintaSuave};white-space:nowrap">${l}</span>
+        <span style="width:16px;height:2px;border-radius:1px;background:${current===k?NOM.verde:'transparent'}"></span>
+      </button>`).join('')}
+      ${secundarios.length?`<button id="btn_menu_mas" style="flex:1;background:none;border:none;padding:7px 2px 5px;display:flex;flex-direction:column;align-items:center;gap:3px">
+        ${ico('mas', 21, (enSecundarios||menuMasAbierto)?NOM.verde:'#A8A89E')}
+        <span style="font-size:10px;font-weight:500;color:${(enSecundarios||menuMasAbierto)?NOM.verde:NOM.tintaSuave}">Más</span>
+        <span style="width:16px;height:2px;border-radius:1px;background:${(enSecundarios||menuMasAbierto)?NOM.verde:'transparent'}"></span>
+      </button>`:''}
+    </nav>` : ''
+
+  const hoja = menuMasAbierto ? `
+    <div id="menu_mas_fondo" style="position:fixed;inset:0;background:rgba(31,42,27,0.45);z-index:950"></div>
+    <div style="position:fixed;left:0;right:0;bottom:0;z-index:960;background:#FFFFFF;border-radius:18px 18px 0 0;padding:16px 16px calc(20px + env(safe-area-inset-bottom));max-height:75vh;overflow-y:auto">
+      <div style="width:38px;height:4px;background:#E3DCC8;border-radius:2px;margin:0 auto 14px"></div>
+      ${staffProfile?`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">${pAvatar(staffProfile.full_name,38)}<div><div style="font-weight:700;color:#2F4D2A;font-size:14px">${staffProfile.full_name||''}</div><div style="font-size:11px;color:#8A8A80">${rolesActivos().map(r=>({admin:'Administrador',campo:'Campo',repartidor:'Repartidor',preparador:'Preparador',vendedor:'Vendedor',telefonico:'Telefónico'})[r]||r).join(' · ')}</div></div></div>`:''}
+      ${secundarios.map(([k,l])=>`<button data-nav="${k}" style="width:100%;background:${current===k?NOM.verdeClaro:NOM.superficie};border:1px solid ${NOM.borde};border-radius:12px;padding:13px 14px;margin-bottom:7px;display:flex;align-items:center;gap:12px;font-size:14px;color:${NOM.tinta};font-weight:500">
+        ${ico(ICONOS_NAV[k]||'panel', 19, NOM.verde)}${l}
+      </button>`).join('')}
+      <button data-nav="logout" style="width:100%;background:${NOM.superficie};border:1px solid rgba(176,58,46,0.22);border-radius:12px;padding:13px 14px;margin-top:6px;display:flex;align-items:center;gap:12px;font-size:14px;color:${NOM.rojo};font-weight:500">
+        ${ico('salir', 19, NOM.rojo)}Cerrar sesión
+      </button>
+    </div>` : ''
+
+  const navPublica = (!session && !esMayorista) ? `<div class="nav">${[['inicio','Inicio'],['cuenta','Mi cuenta']].map(([k,l])=>`<button class="btn ${current===k?'primary':'ghost'}" data-nav="${k}">${l}</button>`).join('')}</div>` : ''
+  const navSetup = setupPerfil ? `<div class="nav"><button class="btn ghost" data-nav="logout">Salir</button></div>` : ''
+
+  app.innerHTML = `<div class="shell" style="padding-bottom:${barra?'86px':'0'}">
+    <div class="top"><div class="brand" style="display:flex;align-items:center;gap:8px">NÓMADES <span class="muted" style="font-size:12px">${esMayorista?'Portal mayoristas':'Huevos de libre pastoreo'}</span></div>${navPublica}${navSetup}</div>
+    ${content}
+    ${(!session && !esMayorista)?`<div style="text-align:center;margin-top:24px"><a href="#" id="staff_link" class="muted" style="font-size:12px">Acceso del equipo</a></div>`:''}
+  </div>${barra}${hoja}`
+
   document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=async ()=>{
+    menuMasAbierto = false
     if(b.dataset.nav==='logout'){ await supabase.auth.signOut(); session=null; myRole=null; myRoles=[]; current='inicio'; return render() }
-    if(b.dataset.nav==='admin'){ adminData = null; adminOpenSection = null }
+    if(b.dataset.nav==='admin'){ adminData = null; adminOpenSection = null; adminAreaAbierta = null }
     current=b.dataset.nav; render()
   })
+  const btnMas = document.querySelector('#btn_menu_mas')
+  if(btnMas) btnMas.onclick = ()=>{ menuMasAbierto = !menuMasAbierto; render() }
+  const fondo = document.querySelector('#menu_mas_fondo')
+  if(fondo) fondo.onclick = ()=>{ menuMasAbierto = false; render() }
   const staffLink = document.querySelector('#staff_link')
   if(staffLink) staffLink.onclick=(e)=>{ e.preventDefault(); current='staff-login'; render() }
 }
@@ -906,13 +1014,13 @@ function zonaBadge(zona){
 }
 
 // --- Sistema visual premium para el panel de administración ---
-function pCard(inner, extraStyle){ return `<div style="background:#FFFFFF;border-radius:14px;border:1px solid #E3DCC8;padding:14px 16px;margin-bottom:10px;${extraStyle||''}">${inner}</div>` }
-function pPill(text, bg, color){ return `<span style="background:${bg||'#EAF0DC'};color:${color||'#2F4D2A'};font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap;display:inline-block">${text}</span>` }
-function pAvatar(nombre, size){ const s=size||40; const inicial=(nombre||'?').trim().charAt(0).toUpperCase(); return `<div style="width:${s}px;height:${s}px;border-radius:50%;background:#2F4D2A;color:#F5EFE0;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:${Math.round(s*0.4)}px;flex-shrink:0">${inicial}</div>` }
+function pCard(inner, extraStyle){ return `<div style="background:${NOM.superficie};border-radius:16px;border:1px solid ${NOM.borde};padding:15px 16px;margin-bottom:10px;${extraStyle||''}">${inner}</div>` }
+function pPill(text, bg, color){ return `<span style="background:${bg||NOM.verdeClaro};color:${color||NOM.verde};font-size:11px;font-weight:500;padding:4px 10px;border-radius:7px;white-space:nowrap;display:inline-block;letter-spacing:0.1px">${text}</span>` }
+function pAvatar(nombre, size){ const s=size||40; const inicial=(nombre||'?').trim().charAt(0).toUpperCase(); return `<div style="width:${s}px;height:${s}px;border-radius:${Math.round(s*0.32)}px;background:${NOM.verdeClaro};color:${NOM.verde};display:flex;align-items:center;justify-content:center;font-weight:500;font-size:${Math.round(s*0.38)}px;flex-shrink:0">${inicial}</div>` }
 function pBar(pct, colorOk, colorWarn, warn){ const p=Math.max(0,Math.min(100,pct)); return `<div style="height:6px;background:#E3DCC8;border-radius:3px;overflow:hidden;margin-top:4px"><div style="height:100%;width:${p}%;background:${warn?(colorWarn||'#E8833A'):(colorOk||'#8FAE6B')};border-radius:3px"></div></div>` }
 function pBtn(icon, label, attrs, variant){
-  const styles = { primary:'background:#2F4D2A;color:#F5EFE0;border:none', ghost:'background:#FFFFFF;color:#2F4D2A;border:1px solid #E3DCC8', danger:'background:#FFFFFF;color:#B03A2E;border:1px solid #E3DCC8' }
-  return `<button ${attrs} style="flex:1;${styles[variant||'ghost']};border-radius:10px;padding:9px 4px;font-size:11px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:0">${icon}<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</span></button>`
+  const styles = { primary:`background:${NOM.verde};color:#F7F4EC;border:1px solid ${NOM.verde}`, ghost:`background:${NOM.superficie};color:${NOM.tinta};border:1px solid ${NOM.borde}`, danger:`background:${NOM.superficie};color:${NOM.rojo};border:1px solid rgba(176,58,46,0.22)` }
+  return `<button ${attrs} style="flex:1;${styles[variant||'ghost']};border-radius:11px;padding:10px 4px;font-size:11.5px;font-weight:500;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0">${icon}<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</span></button>`
 }
 function pBtnRow(buttons){ return `<div style="display:flex;gap:8px;margin-top:10px">${buttons.join('')}</div>` }
 function attachAvisoNumeroEnCalle(streetElId, numberElId, avisoBoxId){
@@ -3078,8 +3186,19 @@ async function admin(){
   const pendientesDePago = subs.filter(s=>s.payment_status==='pending')
   const rolLabel = {admin:'Administrador',campo:'Personal de campo',repartidor:'Repartidor',preparador:'Preparador de pedidos',vendedor:'Vendedor',telefonico:'Personal telefónico'}
   const AS = (id)=> adminOpenSection===id
-  const accHead = (id, icon, titulo, badge)=> `<button type="button" class="acc-header" data-acc="${id}" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:14px 16px;cursor:pointer;gap:10px;background:${AS(id)?'#F5EFE0':'transparent'}"><span style="width:32px;height:32px;border-radius:9px;background:#EAF0DC;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">${icon}</span><span style="flex:1;font-weight:700;font-size:14.5px;color:#2F4D2A">${titulo}</span>${badge?pPill(badge,'#FBE4CC','#B85C00'):''}<span style="font-size:13px;color:#8A8570">${AS(id)?'▲':'▼'}</span></button><div class="acc-body" style="max-height:${AS(id)?'6000px':'0'};padding:${AS(id)?'4px 16px 16px 16px':'0 16px'}">`
-  const statCard = (id,label,value)=> `<div data-stat="${id}" style="cursor:pointer;flex:0 0 auto;min-width:96px;background:#2F4D2A;border-radius:14px;padding:10px 14px;display:flex;flex-direction:column;gap:2px"><span style="color:#C9D8B0;font-size:11px;line-height:1.25">${label}</span><span style="color:#F5EFE0;font-size:20px;font-weight:700;line-height:1.15">${value}</span></div>`
+  const AREAS = [
+    { id:'operacion', ic:'camion', icono:'🚚', titulo:'Operación diaria', desc:'Reparto, capacidad y avisos', secciones:['capacidad','asignacion','recordatorios','mapa'] },
+    { id:'dinero', ic:'moneda', icono:'💰', titulo:'Dinero', desc:'Finanzas, rendición y cobros', secciones:['finanzas','rendicion','cobros'] },
+    { id:'proveedores', ic:'planilla', icono:'📋', titulo:'Proveedores', desc:'Compras, cuenta corriente e insumos', secciones:['pedidos_proveedor','insumos'] },
+    { id:'comercial', ic:'carrito', icono:'🛒', titulo:'Comercial', desc:'Catálogo, precios y mayoristas', secciones:['catalogo','tamanos','cuenta_mayoristas','vendedores','agregado_manual'] },
+    { id:'clientes_area', ic:'estrella', icono:'⭐', titulo:'Clientes', desc:'Ranking, reseñas y sugerencias', secciones:['ranking','resenas','sugerencias'] },
+    { id:'equipo', ic:'personas', icono:'👥', titulo:'Equipo y empresa', desc:'Personal, trazabilidad y vehículos', secciones:['personal','trazabilidad','vehiculos'] }
+  ]
+  const areaActual = AREAS.find(a=>a.id===adminAreaAbierta)
+  const seccionVisible = (id)=> !!(areaActual && areaActual.secciones.includes(id))
+
+  const accHead = (id, icon, titulo, badge)=> !seccionVisible(id) ? '<div style="display:none">' : `<button type="button" class="acc-header" data-acc="${id}" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:14px 16px;cursor:pointer;gap:10px;background:${AS(id)?'#F5EFE0':'transparent'}"><span style="width:34px;height:34px;border-radius:10px;background:${NOM.verdeClaro};display:flex;align-items:center;justify-content:center;flex-shrink:0">${ico(EMOJI_ICONO[icon]||'panel',18,NOM.verde)}</span><span style="flex:1;font-weight:500;font-size:14.5px;color:${NOM.tinta}">${titulo}</span>${badge?pPill(badge,'#FBE4CC','#B85C00'):''}<span style="font-size:13px;color:#8A8570">${AS(id)?'▲':'▼'}</span></button><div class="acc-body" style="max-height:${AS(id)?'6000px':'0'};padding:${AS(id)?'4px 16px 16px 16px':'0 16px'}">`
+  const statCard = (id,label,value)=> `<div data-stat="${id}" style="cursor:pointer;flex:0 0 auto;min-width:100px;background:${NOM.superficie};border:1px solid ${NOM.borde};border-radius:14px;padding:11px 14px;display:flex;flex-direction:column;gap:3px"><span style="color:${NOM.tintaSuave};font-size:11px;line-height:1.25">${label}</span><span style="color:${NOM.tinta};font-size:21px;font-weight:500;line-height:1.15;font-variant-numeric:tabular-nums">${value}</span></div>`
 
   const resumenDia = (()=>{
     const hoy = new Date().toISOString().slice(0,10)
@@ -3091,23 +3210,23 @@ async function admin(){
     const totalAlertasHoy = (alertas.service?.length||0)+(alertas.vtv?.length||0)+(alertas.seguro?.length||0)+(alertas.carnet?.length||0)+(alertas.pagos_pendientes?.length||0)
     const restriccionesHoy = ordersHoy.filter(o=>['pending','assigned','out_for_delivery','rescheduled'].includes(o.status) && tieneRestriccionHoraria(o)).length
     const fechaLinda = formatearFecha(hoy)
-    return `<div style="background:#2F4D2A;border-radius:16px;padding:16px;margin-bottom:12px">
-      <div style="color:#C9D8B0;font-size:12px;margin-bottom:2px">Resumen de hoy</div>
-      <div style="color:#F5EFE0;font-size:15px;font-weight:700;margin-bottom:12px">${fechaLinda}</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-        <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:9px 10px"><div style="color:#C9D8B0;font-size:11px">Entregadas hoy</div><div style="color:#F5EFE0;font-size:17px;font-weight:700" data-count-target="${entregadosHoy}">0</div></div>
-        <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:9px 10px"><div style="color:#C9D8B0;font-size:11px">Faltan repartir</div><div style="color:#F5EFE0;font-size:17px;font-weight:700" data-count-target="${pendientesHoy}">0</div></div>
-        <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:9px 10px"><div style="color:#C9D8B0;font-size:11px">Huevos de hoy</div><div style="color:#F5EFE0;font-size:17px;font-weight:700" data-count-target="${huevosHoy}">0</div></div>
-        <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:9px 10px"><div style="color:#C9D8B0;font-size:11px">Vendido hoy</div><div style="color:#F5EFE0;font-size:17px;font-weight:700" data-count-target="${ventasHoy}" data-count-currency="1">$0</div></div>
+    return `<div style="background:${NOM.verde};border-radius:18px;padding:18px;margin-bottom:12px">
+      <div style="color:${NOM.verdePastel};font-size:10.5px;letter-spacing:0.9px;text-transform:uppercase">${fechaLinda}</div>
+      <div style="color:#F7F4EC;font-size:34px;font-weight:500;line-height:1.05;margin-top:8px;font-variant-numeric:tabular-nums" data-count-target="${ventasHoy}" data-count-currency="1">$0</div>
+      <div style="color:${NOM.verdePastel};font-size:12px;margin-top:5px">vendido hoy</div>
+      <div style="display:flex;gap:22px;margin-top:15px;padding-top:13px;border-top:1px solid rgba(247,244,236,0.16)">
+        <div><div style="color:#F7F4EC;font-size:17px;font-weight:500;font-variant-numeric:tabular-nums" data-count-target="${entregadosHoy}">0</div><div style="color:${NOM.verdePastel};font-size:10.5px;margin-top:1px">entregadas</div></div>
+        <div><div style="color:#F7F4EC;font-size:17px;font-weight:500;font-variant-numeric:tabular-nums" data-count-target="${pendientesHoy}">0</div><div style="color:${NOM.verdePastel};font-size:10.5px;margin-top:1px">pendientes</div></div>
+        <div><div style="color:#F7F4EC;font-size:17px;font-weight:500;font-variant-numeric:tabular-nums" data-count-target="${huevosHoy}">0</div><div style="color:${NOM.verdePastel};font-size:10.5px;margin-top:1px">huevos</div></div>
       </div>
-      ${totalAlertasHoy>0?`<div style="margin-top:10px;background:#E8833A;border-radius:10px;padding:8px 12px;color:#FFFFFF;font-size:12px;font-weight:600">⚠️ Tenés ${totalAlertasHoy} alerta${totalAlertasHoy===1?'':'s'} pendiente${totalAlertasHoy===1?'':'s'} en Vehículos y mantenimiento</div>`:''}
-      ${restriccionesHoy>0?`<div style="margin-top:10px;background:#B85C00;border-radius:10px;padding:8px 12px;color:#FFFFFF;font-size:12px;font-weight:600">⏰ Tenés ${restriccionesHoy} pedido${restriccionesHoy===1?'':'s'} con restricción horaria hoy</div>`:''}
+      ${totalAlertasHoy>0?`<div style="margin-top:13px;display:flex;align-items:center;gap:8px;background:rgba(247,244,236,0.1);border-radius:11px;padding:10px 12px;color:#F7F4EC;font-size:12px">${ico('moto',17,'#E8A54B')}<span>${totalAlertasHoy} alerta${totalAlertasHoy===1?'':'s'} en vehículos</span></div>`:''}
+      ${restriccionesHoy>0?`<div style="margin-top:8px;display:flex;align-items:center;gap:8px;background:rgba(247,244,236,0.1);border-radius:11px;padding:10px 12px;color:#F7F4EC;font-size:12px">${ico('campana',17,'#E8A54B')}<span>${restriccionesHoy} pedido${restriccionesHoy===1?'':'s'} con horario restringido</span></div>`:''}
     </div>`
   })()
 
-  layout(`<h2>Panel de administración</h2>
-  ${resumenDia}
-  <div style="overflow-x:auto;display:flex;gap:8px;padding-bottom:4px">
+  layout(`<h2 style="display:flex;align-items:center;gap:8px">${areaActual?`<button id="btn_volver_areas" style="all:unset;cursor:pointer;padding:0 6px 0 0;display:inline-flex">${ico('flecha',20,NOM.tinta)}</button>${areaActual.titulo}`:'Panel de administración'}</h2>
+  ${areaActual?'':resumenDia}
+  ${areaActual?'':`<div style="overflow-x:auto;display:flex;gap:8px;padding-bottom:4px">
     ${statCard('clientes','Clientes',customers.length)}
     ${statCard('pend_entrega','Pend. entrega',count('pending')+count('assigned')+count('out_for_delivery'))}
     ${statCard('pend_pago','Pend. pago',pendientesDePago.length)}
@@ -3115,6 +3234,13 @@ async function admin(){
     ${statCard('incidencias','Incidencias',count('incident'))}
     ${statCard('reprogramados','Reprogramados',count('rescheduled'))}
   </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px">
+    ${AREAS.map(a=>`<button data-area="${a.id}" style="all:unset;box-sizing:border-box;cursor:pointer;background:${NOM.superficie};border:1px solid ${NOM.borde};border-radius:16px;padding:14px 13px;display:flex;flex-direction:column;gap:8px;min-height:108px">
+      ${ico(a.ic,20,NOM.verde)}
+      <span style="font-weight:500;font-size:13.5px;color:${NOM.tinta};line-height:1.25">${a.titulo}</span>
+      <span style="font-size:11px;color:${NOM.tintaSuave};line-height:1.35">${a.desc}</span>
+    </button>`).join('')}
+  </div>`}
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:14px">
   ${accHead('trazabilidad','🔍','Trazabilidad y datos de la empresa')}
     <p class="muted">Cada cambio que hace cualquier persona queda registrado con su nombre, la fecha y el valor anterior.</p>
@@ -4318,6 +4444,9 @@ async function admin(){
     box.innerHTML = `<div class="alert info"><b>✅ Código generado para ${full_name||'este usuario'}:</b><br><span style="font-size:20px;font-weight:bold;letter-spacing:2px">${data.code}</span><br><small>Copialo ahora — no se vuelve a mostrar. Pasáselo a la persona para que entre por "Acceso del equipo".</small></div>`
     adminData = null; render()
   }
+  document.querySelectorAll('[data-area]').forEach(b=>b.onclick=()=>{ adminAreaAbierta = b.dataset.area; adminOpenSection = null; window.scrollTo(0,0); render() })
+  const btnVolverAreas = document.querySelector('#btn_volver_areas')
+  if(btnVolverAreas) btnVolverAreas.onclick = ()=>{ adminAreaAbierta = null; adminOpenSection = null; window.scrollTo(0,0); render() }
   const btnIrAuditoria = document.querySelector('#btn_ir_auditoria')
   if(btnIrAuditoria) btnIrAuditoria.onclick = ()=>{ current='auditoria'; render() }
   const btnGuardarEmpresa = document.querySelector('#btn_guardar_empresa')
@@ -6043,7 +6172,29 @@ window.addEventListener('popstate', (e)=>{
   render()
 })
 
+function inyectarEstilos(){
+  if(document.querySelector('#nom_estilos')) return
+  const st = document.createElement('style')
+  st.id = 'nom_estilos'
+  st.textContent = `
+    body{background:${NOM.fondo}}
+    h1,h2,h3,h4{font-weight:500;color:${NOM.tinta};letter-spacing:-0.2px}
+    h2{font-size:20px}
+    h3{font-size:15px}
+    .card{background:${NOM.superficie};border:1px solid ${NOM.borde};border-radius:16px}
+    .row{border-bottom:1px solid ${NOM.borde}}
+    .badge{font-weight:500;border-radius:7px}
+    b,strong{font-weight:500}
+    input,select,textarea{border-radius:11px;border:1px solid ${NOM.borde};font-size:15px}
+    input:focus,select:focus,textarea:focus{outline:none;border-color:${NOM.verde};box-shadow:0 0 0 3px rgba(47,77,42,0.09)}
+    .btn{border-radius:11px;font-weight:500}
+    [data-count-target]{font-variant-numeric:tabular-nums}
+  `
+  document.head.appendChild(st)
+}
+
 async function init(){
+  inyectarEstilos()
   document.addEventListener('focusin', (e)=>{
     if(e.target.tagName==='INPUT' && e.target.type==='number') e.target.select()
   })
