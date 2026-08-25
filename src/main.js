@@ -20,6 +20,10 @@ const IC = {
   carrito:'<circle cx="9" cy="19" r="1.6"/><circle cx="17" cy="19" r="1.6"/><path d="M3 4h2l2.5 10h10L20 7H6"/>',
   estrella:'<path d="M12 4l2.4 5 5.6.7-4 3.9 1 5.4-5-2.7-5 2.7 1-5.4-4-3.9 5.6-.7z"/>',
   huevo:'<path d="M12 3c3.5 0 6 4.8 6 9a6 6 0 01-12 0c0-4.2 2.5-9 6-9z"/>',
+  reloj:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>',
+  check:'<path d="M4 12.5l5.5 5.5L20 7"/>',
+  cerrar:'<path d="M6 6l12 12M18 6L6 18"/>',
+  botella:'<path d="M10 2h4v3.5l2 3V21a1 1 0 01-1 1H9a1 1 0 01-1-1V8.5l2-3z"/><path d="M8 13h8"/>',
   mapa:'<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/>',
   moto:'<circle cx="5" cy="17" r="3"/><circle cx="19" cy="17" r="3"/><path d="M8 17h8l-4-7H8M14 10h4l2 4"/>',
   canasta:'<path d="M4 9h16l-1.5 10h-13z"/><path d="M8 9l2-5M16 9l-2-5"/>',
@@ -1928,24 +1932,164 @@ async function miVehiculo(){
   }
 }
 
+
+function mayoristaLogin(){
+  layout(`<h2>Entrá a tu cuenta</h2>
+  <div class="card">
+    <p class="muted" style="margin:0 0 14px">Ingresá con el CUIT o DNI con el que te registraste.</p>
+    <div class="field"><label>CUIT o DNI</label><input id="may_login_dni" inputmode="numeric" placeholder="Sin puntos ni guiones"/></div>
+    <div id="err_may_login" class="alert danger" style="display:none"></div>
+    <button class="btn primary" id="btn_may_entrar" style="width:100%">Entrar</button>
+    <button class="btn ghost" id="btn_may_volver_landing" style="width:100%;margin-top:8px">← Volver</button>
+    <p class="muted" style="margin-top:14px;font-size:12.5px;text-align:center">¿Todavía no tenés cuenta? <a href="#" id="link_crear_may" style="color:${NOM.verde}">Creala acá</a></p>
+  </div>`)
+
+  const entrar = async ()=>{
+    const dni = document.querySelector('#may_login_dni').value.trim()
+    const box = document.querySelector('#err_may_login')
+    if(!/^(\d{7,8}|\d{11})$/.test(dni)){
+      box.textContent = 'Ingresá tu CUIT (11 números) o DNI (7 u 8), sin puntos ni guiones.'
+      box.style.display='block'; return
+    }
+    const btn = document.querySelector('#btn_may_entrar')
+    btn.disabled = true; btn.textContent = 'Entrando…'
+    const { data, error } = await supabase.rpc('customer_login', { p_dni: dni })
+    btn.disabled = false; btn.textContent = 'Entrar'
+    if(error || !data?.found){
+      box.textContent = 'No encontramos ese CUIT o DNI. Si sos nuevo, creá tu cuenta abajo.'
+      box.style.display='block'; return
+    }
+    if(data.customer.customer_type !== 'mayorista'){
+      box.textContent = 'Esa cuenta no está registrada como mayorista. Si te parece un error, escribinos.'
+      box.style.display='block'; return
+    }
+    cuenta = data
+    mayoristaVista = 'tienda'
+    current = 'mayorista-panel'
+    render()
+  }
+
+  document.querySelector('#btn_may_entrar').onclick = entrar
+  document.querySelector('#may_login_dni').onkeydown = (e)=>{ if(e.key==='Enter') entrar() }
+  document.querySelector('#btn_may_volver_landing').onclick = ()=>{ current='mayorista-landing'; render() }
+  document.querySelector('#link_crear_may').onclick = (e)=>{ e.preventDefault(); current='mayorista-signup'; render() }
+}
+
 async function mayoristaLanding(){
-  layout(`<h2>🏭 Vendemos a mayoristas</h2><div class="card">${skeletonBloque(4)}</div>`)
+  layout(`<h2>Para comercios</h2><div class="card">${skeletonBloque(4)}</div>`)
   const [{ data: planesRaw }, { data: catalogoRaw }] = await Promise.all([
     supabase.from('plan_prices').select('id,egg_quantity,price,grade,unidad').eq('active', true).eq('customer_type','mayorista').order('egg_quantity'),
     supabase.rpc('mayorista_catalogo', {})
   ])
   const planes = planesRaw || []
   const catalogo = catalogoRaw || []
-  layout(`<h2>🏭 Vendemos a mayoristas</h2>
-  <div class="card"><p class="muted">Huevos de libre pastoreo directo de la granja, en volumen y con precio mayorista. Así queda armado tu pedido:</p></div>
-  <div class="card"><h3>🥚 Huevo</h3>
-    ${planes.length? planes.map(p=>`<div class="row"><span>${p.egg_quantity} huevos</span><b>$${Number(p.price).toLocaleString('es-AR')}</b></div>`).join('') : '<p class="muted">Consultanos por volumen y precio.</p>'}
+  const iconoCat = (cat)=>{
+    const c2 = (cat||'').toLowerCase()
+    if(c2.includes('aceite')||c2.includes('vinagre')) return 'botella'
+    if(c2.includes('conserva')||c2.includes('lata')) return 'carrito'
+    if(c2.includes('fideo')||c2.includes('pasta')) return 'huevo'
+    return 'carrito'
+  }
+  const categorias = {}
+  catalogo.forEach(p=>{ const k = p.category || 'Almacén'; categorias[k] ??= 0; categorias[k]++ })
+  const nombresCat = Object.keys(categorias).sort()
+
+  layout(`<div style="background:${NOM.verde};border-radius:18px;padding:22px 18px;margin-bottom:12px">
+    <div style="color:${NOM.verdePastel};font-size:10.5px;letter-spacing:1.8px;text-transform:uppercase">Para comercios</div>
+    <h1 style="color:#F5EFE0;font-size:25px;font-weight:500;line-height:1.2;margin:11px 0 0">Tu proveedor de todos los días</h1>
+    <p style="color:#C9D8B0;font-size:13.5px;line-height:1.55;margin:12px 0 0">Empezamos criando gallinas. Hoy además te llevamos aceites, conservas, pastas y todo lo que se vende siempre. Un solo proveedor, un solo pedido, un solo viaje.</p>
+    <div style="display:flex;gap:20px;margin-top:18px;padding-top:16px;border-top:1px solid rgba(247,244,236,0.18)">
+      <div>
+        <div style="font-size:20px;font-weight:500;color:#F5EFE0;font-variant-numeric:tabular-nums">1</div>
+        <div style="font-size:10.5px;color:${NOM.verdePastel};line-height:1.35;margin-top:2px">solo pedido<br>para todo</div>
+      </div>
+      <div>
+        <div style="font-size:20px;font-weight:500;color:#F5EFE0">$0</div>
+        <div style="font-size:10.5px;color:${NOM.verdePastel};line-height:1.35;margin-top:2px">envío desde<br>$80.000</div>
+      </div>
+      <div>
+        <div style="font-size:20px;font-weight:500;color:#F5EFE0;font-variant-numeric:tabular-nums">30</div>
+        <div style="font-size:10.5px;color:${NOM.verdePastel};line-height:1.35;margin-top:2px">días de cuenta<br>corriente</div>
+      </div>
+    </div>
   </div>
-  ${catalogo.length?`<div class="card"><h3>🛒 Otros productos</h3>
-    ${catalogo.map(p=>`<div class="row"><span>${p.name}<br><small class="muted">${p.unit_label||'unidad'}</small></span><b>$${Number(p.price).toLocaleString('es-AR')}</b></div>`).join('')}
-  </div>`:''}
-  <button class="btn primary" id="btn_quiero_ser_mayorista" style="width:100%;margin-top:6px">➕ Quiero ser cliente mayorista</button>
-  <button class="btn ghost" id="btn_ya_soy_mayorista" style="width:100%;margin-top:8px">Ya soy cliente — Ingresar con DNI</button>`)
+
+  <h2 style="font-size:18px;margin:0 0 11px">Qué te llevamos</h2>
+  <div class="grid two" style="margin-bottom:9px">
+    <div style="background:${NOM.superficie};border:1px solid ${NOM.borde};border-radius:14px;overflow:hidden">
+      <div style="height:70px;background:${NOM.verdeClaro};display:flex;align-items:center;justify-content:center">${ico('huevo',24,NOM.verde)}</div>
+      <div style="padding:11px">
+        <div style="font-size:13px;font-weight:500;color:${NOM.tinta}">Huevos</div>
+        <div style="font-size:11px;color:${NOM.tintaSuave};margin-top:2px;line-height:1.35">De nuestra granja, por tamaño</div>
+      </div>
+    </div>
+    ${nombresCat.map(cat=>`<div style="background:${NOM.superficie};border:1px solid ${NOM.borde};border-radius:14px;overflow:hidden">
+      <div style="height:70px;background:${NOM.verdeClaro};display:flex;align-items:center;justify-content:center">${ico(iconoCat(cat),24,NOM.verde)}</div>
+      <div style="padding:11px">
+        <div style="font-size:13px;font-weight:500;color:${NOM.tinta};line-height:1.3">${cat}</div>
+        <div style="font-size:11px;color:${NOM.tintaSuave};margin-top:2px">${categorias[cat]} producto(s)</div>
+      </div>
+    </div>`).join('')}
+    <div style="background:${NOM.superficie};border:1px dashed #C9C4B4;border-radius:14px;overflow:hidden;opacity:0.72">
+      <div style="height:70px;background:#F1EFE8;display:flex;align-items:center;justify-content:center">${ico('carrito',24,'#A8A89E')}</div>
+      <div style="padding:11px">
+        <div style="font-size:13px;font-weight:500;color:${NOM.tintaSuave};line-height:1.3">Carne al vacío</div>
+        <div style="font-size:11px;color:#A8A89E;margin-top:2px">Próximamente</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="background:${NOM.superficie};border:1px dashed #C9C4B4;border-radius:14px;padding:13px;margin-bottom:18px;display:flex;gap:11px;align-items:center">
+    <div style="width:38px;height:38px;border-radius:11px;background:#F1EFE8;display:flex;align-items:center;justify-content:center;flex-shrink:0">${ico('mas',18,'#8A8570')}</div>
+    <div>
+      <div style="font-size:13px;font-weight:500;color:${NOM.tinta}">Y seguimos sumando</div>
+      <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px;line-height:1.4">Limpieza, condimentos y más. Si necesitás algo que no está, pedilo.</div>
+    </div>
+  </div>
+
+  <h2 style="font-size:18px;margin:0 0 11px">Por qué te conviene</h2>
+  <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px">
+    ${[['carrito','Un solo pedido, un solo viaje','Dejás de coordinar con cuatro proveedores distintos. Todo junto y en el mismo camión.'],
+       ['reloj','Llegamos cuando recibís','Nos decís tu horario y lo respetamos. Nada de golpear a las once cuando abrís a las siete.'],
+       ['check','Contás antes de firmar','Revisás desde tu teléfono y das conformidad. Si faltó algo, lo descontamos ahí mismo.'],
+       ['camion','Repetís con un toque','La app se acuerda de tu último pedido. Lo cargás, ajustás lo que cambió, y listo.']].map(([ic,t,d])=>`
+      <div style="background:${NOM.superficie};border:1px solid ${NOM.borde};border-radius:13px;padding:13px;display:flex;gap:12px;align-items:flex-start">
+        <div style="width:36px;height:36px;border-radius:11px;background:${NOM.verdeClaro};display:flex;align-items:center;justify-content:center;flex-shrink:0">${ico(ic,17,NOM.verde)}</div>
+        <div>
+          <div style="font-size:13.5px;font-weight:500;color:${NOM.tinta}">${t}</div>
+          <div style="font-size:12px;color:${NOM.tintaSuave};margin-top:3px;line-height:1.45">${d}</div>
+        </div>
+      </div>`).join('')}
+  </div>
+
+  ${planes.length?`<div class="card"><h3>Nuestros huevos</h3>
+    ${planes.map(p=>{
+      const etiqueta = p.grade ? (GRADO_LABEL[p.grade]||p.grade) : `${p.egg_quantity} huevos`
+      const porHuevo = p.egg_quantity ? Math.round(Number(p.price)/p.egg_quantity) : 0
+      return `<div class="row"><span>${etiqueta}<br><small class="muted">maple de ${p.egg_quantity}${porHuevo?` · $${porHuevo.toLocaleString('es-AR')} por huevo`:''}</small></span><b>$${Number(p.price).toLocaleString('es-AR')}</b></div>`
+    }).join('')}
+  </div>`:`<div style="background:${NOM.verdeClaro};border-radius:16px;padding:16px;margin-bottom:18px">
+    <div style="font-size:16px;font-weight:500;color:${NOM.verde};margin-bottom:4px">La lista de precios va por WhatsApp</div>
+    <div style="font-size:12.5px;color:#5F5E5A;line-height:1.5">Creá tu cuenta y te la pasamos completa: huevos por tamaño y todo el almacén con precio mayorista.</div>
+  </div>`}
+
+  <h2 style="font-size:18px;margin:0 0 11px">Cómo arrancamos</h2>
+  <div style="margin-bottom:20px">
+    ${['Creás tu cuenta con el CUIT del comercio',
+       'Te pasamos precios y armás tu primer pedido',
+       'Después del tercer pedido te abrimos cuenta corriente'].map((t,i2,arr)=>`
+      <div style="display:flex;gap:12px;padding:${i2===0?'0 0 11px':i2===arr.length-1?'11px 0 0':'11px 0'};${i2<arr.length-1?`border-bottom:1px solid ${NOM.borde}`:''}">
+        <span style="flex-shrink:0;width:24px;height:24px;border-radius:8px;background:${NOM.verde};color:#F5EFE0;display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:500">${i2+1}</span>
+        <span style="font-size:13px;color:${NOM.tinta}">${t}</span>
+      </div>`).join('')}
+  </div>
+
+  <div style="background:${NOM.verde};border-radius:16px;padding:18px">
+    <p style="margin:0;font-size:16px;font-weight:500;color:#F5EFE0;line-height:1.35">Probá con un pedido chico. Si no te lo sacan de las manos, no seguís.</p>
+    <button class="btn" id="btn_quiero_ser_mayorista" style="width:100%;margin-top:14px;background:#F5EFE0;color:${NOM.verde};border:none;padding:13px 0;font-size:14px;font-weight:500">Quiero ser cliente mayorista</button>
+    <button class="btn" id="btn_ya_soy_mayorista" style="width:100%;margin-top:8px;background:transparent;color:#F5EFE0;border:1px solid rgba(247,244,236,0.3);padding:12px 0;font-size:13.5px">Ya tengo cuenta</button>
+  </div>`)
+
   document.querySelector('#btn_quiero_ser_mayorista').onclick = ()=>{ current='mayorista-signup'; render() }
   document.querySelector('#btn_ya_soy_mayorista').onclick = ()=>{ current='mayorista-login'; render() }
 }
@@ -2156,6 +2300,30 @@ function saludoHora(){
 }
 function nombreComercio(c){
   return (c.nombre_comercial || `${c.first_name||''} ${c.last_name||''}`).trim()
+}
+
+
+async function cargarRepartidorAsignado(){
+  const box = document.querySelector('#card_repartidor')
+  if(!box) return
+  const next = cuenta?.next_order
+  if(!next){ box.style.display = 'none'; return }
+
+  const { data } = await supabase.rpc('repartidor_de_mi_pedido', { p_order_id: next.id })
+  if(!data || data.error || !data.nombre){ box.style.display = 'none'; return }
+
+  box.innerHTML = `<h3>Tu repartidor</h3>
+    <div style="display:flex;gap:12px;align-items:center">
+      ${data.photo_url
+        ? `<img src="${data.photo_url}" alt="" style="width:50px;height:50px;border-radius:16px;object-fit:cover;flex-shrink:0;background:${NOM.verdeClaro}"/>`
+        : `<div style="width:50px;height:50px;border-radius:16px;background:${NOM.verde};color:#F5EFE0;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:500;flex-shrink:0">${(data.nombre||'?').charAt(0).toUpperCase()}</div>`}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:500;color:${NOM.tinta}">${data.nombre} te lleva el pedido</div>
+        ${data.vehiculo?`<div style="font-size:12px;color:${NOM.tintaSuave};margin-top:2px">${data.vehiculo}</div>`:''}
+      </div>
+      ${ico('check',20,NOM.verde)}
+    </div>
+    <p class="muted" style="font-size:11.5px;margin:10px 0 0">Si golpea la puerta otra persona, no la recibas y avisanos.</p>`
 }
 
 async function mayoristaPanel(){
