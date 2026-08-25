@@ -79,9 +79,14 @@ const MENU_POR_ROL = {
   telefonico: [['telefonico','Teléfono'],['inicio','Ver la tienda']]
 }
 
+const ORDEN_ROLES = ['admin','telefonico','preparador','repartidor','campo','vendedor']
+
 function rolesActivos(){
-  if(Array.isArray(myRoles) && myRoles.length) return myRoles
-  return myRole ? [myRole] : []
+  const base = (Array.isArray(myRoles) && myRoles.length) ? myRoles : (myRole ? [myRole] : [])
+  return [...base].sort((a,b)=>{
+    const ia = ORDEN_ROLES.indexOf(a), ib = ORDEN_ROLES.indexOf(b)
+    return (ia<0?99:ia) - (ib<0?99:ib)
+  })
 }
 
 function tengoRol(rol){ return rolesActivos().includes(rol) }
@@ -228,32 +233,152 @@ function personaIlustracion(){
 </svg>`
 }
 
-function inicio(){layout(`<section class="hero">
-  <img src="./img/logo.jpg" alt="Granja Nómades - gallinas de huevos pastoriles, libres por naturaleza" style="width:100%;border-radius:12px;margin-bottom:16px;display:block"/>
-  <div style="background:#2F4D2A;border-radius:12px;padding:12px 16px;margin-bottom:16px;text-align:center">
-    <p style="font-size:14px;font-weight:600;color:#F5EFE0;margin:0">Comprá directo al productor</p>
-    <p style="font-size:12px;color:#C9D8B0;margin:4px 0 0">Del nido a tu mesa en 0-2 días, no en 2 semanas de supermercado</p>
+function inicio(){
+  layout(`
+<img src="./img/logo.jpg" alt="Granja Nómades — gallinas de huevos pastoriles, libres por naturaleza" style="width:100%;border-radius:14px;margin-bottom:14px;display:block"/>
+
+<div style="background:${NOM.verde};border-radius:12px;padding:13px 16px;margin-bottom:16px;text-align:center">
+  <p style="margin:0;font-size:14px;font-weight:500;color:#F5EFE0">Comprá directo al productor</p>
+  <p style="margin:5px 0 0;font-size:12px;color:#C9D8B0;line-height:1.45">Del nido a tu mesa en 2 días, no en 2 semanas de supermercado</p>
+</div>
+
+<p style="margin:0 0 7px;font-size:11px;letter-spacing:1.4px;color:#8A8570">NATURALES • FRESCOS • REALES</p>
+<h1 style="margin:0 0 9px;font-size:23px;font-weight:500;color:${NOM.verde};line-height:1.25">Huevos que nacen al aire libre, no en una jaula</h1>
+<p style="margin:0 0 15px;font-size:13.5px;color:#5F5E5A;line-height:1.6">Nuestras gallinas viven en carros que se mudan cada tres días para que siempre pisen pasto nuevo. Acceso diario al aire libre y granos seleccionados — por eso nuestros huevos son distintos.</p>
+
+<div style="display:flex;gap:9px;margin-bottom:18px">
+  <button class="btn" onclick="window.location.href='./suscribite.html'" style="flex:1;background:${NOM.verde};color:#F5EFE0;border:none;padding:13px 0;font-size:14px;font-weight:500">Quiero suscribirme</button>
+  <button class="btn" data-nav="cuenta" style="flex:0 0 auto;background:#FFFFFF;color:${NOM.verde};border:1px solid #E3DCC8;padding:13px 16px;font-size:14px">Ya soy cliente</button>
+</div>
+
+<div style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;overflow:hidden;margin-bottom:18px">
+  <img src="./img/hero_banner.jpg" alt="El carro con las gallinas en el campo" style="width:100%;display:block"/>
+  <div style="padding:15px">
+    <p style="margin:0;font-size:18px;font-weight:500;color:${NOM.verde};line-height:1.3">Las gallinas cambian de parcela cada tres días</p>
+    <p style="margin:9px 0 0;font-size:13px;color:#5F5E5A;line-height:1.6">Movemos el carro a una parcela nueva para que siempre tengan pasto fresco, insectos y sombra. La tierra que dejan atrás descansa y se recupera antes de volver a usarse. De ahí viene el nombre.</p>
   </div>
-  <img src="./img/hero_banner.jpg" alt="Granja Nómades - gallinero móvil" style="width:100%;border-radius:12px;margin-bottom:18px;display:block"/>
-  <div class="muted"><b>NATURALES • FRESCOS • REALES</b></div>
-  <h1>Huevos que nacen al aire libre, no en una jaula</h1>
-  <p>Usamos gallineros móviles que se trasladan cada 3 a 4 días para renovar la pastura. Nuestras gallinas tienen acceso diario al aire libre y una alimentación balanceada a base de granos seleccionados — por eso nuestros huevos son distintos.</p>
-  <div style="margin-top:18px"><button class="btn primary" onclick="window.location.href='./suscribite.html'">📝 Quiero suscribirme</button> <button class="btn ghost" data-nav="cuenta">👤 Ya soy cliente</button></div>
-</section>
-<img src="./img/delivery.jpg" alt="Entrega a domicilio Nómades" style="width:100%;border-radius:12px;margin-top:18px;display:block"/>
-<section class="grid three" style="margin-top:18px">
-  <div class="card"><h3>🌿 Libre pastoreo</h3><p>Acceso diario a pasturas naturales renovadas.</p></div>
-  <div class="card"><h3>🚜 Gallinero móvil</h3><p>Rotación periódica: la tierra descansa, la producción es limpia.</p></div>
-  <div class="card"><h3>🌾 Alimentación cuidada</h3><p>Granos seleccionados + pastoreo, sin atajos.</p></div>
-</section>
-<section style="margin-top:18px">
-  <h2>Elegí tu plan</h2>
-  <div class="grid two" id="planes_home"><p class="muted">Cargando precios…</p></div>
-</section>
-<section class="card" style="margin-top:18px"><h3>¿Por qué NÓMADES es distinto?</h3><p>La mayoría de los huevos de supermercado vienen de gallinas confinadas todo el día. Acá las gallinas viven al aire libre, se mueven, comen pasto fresco — y eso se nota en el sabor y el color de la yema. Además, cada entrega es trazable: sabés exactamente cuándo se recolectó tu pedido.</p></section>
-<section style="margin-top:18px"><h2>Lo que dicen nuestros clientes</h2><div id="resenas_home">${skeletonBloque(2)}</div></section>`)
+</div>
+
+<div class="grid two" style="margin-bottom:18px">
+  ${[['plant','Libre pastoreo','Acceso diario a pasturas renovadas'],
+     ['camion','Carro móvil','La tierra descansa, la producción es limpia'],
+     ['huevo','Alimentación cuidada','Granos seleccionados más pastoreo'],
+     ['moto','Te lo llevamos','A tu casa, el día que elijas']].map(([ic,t,d])=>`
+    <div style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;padding:13px">
+      ${ico(ic==='plant'?'huevo':ic,20,NOM.verde)}
+      <p style="margin:8px 0 0;font-size:13.5px;font-weight:500;color:${NOM.verde}">${t}</p>
+      <p style="margin:3px 0 0;font-size:11.5px;color:#8A8570;line-height:1.4">${d}</p>
+    </div>`).join('')}
+</div>
+
+<h2 style="margin:0 0 11px;font-size:19px">Elegí tu plan</h2>
+<div class="grid two" id="planes_home" style="margin-bottom:18px">${skeletonBloque(2)}</div>
+
+<div style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;overflow:hidden;margin-bottom:18px">
+  <img src="./img/delivery.jpg" alt="Repartidor de Nómades entregando el pedido" style="width:100%;display:block"/>
+  <div style="padding:15px">
+    <p style="margin:0;font-size:18px;font-weight:500;color:${NOM.verde};line-height:1.3">Sabés quién va a tocar tu puerta antes de que llegue</p>
+    <p style="margin:9px 0 0;font-size:13px;color:#5F5E5A;line-height:1.6">Antes de cada entrega ves el nombre, la foto y el vehículo de tu repartidor asignado. Todo nuestro personal está uniformado e identificado. Si no figura en la app, no somos nosotros.</p>
+    <div style="display:flex;gap:9px;margin-top:13px">
+      <div style="flex:1;display:flex;gap:8px;align-items:flex-start">${ico('mapa',16,NOM.verde)}<span style="font-size:11.5px;color:#5F5E5A;line-height:1.4">Seguís el pedido en vivo</span></div>
+      <div style="flex:1;display:flex;gap:8px;align-items:flex-start">${ico('personas',16,NOM.verde)}<span style="font-size:11.5px;color:#5F5E5A;line-height:1.4">Se valida quién recibe</span></div>
+    </div>
+  </div>
+</div>
+
+<div style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;padding:15px;margin-bottom:18px">
+  <p style="margin:0 0 6px;font-size:17px;font-weight:500;color:${NOM.verde}">Dos días, con lote y fecha</p>
+  <p style="margin:0 0 14px;font-size:13px;color:#5F5E5A;line-height:1.55">Un huevo de supermercado puede tener semanas y venir de una gallina que nunca salió al aire libre. El nuestro llega en dos días y sabés exactamente de qué lote y de qué fecha es.</p>
+  <div style="display:flex;gap:8px;margin-bottom:9px">
+    <div style="flex:1;background:${NOM.verdeClaro};border-radius:12px;padding:13px 11px">
+      <p style="margin:0;font-size:26px;font-weight:500;color:${NOM.verde};line-height:1;font-variant-numeric:tabular-nums">2</p>
+      <p style="margin:6px 0 0;font-size:11px;color:#5F5E5A;line-height:1.4">días desde la postura hasta tu casa</p>
+    </div>
+    <div style="flex:1;background:${NOM.verdeClaro};border-radius:12px;padding:13px 11px">
+      <p style="margin:0;font-size:26px;font-weight:500;color:${NOM.verde};line-height:1;font-variant-numeric:tabular-nums">3</p>
+      <p style="margin:6px 0 0;font-size:11px;color:#5F5E5A;line-height:1.4">días entre cambios de parcela</p>
+    </div>
+  </div>
+  <div style="background:${NOM.verdeClaro};border-radius:12px;padding:13px">
+    <p style="margin:0 0 10px;font-size:11.5px;color:#5F5E5A;line-height:1.5">La gallina come pasto, semillas e insectos, y toma sol. Esos nutrientes pasan directo a la yema.</p>
+    <div class="grid two" style="gap:7px">
+      ${[['2×','omega 3'],['2×','vitamina E'],['3×','vitamina D'],['½','omega 6/3']].map(([n,l])=>`
+        <div style="background:#FFFFFF;border-radius:9px;padding:9px 10px;display:flex;align-items:baseline;gap:7px">
+          <span style="font-size:15px;font-weight:500;color:${NOM.verde}">${n}</span>
+          <span style="font-size:11.5px;color:#5F5E5A">${l}</span>
+        </div>`).join('')}
+    </div>
+  </div>
+  <details style="border-top:1px solid #F0EADB;padding-top:12px;margin-top:13px">
+    <summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;font-size:12.5px;color:${NOM.verde};font-weight:500">
+      <span>Ver la comparación completa</span>${ico('flecha',17,NOM.verde)}
+    </summary>
+    <div style="padding-top:12px">
+      ${[['Sale al aire libre','no','a diario'],['Sabés de dónde vino','no','con lote'],['Espacio para moverse','jaula','pastura'],['Alimentación','balanceado','pasto y granos']].map(([c,a,b])=>`
+        <div style="display:flex;padding:9px 0;border-bottom:1px solid #F0EADB;align-items:center">
+          <span style="flex:1;font-size:12.5px;color:${NOM.verde}">${c}</span>
+          <span style="width:66px;text-align:center;font-size:12px;color:#8A8570">${a}</span>
+          <span style="width:76px;text-align:center;font-size:12.5px;color:${NOM.verde};font-weight:500">${b}</span>
+        </div>`).join('')}
+      <p style="margin:11px 0 0;font-size:11px;color:#8A8570;line-height:1.5">Datos de Penn State University sobre huevos de pastoreo en general, no de una granja en particular.</p>
+    </div>
+  </details>
+</div>
+
+<h2 style="margin:0 0 11px;font-size:19px">Lo que dicen nuestros clientes</h2>
+<div id="resenas_home" style="margin-bottom:18px">${skeletonBloque(2)}</div>
+
+<div style="background:${NOM.verdeClaro};border-radius:14px;padding:16px;margin-bottom:18px">
+  <p style="margin:0 0 5px;font-size:17px;font-weight:500;color:${NOM.verde}">También te llevamos el almacén</p>
+  <p style="margin:0 0 12px;font-size:12.5px;color:#5F5E5A;line-height:1.5">Aceite, fideos, conservas y más. Lo sumás a tu entrega y llega junto con los huevos, sin costo de envío.</p>
+  <div id="catalogo_home" style="display:flex;gap:9px;overflow-x:auto;padding-bottom:4px"></div>
+</div>
+
+<h2 style="margin:0 0 10px;font-size:19px">Preguntas frecuentes</h2>
+<div style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;padding:4px 14px;margin-bottom:18px">
+  ${[
+    ['¿Llegan a mi barrio?','Repartimos en Rosario y alrededores, por zonas. Al suscribirte elegís tu zona y te mostramos los días disponibles antes de confirmar.'],
+    ['¿Puedo pausar cuando me voy de viaje?','Sí. Desde tu cuenta pausás la suscripción los días que quieras y la reanudás cuando volvés, sin perder tu lugar.'],
+    ['¿Cuánto duran los huevos?','Te llegan con menos de dos días desde la postura, así que tenés semanas por delante. Guardalos en la heladera y sin lavar hasta usarlos.'],
+    ['¿Puedo cambiar la cantidad?','Cuando quieras, desde tu cuenta. También podés combinar maples de distintos tamaños en el mismo pedido.'],
+    ['¿Tengo que estar en casa?','No. Podés dejar una persona de referencia autorizada para recibir el pedido.']
+  ].map(([q,a],i,arr)=>`<details style="${i<arr.length-1?'border-bottom:1px solid #F0EADB;':''}padding:12px 0">
+    <summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13.5px;color:${NOM.verde}">
+      <span>${q}</span>${ico('flecha',16,'#A8A89E')}
+    </summary>
+    <p style="margin:9px 0 0;font-size:12.5px;color:#8A8570;line-height:1.6">${a}</p>
+  </details>`).join('')}
+</div>
+
+<div style="background:${NOM.verde};border-radius:16px;padding:19px 17px">
+  <p style="margin:0;font-size:18px;font-weight:500;color:#F5EFE0;line-height:1.35">Probá una semana. Si no notás la diferencia, no seguís.</p>
+  <button class="btn" onclick="window.location.href='./suscribite.html'" style="width:100%;margin-top:14px;background:#F5EFE0;color:${NOM.verde};border:none;padding:13px 0;font-size:14px;font-weight:500">Empezar mi suscripción</button>
+  <button class="btn" id="btn_soy_comercio" style="width:100%;margin-top:9px;background:transparent;color:#C9D8B0;border:none;padding:10px 0;font-size:12.5px">¿Tenés un comercio? Vendemos por mayor</button>
+</div>`)
+
   cargarPreciosHome()
   cargarResenasHome()
+  cargarCatalogoHome()
+
+  const btnComercio = document.querySelector('#btn_soy_comercio')
+  if(btnComercio) btnComercio.onclick = ()=>{ current='mayorista-landing'; render() }
+}
+
+async function cargarCatalogoHome(){
+  const cont = document.querySelector('#catalogo_home')
+  if(!cont) return
+  const { data } = await supabase.from('catalog_products')
+    .select('id,name,photo_url,price')
+    .eq('active', true).eq('wholesale_only', false)
+    .order('created_at', { ascending:false }).limit(8)
+  const productos = data || []
+  if(!productos.length){ cont.parentElement.style.display = 'none'; return }
+  cont.innerHTML = productos.map(p=>`<div style="flex:0 0 auto;width:104px;background:${NOM.superficie};border-radius:12px;padding:9px;text-align:center">
+    ${p.photo_url
+      ? `<img src="${p.photo_url}" alt="" style="width:100%;height:66px;object-fit:contain;border-radius:8px;display:block"/>`
+      : `<div style="height:66px;display:flex;align-items:center;justify-content:center">${ico('carrito',22,NOM.verde)}</div>`}
+    <div style="font-size:11px;color:${NOM.tinta};margin-top:7px;line-height:1.3;height:29px;overflow:hidden">${p.name}</div>
+  </div>`).join('')
 }
 
 async function cargarResenasHome(){
@@ -435,6 +560,7 @@ function cuentaPanel(){
       ${s.status==='paused'?`<button class="btn primary" data-reanudar="${s.id}" style="font-size:12px;padding:6px 12px">▶️ Reanudar</button>`:''}
     </span></div>`
   }).join(''):estadoVacio('No tenés suscripciones activas todavía.')}</div>
+  <div class="card" id="card_pagar"></div>
   <div class="card" id="card_pagos"><h3>💳 Historial de pagos</h3>${skeletonBloque(3)}</div>
   <div class="card"><h3>📣 Recomendá NÓMADES</h3><p class="muted">Compartí tu código — cuando alguien se suscriba con él y reciba y pague su primera entrega, vos te ganás <b>$1.000 de descuento</b> en tu próximo pedido. Cada código sirve una sola vez: apenas se usa, se genera uno nuevo para que compartas.</p>
     ${(()=>{
@@ -733,6 +859,7 @@ function cuentaPanel(){
     cuentaPanel()
   })
   cargarHistorialPagos(c)
+  cargarOpcionesPago(c)
   cargarRepartidor(c, esHoy)
   if(!cuentaPollInterval) iniciarPollingCuenta()
   requestAnimationFrame(()=>window.scrollTo(0, scrollPrevioCuenta))
@@ -871,6 +998,81 @@ async function mapaSuscriptores(){
       fillOpacity: 0.9,
       weight: 2
     }).addTo(map).bindPopup(esVos ? '📍 Vos' : `${p.first_name||'Suscriptor'} · ${p.neighborhood||''}`)
+  })
+}
+
+
+async function cargarOpcionesPago(c){
+  const box = document.querySelector('#card_pagar')
+  if(!box) return
+  const next = cuenta.next_order
+  if(!next || next.status === 'delivered'){ box.style.display='none'; return }
+
+  const [{ data: linksRaw }, { data: cfgRaw }] = await Promise.all([
+    supabase.rpc('customer_link_pago', { p_dni: c.dni, p_customer_id: c.id }),
+    supabase.from('farm_settings').select('key,value').in('key',['wallet_discount_type','wallet_discount_value','transfer_alias','transfer_cbu','transfer_holder_name','mp_alias','mp_wallet_name'])
+  ])
+  const cfg = Object.fromEntries((cfgRaw||[]).map(x=>[x.key,x.value]))
+  const links = linksRaw?.links || []
+  const link = links.find(l=>l.order_id === next.id)
+
+  if(link && link.estado === 'pagado'){
+    box.innerHTML = `<h3>Pago</h3><div class="alert info">Ya está pago. El repartidor no te va a cobrar nada al entregar.</div>`
+    return
+  }
+
+  const sub = (cuenta.subscriptions||[]).find(x=>x.status==='active') || {}
+  const total = Number(link?.monto || sub.price_at_signup || 0)
+  if(total <= 0){ box.style.display='none'; return }
+
+  const tipo = cfg.wallet_discount_type || 'percent'
+  const valor = Number(cfg.wallet_discount_value || 0)
+  const conDescuento = tipo === 'percent' ? Math.round(total * (1 - valor/100)) : Math.max(0, total - valor)
+  const ahorro = total - conDescuento
+  const alias = cfg.transfer_alias || cfg.mp_alias || ''
+  const cbu = cfg.transfer_cbu || ''
+
+  box.innerHTML = `<h3>¿Cómo querés pagar?</h3>
+    <p class="muted" style="margin-bottom:12px">Entrega del ${formatearFecha(next.delivery_date)}</p>
+
+    ${alias || cbu ? `<div style="border:2px solid ${NOM.verde};border-radius:14px;padding:13px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:9px">
+        <div><div style="font-size:15px;font-weight:500;color:${NOM.tinta}">Transferencia</div><div style="font-size:12.5px;color:${NOM.tintaSuave}">Desde tu banco o billetera</div></div>
+        ${ahorro>0?pPill(tipo==='percent'?`${valor}% off`:`$${valor.toLocaleString('es-AR')} off`):''}
+      </div>
+      <div style="display:flex;align-items:baseline;gap:9px">
+        <span style="font-size:25px;font-weight:500;color:${NOM.verde};font-variant-numeric:tabular-nums">$${conDescuento.toLocaleString('es-AR')}</span>
+        ${ahorro>0?`<span style="font-size:14px;color:#A8A89E;text-decoration:line-through;font-variant-numeric:tabular-nums">$${total.toLocaleString('es-AR')}</span>`:''}
+      </div>
+      ${ahorro>0?`<div style="font-size:12.5px;color:${NOM.verde};margin-top:4px">Te ahorrás $${ahorro.toLocaleString('es-AR')}</div>`:''}
+      <div style="background:${NOM.fondo};border-radius:11px;padding:11px 12px;margin-top:11px">
+        ${alias?`<div class="row" style="border:0;padding:3px 0"><span style="font-size:12px;color:${NOM.tintaSuave}">Alias</span><span style="font-size:13px;font-weight:500" id="pago_alias">${alias}</span></div>`:''}
+        ${cbu?`<div class="row" style="border:0;padding:3px 0"><span style="font-size:12px;color:${NOM.tintaSuave}">CBU</span><span style="font-size:13px;font-weight:500" id="pago_cbu">${cbu}</span></div>`:''}
+        ${cfg.transfer_holder_name?`<div class="row" style="border:0;padding:3px 0"><span style="font-size:12px;color:${NOM.tintaSuave}">Titular</span><span style="font-size:13px">${cfg.transfer_holder_name}</span></div>`:''}
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        ${alias?`<button class="btn primary" data-copiar-pago="pago_alias" style="flex:1">Copiar alias</button>`:''}
+        ${cbu?`<button class="btn ghost" data-copiar-pago="pago_cbu" style="flex:1">Copiar CBU</button>`:''}
+      </div>
+      <p class="muted" style="font-size:11.5px;margin:9px 0 0">Después de transferir, mandale el comprobante al repartidor.</p>
+    </div>`:''}
+
+    <div style="border:1px solid ${NOM.borde};border-radius:14px;padding:13px">
+      <div style="font-size:15px;font-weight:500;color:${NOM.tinta}">Tarjeta o cuotas</div>
+      <div style="font-size:12.5px;color:${NOM.tintaSuave};margin-bottom:8px">Débito, crédito o dinero en cuenta</div>
+      <div style="font-size:21px;font-weight:500;color:${NOM.tinta};font-variant-numeric:tabular-nums">$${total.toLocaleString('es-AR')}</div>
+      ${link?.init_point
+        ? `<a href="${link.init_point}" target="_blank" class="btn ghost" style="display:block;text-align:center;text-decoration:none;margin-top:11px;padding:12px 0">Pagar con Mercado Pago</a>`
+        : `<p class="muted" style="font-size:12px;margin:10px 0 0">Pedile el link de pago al equipo por WhatsApp.</p>`}
+    </div>`
+
+  document.querySelectorAll('[data-copiar-pago]').forEach(b=>b.onclick=()=>{
+    const el = document.querySelector('#'+b.dataset.copiarPago)
+    if(!el) return
+    navigator.clipboard?.writeText(el.textContent.trim())
+    const t = b.textContent
+    b.textContent = 'Copiado'
+    setTimeout(()=>{ b.textContent = t }, 1500)
   })
 }
 
@@ -2849,6 +3051,8 @@ let productoExpandido = null
 let productoDetalleCache = {}
 let proveedorPedidoSeleccionado = null
 let pedidoProveedorCantidades = {} // product_id -> { qty, unitType }
+let busquedaProductoPedido = ''
+const SALTO_MS = 700
 let pedidoProveedorTipoEntrega = 'entrega'
 let pedidoProveedorGenerado = null // texto del pedido ya armado
 let pedidoProveedorNumero = null // número correlativo del pedido ya generado
@@ -3138,7 +3342,13 @@ async function openDelivery(id){
   const descuentoBilletera = sub.payment_method==='mp' ? calcularDescuentoBilletera(montoOriginal, cfg.wallet_discount_type, cfg.wallet_discount_value) : 0
   const montoTrasBilletera = montoOriginal - descuentoBilletera
   const montoDefault = credito ? Math.max(0, montoTrasBilletera - credito.discount_amount) : montoTrasBilletera
+  const { data: linkPago } = await supabase.from('payment_links').select('id,estado,init_point,monto').eq('order_id', id).in('estado',['pendiente','pagado']).order('created_at',{ascending:false}).limit(1).maybeSingle()
+  const yaPago = linkPago && linkPago.estado === 'pagado'
   layout(`<h2>Detalle de entrega</h2>${r.important_note?`<div class="alert warning"><b>⚠️ OBSERVACIÓN IMPORTANTE</b><br>${r.important_note}</div>`:''}
+  ${yaPago?`<div style="background:${NOM.verde};border-radius:14px;padding:14px;margin-bottom:12px;display:flex;align-items:center;gap:11px">
+    ${ico('moneda',22,'#F7F4EC')}
+    <div><div style="color:#F7F4EC;font-size:15px;font-weight:500">Ya está pago</div><div style="color:${NOM.verdePastel};font-size:12.5px">Pagó $${Number(linkPago.monto).toLocaleString('es-AR')} online. No le cobres nada.</div></div>
+  </div>`:''}
   ${descuentoBilletera>0?`<div class="alert info">💳 Paga por billetera virtual — tiene <b>$${descuentoBilletera.toLocaleString('es-AR')} de descuento</b> ya restado. Pedile el comprobante antes de confirmar.</div>`:''}
   ${credito?`<div class="alert info">🎁 Este cliente tiene <b>$${Number(credito.discount_amount).toLocaleString('es-AR')} de descuento</b> por recomendar a alguien. Ya está restado del monto a cobrar.</div>`:''}
   <div class="grid two">
@@ -3175,6 +3385,17 @@ async function openDelivery(id){
         </div>
       </div>
       <div id="datos_transferencia"></div>
+      ${!yaPago?`<div style="border-top:1px solid ${NOM.borde};margin-top:12px;padding-top:12px">
+        <div style="font-size:13px;color:${NOM.tintaSuave};margin-bottom:8px">¿Prefiere pagar con tarjeta?</div>
+        ${linkPago?.init_point
+          ? `<div style="display:flex;gap:8px">
+              <a href="https://wa.me/54${(c.phone||'').replace(/\D/g,'')}?text=${encodeURIComponent('Hola '+(c.first_name||'')+'! Te paso el link para pagar tu pedido de NÓMADES: '+linkPago.init_point)}" target="_blank" class="btn ghost" style="flex:1;text-align:center;text-decoration:none;padding:11px 0;font-size:12.5px">Mandar por WhatsApp</a>
+              <button class="btn ghost" id="btn_copiar_link_pago" style="flex:0 0 auto;padding:11px 14px;font-size:12.5px">Copiar</button>
+            </div>
+            <div id="link_pago_valor" style="display:none">${linkPago.init_point}</div>`
+          : `<button class="btn ghost" id="btn_generar_link_pago" style="width:100%">Generar link de pago</button>`}
+        <div id="err_link_pago" class="alert danger" style="display:none;margin-top:8px"></div>
+      </div>`:''}
       <div id="err_confirm" class="alert danger" style="display:none"></div>
       <button class="btn primary" id="confirm" style="width:100%;margin-top:12px" disabled>✅ Confirmar entrega</button>
       <button class="btn ghost" id="failed" style="width:100%;margin-top:8px">❌ No pude entregar</button>
@@ -3224,6 +3445,30 @@ async function openDelivery(id){
     renderDatosTransferencia()
   })
 
+  const btnGenerarLink = document.querySelector('#btn_generar_link_pago')
+  if(btnGenerarLink) btnGenerarLink.onclick = async ()=>{
+    const box = document.querySelector('#err_link_pago')
+    btnGenerarLink.textContent = 'Generando…'
+    const { data, error } = await supabase.functions.invoke('mp-crear-link', { body: { order_id: id, site_url: window.location.origin } })
+    if(error || !data?.ok){
+      btnGenerarLink.textContent = 'Generar link de pago'
+      box.textContent = data?.error || error?.message || 'No se pudo generar el link.'
+      box.style.display = 'block'
+      return
+    }
+    const tel = (c.phone||'').replace(/\D/g,'')
+    const msg = encodeURIComponent('Hola '+(c.first_name||'')+'! Te paso el link para pagar tu pedido de NÓMADES: '+data.init_point)
+    if(tel) window.open('https://wa.me/54'+tel+'?text='+msg, '_blank')
+    else { navigator.clipboard?.writeText(data.init_point); mostrarAlerta('Link copiado. Este cliente no tiene teléfono cargado.') }
+    openDelivery(id)
+  }
+  const btnCopiarLinkPago = document.querySelector('#btn_copiar_link_pago')
+  if(btnCopiarLinkPago) btnCopiarLinkPago.onclick = ()=>{
+    const el = document.querySelector('#link_pago_valor')
+    if(el) navigator.clipboard?.writeText(el.textContent.trim())
+    btnCopiarLinkPago.textContent = 'Copiado'
+    setTimeout(()=>{ btnCopiarLinkPago.textContent = 'Copiar' }, 1500)
+  }
   document.querySelector('#validate').onclick=async()=>{
     const dni=document.querySelector('#dni').value.trim()
     const {data,error}=await supabase.rpc('validate_delivery_receiver',{p_order_id:id,p_dni:dni})
@@ -3367,10 +3612,13 @@ async function admin(){
     { id:'dinero', ic:'moneda', icono:'💰', titulo:'Dinero', desc:'Finanzas, rendición y cobros', secciones:['finanzas','rendicion','cobros'] },
     { id:'proveedores', ic:'planilla', icono:'📋', titulo:'Proveedores', desc:'Compras, cuenta corriente e insumos', secciones:['pedidos_proveedor','insumos'] },
     { id:'stock', ic:'calendario', icono:'📅', titulo:'Stock y pérdidas', desc:'Vencimientos y mermas', secciones:[], directo:'vencimientos' },
+    { id:'cobrados', ic:'moneda', icono:'💰', titulo:'Cobrados sin entregar', desc:'Plata cobrada que hay que resolver', secciones:[], directo:'cobrados' },
     { id:'avisos', ic:'campana', icono:'⏰', titulo:'Avisos a clientes', desc:'Cambios de precio y novedades', secciones:[], directo:'avisos' },
     { id:'comercial', ic:'carrito', icono:'🛒', titulo:'Comercial', desc:'Catálogo, precios y mayoristas', secciones:['catalogo','tamanos','cuenta_mayoristas','vendedores','agregado_manual'] },
     { id:'clientes_area', ic:'estrella', icono:'⭐', titulo:'Clientes', desc:'Ranking, reseñas y sugerencias', secciones:['ranking','resenas','sugerencias'] },
-    { id:'equipo', ic:'personas', icono:'👥', titulo:'Equipo y empresa', desc:'Personal, trazabilidad y vehículos', secciones:['personal','trazabilidad','vehiculos'] }
+    { id:'riesgo', ic:'personas', icono:'👥', titulo:'Clientes que se van', desc:'Los que dejaron de comprar', secciones:[], directo:'riesgo' },
+    { id:'equipo', ic:'personas', icono:'👥', titulo:'Equipo y empresa', desc:'Personal, trazabilidad y vehículos', secciones:['personal','trazabilidad','vehiculos'] },
+    { id:'backup', ic:'planilla', icono:'📋', titulo:'Copia de seguridad', desc:'Descargá todos tus datos', secciones:[], directo:'backup' }
   ]
   const areaActual = AREAS.find(a=>a.id===adminAreaAbierta)
   const seccionVisible = (id)=> !!(areaActual && areaActual.secciones.includes(id))
@@ -4246,20 +4494,37 @@ async function admin(){
       productosProv.forEach(p=>{ const c = pedidoProveedorCantidades[p.id]; if(c) totalArmando += Number(p.price)*Number(c.qty||0) })
       return `
       ${pedidoProveedorEditandoId?`<div class="alert info" style="margin-bottom:10px">✏️ Estás editando el pedido N° ${pedidoProveedorNumero}</div>`:''}
-      ${productosProv.map(p=>{
+      <div class="field"><input id="buscar_prod_pedido" placeholder="Buscar producto" value="${busquedaProductoPedido}"/></div>
+      ${productosProv.filter(p=>!busquedaProductoPedido || (p.name||'').toLowerCase().includes(busquedaProductoPedido.toLowerCase())).map((p,idx)=>{
         const c = pedidoProveedorCantidades[p.id] || { qty:0, unitType:'unidad' }
         const subtotal = Number(p.price)*Number(c.qty||0)
-        return `<div class="row"><span>${p.name}<br><small class="muted">$${Number(p.price).toLocaleString('es-AR')} · ${p.unit_label||'unidad'}${p.units_per_bulto>1?` (bulto = ${p.units_per_bulto})`:''}</small>${subtotal>0?`<br><small style="color:#2F4D2A;font-weight:600">Subtotal: $${subtotal.toLocaleString('es-AR')}</small>`:''}</span>
-          <span style="display:flex;gap:4px;align-items:center">
-            <input data-cant-pedido="${p.id}" type="number" min="0" value="${c.qty}" style="width:50px"/>
-            <select data-unidad-pedido="${p.id}" style="width:80px">
+        const cargado = Number(c.qty||0) > 0
+        return `<div id="fila_prod_${p.id}" style="background:${NOM.superficie};border:1px solid ${NOM.borde};${cargado?`border-left:3px solid ${NOM.verde};border-radius:0 14px 14px 0`:'border-radius:14px'};padding:11px 12px;margin-bottom:8px;display:flex;gap:11px;align-items:center;${cargado?'':'opacity:0.78'}">
+          ${p.photo_url
+            ? `<img src="${p.photo_url}" alt="" style="width:46px;height:46px;border-radius:10px;object-fit:cover;flex-shrink:0;background:${NOM.verdeClaro}"/>`
+            : `<div style="width:46px;height:46px;border-radius:10px;background:${NOM.verdeClaro};display:flex;align-items:center;justify-content:center;flex-shrink:0">${ico('carrito',20,NOM.verde)}</div>`}
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13.5px;font-weight:500;color:${NOM.tinta};line-height:1.3">${p.name}</div>
+            <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:3px">$${Number(p.price).toLocaleString('es-AR')} · ${p.unit_label||'unidad'}${p.units_per_bulto>1?` · bulto ${p.units_per_bulto}`:''}</div>
+            ${subtotal>0?`<div style="font-size:11.5px;color:${NOM.verde};font-weight:500;margin-top:3px;font-variant-numeric:tabular-nums">Subtotal $${subtotal.toLocaleString('es-AR')}</div>`:''}
+            <div class="salto-barra" data-barra="${p.id}" style="height:3px;background:${NOM.verdeClaro};border-radius:2px;margin-top:5px;overflow:hidden;opacity:0"><div class="salto-fill" style="height:100%;width:100%;background:${NOM.verde};border-radius:2px;transform-origin:right"></div></div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
+            <input data-cant-pedido="${p.id}" data-orden="${idx}" type="number" inputmode="numeric" enterkeyhint="next" min="0" value="${c.qty||''}" placeholder="0" style="width:90px;text-align:center;padding:10px 0;font-size:16px;font-weight:500"/>
+            <select data-unidad-pedido="${p.id}" style="width:90px;font-size:12px;padding:6px 8px">
               <option value="unidad" ${c.unitType==='unidad'?'selected':''}>Unidad</option>
               <option value="bulto" ${c.unitType==='bulto'?'selected':''}>Bulto</option>
               <option value="pallet" ${c.unitType==='pallet'?'selected':''}>Pallet</option>
             </select>
-          </span></div>`
+          </div>
+        </div>`
       }).join('')}
-      <div style="margin-top:10px;background:#F5EFE0;border-radius:10px;padding:10px 12px;text-align:center;font-weight:700;color:#2F4D2A">Total del pedido: $${totalArmando.toLocaleString('es-AR')}</div>
+      <div style="position:sticky;bottom:92px;z-index:5;background:${NOM.verde};border-radius:14px;padding:13px 15px;margin-top:12px;display:flex;justify-content:space-between;align-items:baseline">
+        <div>
+          <div style="font-size:11px;color:${NOM.verdePastel}">${Object.values(pedidoProveedorCantidades).filter(x=>Number(x?.qty||0)>0).length} producto(s) cargado(s)</div>
+          <div style="font-size:23px;font-weight:500;color:#F7F4EC;font-variant-numeric:tabular-nums">$${totalArmando.toLocaleString('es-AR')}</div>
+        </div>
+      </div>
       <div class="field" style="margin-top:14px"><label>¿Entrega o retiro?</label>
         <div class="grid two">
           <button type="button" id="btn_tipo_entrega" class="btn ${pedidoProveedorTipoEntrega==='entrega'?'primary':'ghost'}">Que me entreguen</button>
@@ -5137,11 +5402,55 @@ async function admin(){
     pedidoProveedorItems = null
     render()
   }
-  document.querySelectorAll('[data-cant-pedido]').forEach(inp=>inp.oninput=()=>{
+  const inputsCant = Array.from(document.querySelectorAll('[data-cant-pedido]'))
+  const timersCant = {}
+  inputsCant.forEach((inp, i)=>{
     const id = inp.dataset.cantPedido
-    pedidoProveedorCantidades[id] = pedidoProveedorCantidades[id] || { qty:0, unitType:'unidad' }
-    pedidoProveedorCantidades[id].qty = Number(inp.value)||0
+    const barra = document.querySelector(`[data-barra="${id}"]`)
+    const relleno = barra ? barra.querySelector('.salto-fill') : null
+
+    const centrar = (el)=>{
+      if(!el) return
+      const fila = el.closest('div[id^="fila_prod_"]') || el
+      fila.scrollIntoView({ behavior:'smooth', block:'center' })
+    }
+    const saltar = ()=>{
+      if(barra) barra.style.opacity = '0'
+      const sig = inputsCant[i+1]
+      if(sig){ sig.focus(); sig.select && sig.select(); setTimeout(()=>centrar(sig), 60) }
+      else inp.blur()
+    }
+
+    inp.onfocus = ()=> setTimeout(()=>centrar(inp), 250)
+    inp.onblur = ()=>{
+      clearTimeout(timersCant[id])
+      if(barra){ barra.style.opacity='0'; if(relleno){ relleno.style.transition='none'; relleno.style.transform='scaleX(1)' } }
+    }
+    inp.onkeydown = (e)=>{ if(e.key === 'Enter'){ e.preventDefault(); clearTimeout(timersCant[id]); saltar() } }
+
+    inp.oninput = ()=>{
+      pedidoProveedorCantidades[id] = pedidoProveedorCantidades[id] || { qty:0, unitType:'unidad' }
+      pedidoProveedorCantidades[id].qty = Number(inp.value)||0
+      clearTimeout(timersCant[id])
+      if(!inp.value){ if(barra) barra.style.opacity='0'; return }
+      if(barra && relleno){
+        barra.style.opacity = '1'
+        relleno.style.transition = 'none'
+        relleno.style.transform = 'scaleX(1)'
+        void relleno.offsetWidth
+        relleno.style.transition = `transform ${SALTO_MS}ms linear`
+        relleno.style.transform = 'scaleX(0)'
+      }
+      timersCant[id] = setTimeout(saltar, SALTO_MS)
+    }
   })
+  const inputBuscarProd = document.querySelector('#buscar_prod_pedido')
+  if(inputBuscarProd){
+    inputBuscarProd.oninput = ()=>{
+      clearTimeout(window.__tBuscarProd)
+      window.__tBuscarProd = setTimeout(()=>{ busquedaProductoPedido = inputBuscarProd.value; render() }, 400)
+    }
+  }
   document.querySelectorAll('[data-unidad-pedido]').forEach(sel=>sel.onchange=()=>{
     const id = sel.dataset.unidadPedido
     pedidoProveedorCantidades[id] = pedidoProveedorCantidades[id] || { qty:0, unitType:'unidad' }
@@ -6246,6 +6555,156 @@ async function documentoPedidoHuevos(pedido){
 }
 
 
+
+
+
+// ============ COPIA DE SEGURIDAD ============
+async function copiaSeguridad(){
+  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <button class="btn ghost" id="btn_volver_backup" style="padding:6px 12px">← Volver</button>
+    <h2 style="margin:0">Copia de seguridad</h2>
+  </div>
+  <div class="card">
+    <p class="muted" style="margin-bottom:12px">Descargá una copia de todos tus datos. Guardala en tu correo o en la nube. Si algún día se borra algo por error, se puede recuperar desde acá.</p>
+    <p class="muted" style="font-size:12px;margin-bottom:14px">Conviene hacerlo una vez por semana, o antes de cualquier cambio grande.</p>
+    <div id="estado_backup"></div>
+    <button class="btn primary" id="btn_generar_backup" style="width:100%">Generar copia de seguridad</button>
+  </div>`)
+
+  document.querySelector('#btn_volver_backup').onclick = ()=>{ current='admin'; adminAreaAbierta=null; render() }
+  document.querySelector('#btn_generar_backup').onclick = async ()=>{
+    const btn = document.querySelector('#btn_generar_backup')
+    const est = document.querySelector('#estado_backup')
+    btn.disabled = true
+    btn.textContent = 'Generando…'
+
+    const tablas = ['customers','subscriptions','orders','payments','customer_product_interest',
+      'catalog_products','inventory_lots','suppliers','supplier_orders','supplier_order_payments',
+      'supplier_credits','production','finance_entries','finance_categories','plan_prices',
+      'staff_roles','farm_settings','mermas','price_changes','reviews','customer_credits','payment_links']
+
+    const copia = { generado_el: new Date().toISOString(), version: 1, datos: {} }
+    let fallaron = []
+
+    for(const t of tablas){
+      est.innerHTML = `<p class="muted" style="font-size:12px;margin-bottom:10px">Leyendo ${t}…</p>`
+      const { data, error } = await supabase.from(t).select('*')
+      if(error){ fallaron.push(t); continue }
+      copia.datos[t] = data || []
+    }
+
+    const total = Object.values(copia.datos).reduce((s,arr)=>s+arr.length,0)
+    const blob = new Blob([JSON.stringify(copia, null, 2)], { type:'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    const hoy = new Date().toISOString().slice(0,10)
+    a.href = url
+    a.download = `nomades-copia-${hoy}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    setTimeout(()=>URL.revokeObjectURL(url), 2000)
+
+    btn.disabled = false
+    btn.textContent = 'Generar copia de seguridad'
+    est.innerHTML = `<div class="alert info" style="margin-bottom:12px">
+      Copia lista: <b>${total.toLocaleString('es-AR')} registros</b> de ${Object.keys(copia.datos).length} tablas.
+      ${fallaron.length?`<br><small>No se pudieron leer: ${fallaron.join(', ')}</small>`:''}
+      <br><small>Se descargó como nomades-copia-${hoy}.json. Mandátela por correo para tenerla fuera del teléfono.</small>
+    </div>`
+  }
+}
+
+// ============ CLIENTES QUE SE ESTÁN YENDO ============
+async function clientesEnRiesgo(){
+  const { data } = await supabase.rpc('admin_clientes_en_riesgo', {})
+  const d = data || {}
+  const lista = d.clientes || []
+
+  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <button class="btn ghost" id="btn_volver_riesgo" style="padding:6px 12px">← Volver</button>
+    <h2 style="margin:0">Clientes que se van</h2>
+  </div>
+
+  <div class="grid two" style="margin-bottom:12px">
+    <div class="card" style="margin:0"><div style="font-size:11px;color:${NOM.tintaSuave}">En riesgo</div><div style="font-size:22px;font-weight:500;color:${NOM.ambar};font-variant-numeric:tabular-nums">${d.en_riesgo||0}</div></div>
+    <div class="card" style="margin:0"><div style="font-size:11px;color:${NOM.tintaSuave}">Ya perdidos</div><div style="font-size:22px;font-weight:500;color:${NOM.rojo};font-variant-numeric:tabular-nums">${d.perdidos||0}</div></div>
+    <div class="card" style="margin:0"><div style="font-size:11px;color:${NOM.tintaSuave}">Se te escapan por mes</div><div style="font-size:22px;font-weight:500;font-variant-numeric:tabular-nums">$${Number(d.plata_en_riesgo||0).toLocaleString('es-AR')}</div></div>
+    <div class="card" style="margin:0"><div style="font-size:11px;color:${NOM.tintaSuave}">Vale cada cliente</div><div style="font-size:22px;font-weight:500;font-variant-numeric:tabular-nums">$${Number(d.valor_promedio_cliente||0).toLocaleString('es-AR')}</div></div>
+  </div>
+
+  ${lista.length ? lista.map(c=>{
+    const tel = (c.telefono||'').replace(/\D/g,'')
+    const perdido = c.nivel === 'perdido'
+    const msg = encodeURIComponent(`¡Hola ${(c.nombre||'').split(' ')[0]}! Te escribimos de NÓMADES. Hace un tiempo que no te llevamos huevos y queríamos saber si está todo bien. Si querés retomar, decinos y te reservamos lugar en la próxima entrega. ¡Gracias!`)
+    return pCard(`
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:500">${c.nombre||''}</div>
+          <div style="font-size:12px;color:${NOM.tintaSuave}">${c.barrio||'-'} · ${c.entregas} entrega(s)</div>
+          <div style="font-size:12px;color:${perdido?NOM.rojo:NOM.ambar};margin-top:3px">Hace ${c.dias_sin_comprar} días que no compra</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-weight:500;font-variant-numeric:tabular-nums">$${Number(c.gastado||0).toLocaleString('es-AR')}</div>
+          <div style="font-size:11px;color:${NOM.tintaSuave}">gastó en total</div>
+          <div style="margin-top:5px">${pPill(perdido?'Perdido':'En riesgo', perdido?'#FCEBEB':'#FBE9D4', perdido?'#A32D2D':'#B8641E')}</div>
+        </div>
+      </div>
+      ${tel?`<a href="https://wa.me/54${tel}?text=${msg}" target="_blank" class="btn ghost" style="display:block;text-align:center;text-decoration:none;margin-top:10px;padding:11px 0;font-size:12.5px">Escribirle por WhatsApp</a>`:''}
+    `, perdido?`border-color:rgba(176,58,46,0.25)`:'')
+  }).join('') : estadoVacio('No hay clientes en riesgo. Todos están comprando con normalidad.')}`)
+
+  document.querySelector('#btn_volver_riesgo').onclick = ()=>{ current='admin'; adminAreaAbierta=null; render() }
+}
+
+// ============ COBRADOS SIN ENTREGAR ============
+async function cobradosSinEntregar(){
+  const { data } = await supabase.rpc('admin_cobrados_sin_entregar', {})
+  const lista = Array.isArray(data) ? data : []
+
+  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <button class="btn ghost" id="btn_volver_cobrados" style="padding:6px 12px">← Volver</button>
+    <h2 style="margin:0">Cobrados sin entregar</h2>
+  </div>
+  <div class="card">
+    <p class="muted" style="margin:0">Pedidos que el cliente pagó online pero que se cancelaron o tuvieron una incidencia. Hay que resolver qué pasa con esa plata.</p>
+  </div>
+  ${lista.length ? lista.map(x=>pCard(`
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+      <div style="flex:1">
+        <div style="font-weight:500">${x.cliente||''}</div>
+        <div style="font-size:12px;color:${NOM.tintaSuave}">Pedido N° ${x.order_number||'-'} · ${formatearFecha(x.delivery_date)}</div>
+        <div style="font-size:12px;color:${NOM.tintaSuave};margin-top:2px">${x.status==='cancelled'?'Cancelado':'Con incidencia'}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-weight:500;font-variant-numeric:tabular-nums">$${Number(x.monto||0).toLocaleString('es-AR')}</div>
+      </div>
+    </div>
+    ${pBtnRow([
+      pBtn('','Dejar a favor',`data-resolver-saldo="${x.order_id}"`,'primary'),
+      pBtn('','Devolver',`data-resolver-devolucion="${x.order_id}"`,'ghost')
+    ])}
+  `)).join('') : estadoVacio('No hay pedidos cobrados sin entregar. Todo en orden.')}`)
+
+  document.querySelector('#btn_volver_cobrados').onclick = ()=>{ current='admin'; adminAreaAbierta=null; render() }
+
+  const resolver = async (orderId, tipo)=>{
+    const nota = prompt(tipo==='saldo'
+      ? '¿Por qué queda a favor? (opcional)'
+      : '¿Por qué se devuelve? (opcional)') || null
+    const { data, error } = await supabase.rpc('resolver_pago_sin_entrega', {
+      p_order_id: orderId, p_resolucion: tipo, p_nota: nota
+    })
+    if(error || !data?.ok){ mostrarAlerta('No se pudo resolver: '+(data?.error||error?.message||'')); return }
+    mostrarAlerta(tipo==='saldo'
+      ? `Quedaron $${Number(data.monto).toLocaleString('es-AR')} a favor del cliente para su próxima entrega.`
+      : `Registrado.\n\n${data.aviso||''}`)
+    render()
+  }
+  document.querySelectorAll('[data-resolver-saldo]').forEach(b=>b.onclick=()=>resolver(b.dataset.resolverSaldo,'saldo'))
+  document.querySelectorAll('[data-resolver-devolucion]').forEach(b=>b.onclick=()=>resolver(b.dataset.resolverDevolucion,'devolucion'))
+}
+
 // ============ AVISOS A CLIENTES ============
 let avisosEstado = 'pendiente'
 
@@ -6754,6 +7213,9 @@ async function render(){
   else if(current==='merma') await registrarMermaPantalla();
   else if(current==='vencimientos') await controlVencimientos();
   else if(current==='avisos') await avisosClientes();
+  else if(current==='cobrados') await cobradosSinEntregar();
+  else if(current==='riesgo') await clientesEnRiesgo();
+  else if(current==='backup') await copiaSeguridad();
   else if(current==='auditoria') await auditoria();
   else if(current==='admin-detalle') await adminDetalle();
   else await admin()
@@ -6803,7 +7265,7 @@ async function init(){
     if(!myRole){ session=null; myRoles=[] }
     else if(!roleRow.profile_completed){ current = 'staff-profile-setup' }
     else { current = pantallaInicialSegunRoles() }
-  } else if(new URLSearchParams(window.location.search).get('mayorista')){
+  } else if(new URLSearchParams(window.location.search).get('mayorista') || /\/mayoristas?\/?$/.test(window.location.pathname)){
     current = 'mayorista-landing'
   }
   render()
