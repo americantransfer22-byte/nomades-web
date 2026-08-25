@@ -66,14 +66,15 @@ let adminDetalleTipo = null // qué tarjeta de resumen se está viendo en detall
 const ICONOS_NAV = {
   admin:'panel', pedidos:'paquete', telefonico:'telefono', clientes:'personas', preparador:'canasta',
   repartidor:'camion', campo:'huevo', vendedor:'vendedor', vehiculo:'moto', historial:'historial',
-  'mis-suscriptores':'personas', 'mis-comisiones':'moneda', perfil:'engranaje', logout:'salir'
+  'mis-suscriptores':'personas', 'mis-comisiones':'moneda', perfil:'engranaje', logout:'salir',
+  merma:'campana', vencimientos:'calendario'
 }
 
 const MENU_POR_ROL = {
-  admin: [['admin','Hoy'],['pedidos','Pedidos'],['telefonico','Teléfono'],['clientes','Clientes'],['preparador','Preparar'],['repartidor','Repartidor'],['campo','Campo'],['vendedor','Vender'],['vehiculo','Mi vehículo']],
-  campo: [['campo','Campo']],
-  repartidor: [['repartidor','Ruta'],['historial','Historial'],['vehiculo','Mi vehículo']],
-  preparador: [['preparador','Preparar']],
+  admin: [['admin','Hoy'],['pedidos','Pedidos'],['telefonico','Teléfono'],['clientes','Clientes'],['preparador','Preparar'],['repartidor','Repartidor'],['campo','Campo'],['vendedor','Vender'],['vehiculo','Mi vehículo'],['vencimientos','Vencimientos'],['merma','Registrar pérdida']],
+  campo: [['campo','Campo'],['merma','Registrar pérdida']],
+  repartidor: [['repartidor','Ruta'],['historial','Historial'],['vehiculo','Mi vehículo'],['merma','Registrar pérdida']],
+  preparador: [['preparador','Preparar'],['vencimientos','Vencimientos'],['merma','Registrar pérdida']],
   vendedor: [['vendedor','Vender'],['mis-suscriptores','Suscriptores'],['mis-comisiones','Comisiones']],
   telefonico: [['telefonico','Teléfono']]
 }
@@ -2168,12 +2169,59 @@ async function vendedorMisComisiones(){
   ${lista.length? lista.map(c=>`<div class="row"><span>${c.first_name||''} ${c.last_name||''}<br><small class="muted">${new Date(c.created_at).toLocaleDateString('es-AR')}${c.paid_at?` · Pagada el ${new Date(c.paid_at).toLocaleDateString('es-AR')}`:''}</small></span><span><b>$${Number(c.amount).toLocaleString('es-AR')}</b><br>${pPill(c.status==='paid'?'Pagada':'Pendiente')}</span></div>`).join('') : estadoVacio('Todavía no tenés comisiones generadas.')}`)
 }
 
+let campoGranjeroSel = ''
+let campoYaPagado = false
+let campoMetodoPago = 'cash'
+let campoOrigenSel = 'propio'
+let campoGranjeroVerHistorial = null
+let campoRecibiendoEncargo = null
+let campoEncargoModo = 'entrega'
+
 async function campo(){
   const today = new Date().toISOString().slice(0,10)
-  const recientes = await q('production','id,production_date,eggs_count,maples_count,losses_count,notes,source,cost,supplier_name')
-  const { data: productosRaw } = await supabase.from('products').select('id,name,unit_label,current_qty,active').eq('active',true).order('name')
+  const recientes = await q('production','id,production_date,eggs_count,maples_count,losses_count,notes,source,cost,supplier_name,lote')
+  const [{ data: productosRaw }, { data: granjerosRaw }, { data: encargosRaw }] = await Promise.all([
+    supabase.from('products').select('id,name,unit_label,current_qty,active').eq('active',true).order('name'),
+    supabase.rpc('granjeros_disponibles', {}),
+    supabase.rpc('encargos_huevos_pendientes', {})
+  ])
   const productos = productosRaw || []
-  let origenSel = 'propio'
+  const granjeros = Array.isArray(granjerosRaw) ? granjerosRaw : []
+  const encargos = Array.isArray(encargosRaw) ? encargosRaw : []
+
+  if(campoGranjeroVerHistorial){
+    const { data: hist } = await supabase.rpc('admin_historial_granjero', { p_supplier_id: campoGranjeroVerHistorial })
+    const h = hist || {}
+    layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <button class="btn ghost" id="btn_volver_granjero" style="padding:6px 12px">← Volver</button>
+      <h2 style="margin:0">${h.supplier?.name||'Productor'}</h2>
+    </div>
+    <div class="card">
+      <div class="grid two">
+        <div><div style="font-size:11px;color:${NOM.tintaSuave}">Huevos comprados</div><div style="font-size:20px;font-weight:500;font-variant-numeric:tabular-nums">${Number(h.total_huevos||0).toLocaleString('es-AR')}</div></div>
+        <div><div style="font-size:11px;color:${NOM.tintaSuave}">Costo por huevo</div><div style="font-size:20px;font-weight:500;font-variant-numeric:tabular-nums">$${Number(h.costo_promedio||0).toLocaleString('es-AR')}</div></div>
+        <div><div style="font-size:11px;color:${NOM.tintaSuave}">Total gastado</div><div style="font-size:20px;font-weight:500;font-variant-numeric:tabular-nums">$${Number(h.total_gastado||0).toLocaleString('es-AR')}</div></div>
+        <div><div style="font-size:11px;color:${NOM.tintaSuave}">Le debés</div><div style="font-size:20px;font-weight:500;color:${Number(h.saldo||0)>0?NOM.ambar:NOM.tinta};font-variant-numeric:tabular-nums">$${Number(h.saldo||0).toLocaleString('es-AR')}</div></div>
+      </div>
+    </div>
+    <h3 style="margin:16px 0 8px">Lotes recibidos</h3>
+    ${(h.lotes||[]).length ? (h.lotes||[]).map(l=>pCard(`
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div>
+          <div style="font-weight:500;color:${NOM.tinta}">Lote ${l.lote||'-'}</div>
+          <div style="font-size:12px;color:${NOM.tintaSuave}">${formatearFecha(l.fecha)} · ${l.huevos} huevos${l.roturas?` · ${l.roturas} roturas`:''}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-weight:500;font-variant-numeric:tabular-nums">$${Number(l.costo||0).toLocaleString('es-AR')}</div>
+          <div style="font-size:11px;color:${NOM.tintaSuave}">$${Number(l.costo_por_huevo||0).toLocaleString('es-AR')} c/u</div>
+          ${Number(l.saldo)>0?`<div style="font-size:11px;color:${NOM.ambar};margin-top:2px">impago</div>`:`<div style="font-size:11px;color:${NOM.verde};margin-top:2px">pagado</div>`}
+        </div>
+      </div>`)).join('') : estadoVacio('Todavía no le compraste huevos a este productor.')}`)
+    document.querySelector('#btn_volver_granjero').onclick = ()=>{ campoGranjeroVerHistorial=null; render() }
+    return
+  }
+
+  let origenSel = campoOrigenSel
   layout(`<h2>🥚 Personal de campo</h2>
   <div class="card"><h3>Registrar recolección de hoy</h3>
     <div class="field"><label>Fecha</label><input id="p_date" type="date" value="${today}"/></div>
@@ -2185,32 +2233,143 @@ async function campo(){
       <div class="field"><label>Huevos recolectados</label><input id="p_eggs" type="number" min="0" /></div>
       <div class="field"><label>Roturas/defectuosos</label><input id="p_losses" type="number" min="0" value="0"/></div>
     </div>
-    <div id="campos_comprado" style="display:none">
-      <div class="grid two">
-        <div class="field"><label>¿A quién se lo compraste?</label><input id="p_supplier" placeholder="Ej: Granja Los Aromos"/></div>
-        <div class="field"><label>Costo total ($)</label><input id="p_cost" type="number" min="0"/></div>
+    <div id="campos_comprado" style="display:${origenSel==='comprado'?'block':'none'}">
+      <div class="field"><label>¿A qué productor?</label>
+        <select id="p_supplier">
+          <option value="">Elegí un productor</option>
+          ${granjeros.map(g=>`<option value="${g.id}" ${campoGranjeroSel===g.id?'selected':''}>${g.name}${Number(g.saldo)>0?` — le debés $${Number(g.saldo).toLocaleString('es-AR')}`:''}</option>`).join('')}
+        </select>
+        ${granjeros.length?'':`<p class="muted" style="font-size:12px;margin-top:6px">No hay productores cargados. Pedile a administración que agregue uno en Proveedores con tipo "huevos".</p>`}
       </div>
-      <p class="muted" style="font-size:12px;margin-top:-8px">Esto genera un gasto automático en Finanzas — no hace falta que lo cargues dos veces.</p>
+      <div class="field"><label>Costo total ($)</label><input id="p_cost" type="number" min="0"/></div>
+      <label style="display:flex;align-items:center;gap:10px;font-size:14px;margin-bottom:10px"><input type="checkbox" id="p_ya_pagado" ${campoYaPagado?'checked':''} style="width:18px;height:18px"/> Ya se lo pagué</label>
+      <div id="metodo_pago_granjero" style="display:${campoYaPagado?'block':'none'}">
+        <div class="field"><label>¿Cómo le pagaste?</label>
+          <div class="grid three">
+            <button type="button" class="btn ${campoMetodoPago==='cash'?'primary':'ghost'}" data-metodo-granjero="cash">Efectivo</button>
+            <button type="button" class="btn ${campoMetodoPago==='transfer'?'primary':'ghost'}" data-metodo-granjero="transfer">Transferencia</button>
+            <button type="button" class="btn ${campoMetodoPago==='mp'?'primary':'ghost'}" data-metodo-granjero="mp">Billetera</button>
+          </div>
+        </div>
+      </div>
+      <p class="muted" style="font-size:12px">Si no marcás que ya pagaste, queda en la cuenta corriente del productor.</p>
     </div>
     <div class="field"><label>Observaciones</label><textarea id="p_notes" rows="2" placeholder="Ej: cambio de parcela, incidencia sanitaria, etc."></textarea></div>
     <div id="err_campo" class="alert danger" style="display:none"></div>
     <button class="btn primary" id="btn_guardar_produccion">Guardar</button>
   </div>
-  <div class="card"><h3>Últimos registros</h3>${recientes.length?recientes.slice(-10).reverse().map(r=>`<div class="row"><span>${r.production_date} ${r.source==='comprado'?' <span class="badge" style="background:#B85C00">🤝 Comprado</span>':''}${r.supplier_name?`<br><small class="muted">${r.supplier_name}</small>`:''}</span><span>${r.eggs_count} huevos · ${r.losses_count||0} roturas${r.cost?`<br><small class="muted">$${Number(r.cost).toLocaleString('es-AR')}</small>`:''}</span></div>`).join(''):'<p class="muted">Todavía no hay registros.</p>'}</div>
-  <div class="card"><h3>🧺 Insumos disponibles</h3>
+  <div class="card"><h3>Últimos registros</h3>${recientes.length?recientes.slice(-10).reverse().map(r=>`<div class="row"><span>${formatearFecha(r.production_date)}${r.lote?`<br><small class="muted">Lote ${r.lote}</small>`:''}${r.source==='comprado'?`<br>${pPill('Comprado','#FBE9D4','#B8641E')} <small class="muted">${r.supplier_name||''}</small>`:''}</span><span style="text-align:right"><b style="font-variant-numeric:tabular-nums">${r.eggs_count}</b> huevos${r.losses_count?`<br><small class="muted">${r.losses_count} roturas</small>`:''}${r.cost?`<br><small class="muted">$${Number(r.cost).toLocaleString('es-AR')}</small>`:''}</span></div>`).join(''):'<p class="muted">Todavía no hay registros.</p>'}</div>
+  ${encargos.length?`<div class="card"><h3>Encargos en camino</h3>
+    ${encargos.map(e=>`<div style="border-bottom:1px solid ${NOM.borde};padding:10px 0">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div><div style="font-weight:500">${e.supplier_name||''}</div><div style="font-size:12px;color:${NOM.tintaSuave}">N° ${e.order_number} · ${Number(e.huevos).toLocaleString('es-AR')} huevos · ${e.delivery_type==='retiro'?'lo retiramos':'nos lo traen'}</div></div>
+        <div style="text-align:right;font-weight:500;font-variant-numeric:tabular-nums">${Number(e.total)?'$'+Number(e.total).toLocaleString('es-AR'):'a convenir'}</div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn ghost" data-pdf-encargo="${e.id}" style="flex:1;font-size:12px">Orden de compra</button>
+        ${e.supplier_phone?`<a href="https://wa.me/54${(e.supplier_phone||'').replace(/\D/g,'')}?text=${encodeURIComponent('Hola! Te paso el pedido: '+Number(e.huevos).toLocaleString('es-AR')+' huevos. Gracias!')}" target="_blank" class="btn ghost" style="flex:1;text-align:center;text-decoration:none;padding:10px 0;font-size:12px">WhatsApp</a>`:''}
+        <button class="btn primary" data-recibir-encargo="${e.id}" style="flex:1;font-size:12px">Recibir</button>
+      </div>
+      ${campoRecibiendoEncargo===e.id?`<div style="margin-top:10px;border-top:1px solid ${NOM.borde};padding-top:10px">
+        <div class="grid two">
+          <div class="field"><label>Huevos que entraron</label><input id="rec_eggs" type="number" min="0" value="${e.huevos}"/></div>
+          <div class="field"><label>Roturas</label><input id="rec_losses" type="number" min="0" value="0"/></div>
+        </div>
+        <div class="field"><label>Costo final ($)</label><input id="rec_cost" type="number" min="0" value="${Number(e.total)||''}"/></div>
+        <label style="display:flex;align-items:center;gap:10px;font-size:14px;margin-bottom:10px"><input type="checkbox" id="rec_pagado" style="width:18px;height:18px"/> Ya se lo pagué</label>
+        <div class="field"><label>Observaciones</label><input id="rec_notes" placeholder="Opcional"/></div>
+        <div id="err_recibir" class="alert danger" style="display:none"></div>
+        <button class="btn primary" id="btn_confirmar_recepcion_huevos" style="width:100%">Confirmar recepción</button>
+      </div>`:''}
+    </div>`).join('')}
+  </div>`:''}
+  ${granjeros.length?`<div class="card"><h3>Encargar huevos</h3>
+    <div class="field"><label>¿A qué productor?</label><select id="enc_supplier"><option value="">Elegí un productor</option>${granjeros.map(g=>`<option value="${g.id}">${g.name}</option>`).join('')}</select></div>
+    <div class="grid two">
+      <div class="field"><label>Cuántos huevos</label><input id="enc_eggs" type="number" min="1" placeholder="Ej: 600"/></div>
+      <div class="field"><label>Precio por huevo</label><input id="enc_precio" type="number" min="0" placeholder="Opcional"/></div>
+    </div>
+    <div class="field"><label>¿Cómo llega?</label>
+      <div class="grid two">
+        <button type="button" class="btn ${campoEncargoModo==='entrega'?'primary':'ghost'}" data-encargo-modo="entrega">Nos lo traen</button>
+        <button type="button" class="btn ${campoEncargoModo==='retiro'?'primary':'ghost'}" data-encargo-modo="retiro">Lo retiramos</button>
+      </div>
+    </div>
+    <div id="err_encargo" class="alert danger" style="display:none"></div>
+    <button class="btn primary" id="btn_encargar_huevos" style="width:100%">Generar encargo</button>
+  </div>`:''}
+  ${granjeros.length?`<div class="card"><h3>Productores de huevo</h3>
+    ${granjeros.map(g=>`<div class="row"><span>${g.name}<br><small class="muted">${g.ultima_compra?'Última compra: '+formatearFecha(g.ultima_compra):'Sin compras todavía'}</small></span><span style="display:flex;align-items:center;gap:8px">${Number(g.saldo)>0?pPill('Debés $'+Number(g.saldo).toLocaleString('es-AR'),'#FBE9D4','#B8641E'):''}<button class="btn ghost" data-ver-granjero="${g.id}" style="padding:6px 12px;font-size:12px">Ver</button></span></div>`).join('')}
+  </div>`:''}
+  <div class="card"><h3>Insumos disponibles</h3>
     ${productos.length? productos.map(p=>`<div class="row"><span><b>${p.current_qty}</b> × ${p.unit_label}<br><small>${p.name}</small></span><span style="display:flex;gap:6px;align-items:center"><input type="number" min="0.01" step="0.5" value="1" id="uso_qty_${p.id}" style="width:60px"/><button class="btn ghost" data-usar="${p.id}">Usar</button></span></div>`).join('') : '<p class="muted">Todavía no hay insumos cargados.</p>'}
   </div>`)
   document.querySelector('#btn_origen_propio').onclick = ()=>{
-    origenSel='propio'
+    origenSel='propio'; campoOrigenSel='propio'
     document.querySelector('#btn_origen_propio').className='btn primary'
     document.querySelector('#btn_origen_comprado').className='btn ghost'
     document.querySelector('#campos_comprado').style.display='none'
   }
   document.querySelector('#btn_origen_comprado').onclick = ()=>{
-    origenSel='comprado'
+    origenSel='comprado'; campoOrigenSel='comprado'
     document.querySelector('#btn_origen_comprado').className='btn primary'
     document.querySelector('#btn_origen_propio').className='btn ghost'
     document.querySelector('#campos_comprado').style.display='block'
+  }
+  const selGranjero = document.querySelector('#p_supplier')
+  if(selGranjero) selGranjero.onchange = ()=>{ campoGranjeroSel = selGranjero.value }
+  const chkPagado = document.querySelector('#p_ya_pagado')
+  if(chkPagado) chkPagado.onchange = ()=>{
+    campoYaPagado = chkPagado.checked
+    document.querySelector('#metodo_pago_granjero').style.display = campoYaPagado?'block':'none'
+  }
+  document.querySelectorAll('[data-metodo-granjero]').forEach(b=>b.onclick=()=>{
+    campoMetodoPago = b.dataset.metodoGranjero
+    document.querySelectorAll('[data-metodo-granjero]').forEach(x=> x.className = 'btn '+(x.dataset.metodoGranjero===campoMetodoPago?'primary':'ghost'))
+  })
+  document.querySelectorAll('[data-ver-granjero]').forEach(b=>b.onclick=()=>{ campoGranjeroVerHistorial = b.dataset.verGranjero; render() })
+  document.querySelectorAll('[data-encargo-modo]').forEach(b=>b.onclick=()=>{ campoEncargoModo = b.dataset.encargoModo; render() })
+  document.querySelectorAll('[data-pdf-encargo]').forEach(b=>b.onclick=()=>{
+    const e = encargos.find(x=>x.id===b.dataset.pdfEncargo)
+    if(e) documentoPedidoHuevos(e)
+  })
+  document.querySelectorAll('[data-recibir-encargo]').forEach(b=>b.onclick=()=>{
+    campoRecibiendoEncargo = (campoRecibiendoEncargo===b.dataset.recibirEncargo) ? null : b.dataset.recibirEncargo
+    render()
+  })
+  const btnEncargar = document.querySelector('#btn_encargar_huevos')
+  if(btnEncargar) btnEncargar.onclick = async ()=>{
+    const box = document.querySelector('#err_encargo')
+    const supplierId = document.querySelector('#enc_supplier').value
+    const eggs = Number(document.querySelector('#enc_eggs').value)
+    const precio = Number(document.querySelector('#enc_precio').value) || 0
+    if(!supplierId){ box.textContent='Elegí a qué productor le encargás.'; box.style.display='block'; return }
+    if(!eggs || eggs<=0){ box.textContent='Ingresá cuántos huevos querés encargar.'; box.style.display='block'; return }
+    const { data, error } = await supabase.rpc('admin_encargar_huevos', {
+      p_supplier_id: supplierId, p_eggs: eggs, p_precio_unitario: precio, p_delivery_mode: campoEncargoModo
+    })
+    if(error || !data?.ok){ box.textContent='No se pudo generar: '+(data?.error||error?.message||''); box.style.display='block'; return }
+    mostrarAlerta('Encargo N° '+data.order_number+' generado ✅\n\nDesde "Encargos en camino" podés mandarle la orden de compra.')
+    render()
+  }
+  const btnConfirmarRecepcionHuevos = document.querySelector('#btn_confirmar_recepcion_huevos')
+  if(btnConfirmarRecepcionHuevos) btnConfirmarRecepcionHuevos.onclick = async ()=>{
+    const box = document.querySelector('#err_recibir')
+    const eggs = Number(document.querySelector('#rec_eggs').value)
+    const losses = Number(document.querySelector('#rec_losses').value)||0
+    const cost = Number(document.querySelector('#rec_cost').value)
+    const notes = document.querySelector('#rec_notes').value.trim()
+    const pagado = document.querySelector('#rec_pagado').checked
+    if(!eggs || eggs<=0){ box.textContent='Ingresá cuántos huevos entraron.'; box.style.display='block'; return }
+    if(!cost || cost<=0){ box.textContent='Ingresá el costo final.'; box.style.display='block'; return }
+    const { data, error } = await supabase.rpc('recibir_encargo_huevos', {
+      p_order_id: campoRecibiendoEncargo, p_eggs: eggs, p_losses: losses, p_cost: cost,
+      p_notes: notes||null, p_ya_pagado: pagado, p_payment_method: 'cash'
+    })
+    if(error || !data?.ok){ box.textContent='No se pudo recibir: '+(data?.error||error?.message||''); box.style.display='block'; return }
+    campoRecibiendoEncargo = null
+    mostrarAlerta(`Recepción registrada ✅\n\nLote ${data.lote}${data.pagado?'':'\n\nQuedó en la cuenta corriente del productor.'}`)
+    render()
   }
   document.querySelector('#btn_guardar_produccion').onclick = async ()=>{
     const eggs = Number(document.querySelector('#p_eggs').value)
@@ -2219,11 +2378,19 @@ async function campo(){
     const notes = document.querySelector('#p_notes').value.trim()
     const box = document.querySelector('#err_campo')
     if(!eggs || eggs<=0){ box.textContent='Ingresá la cantidad de huevos recolectados.'; box.style.display='block'; return }
-    const supplierName = origenSel==='comprado' ? document.querySelector('#p_supplier').value.trim() : null
+    const supplierId = origenSel==='comprado' ? (document.querySelector('#p_supplier').value || null) : null
     const cost = origenSel==='comprado' ? (Number(document.querySelector('#p_cost').value)||null) : null
-    const { data, error } = await supabase.rpc('registrar_produccion', { p_date:date, p_eggs:eggs, p_losses:losses, p_notes: notes||null, p_source: origenSel, p_cost: cost, p_supplier_name: supplierName||null })
+    if(origenSel==='comprado' && !supplierId){ box.textContent='Elegí a qué productor se lo compraste.'; box.style.display='block'; return }
+    if(origenSel==='comprado' && !cost){ box.textContent='Ingresá cuánto te costó.'; box.style.display='block'; return }
+    const { data, error } = await supabase.rpc('registrar_produccion', {
+      p_date:date, p_eggs:eggs, p_losses:losses, p_notes: notes||null, p_source: origenSel,
+      p_cost: cost, p_supplier_id: supplierId, p_ya_pagado: origenSel==='comprado' ? campoYaPagado : false,
+      p_payment_method: campoMetodoPago
+    })
     if(error || !data?.ok){ box.textContent='No se pudo guardar: '+(error?.message||data?.error||''); box.style.display='block'; return }
-    mostrarAlerta('Registro guardado ✅'); render()
+    campoGranjeroSel=''; campoYaPagado=false; campoOrigenSel='propio'
+    mostrarAlerta(`Registro guardado ✅${data.lote?`\n\nLote ${data.lote}`:''}${data.pagado===false && origenSel==='comprado'?'\n\nQuedó en la cuenta corriente del productor.':''}`)
+    render()
   }
   document.querySelectorAll('[data-usar]').forEach(b=>b.onclick=async()=>{
     const id=b.dataset.usar
@@ -2670,7 +2837,9 @@ let mostrarSeccionMovimiento = false
 let cobrosSubSeccion = null // 'transfer' | 'mp' | null
 let comisionTipoSeleccionado = {} // vendedor_id -> 'fixed' | 'percent', mientras no se guarda
 let mostrarFormNuevoProducto = false
+let productoControlaVenc = false
 let mostrarFormNuevoProveedor = false
+let proveedorTipoNuevo = 'almacen'
 let productoExpandido = null
 let productoDetalleCache = {}
 let proveedorPedidoSeleccionado = null
@@ -3121,7 +3290,7 @@ async function fetchAdminData(){
     supabase.from('driver_ledger').select('id,driver_id,entry_date,amount,description,created_at').order('entry_date',{ascending:false}),
     supabase.rpc('admin_customer_ranking', {}),
     supabase.rpc('admin_reviews_list', {}),
-    supabase.from('suppliers').select('id,name,contact_phone,contact_email,address,notes').order('name'),
+    supabase.from('suppliers').select('id,name,contact_phone,contact_email,address,notes,tipo').order('name'),
     supabase.rpc('admin_catalog_products', {}),
     supabase.rpc('admin_recordatorios_3_dias', {}),
     supabase.rpc('admin_rendicion_vendedores', {}),
@@ -3178,6 +3347,8 @@ async function admin(){
   const capacidadBase = settingsMap.default_daily_capacity_maples || '300'
   const assignmentMode = settingsMap.assignment_mode || 'zone'
   const staffMap = Object.fromEntries(staff.map(s=>[s.user_id, s.full_name||'(sin nombre)']))
+  const margenDefMin = Number(settingsMap.margen_default_minorista || 60)
+  const margenDefMay = Number(settingsMap.margen_default_mayorista || 25)
   const CATEGORIAS = [{value:'alimento',label:'Alimento'},{value:'sanidad',label:'Sanidad'},{value:'limpieza',label:'Limpieza'},{value:'otro',label:'Otro'}]
   const CATLABEL = {alimento:'Alimento',sanidad:'Sanidad',limpieza:'Limpieza',otro:'Otro'}
   const categoriaMap = Object.fromEntries(categorias.map(c=>[c.id,c]))
@@ -3190,6 +3361,8 @@ async function admin(){
     { id:'operacion', ic:'camion', icono:'🚚', titulo:'Operación diaria', desc:'Reparto, capacidad y avisos', secciones:['capacidad','asignacion','recordatorios','mapa'] },
     { id:'dinero', ic:'moneda', icono:'💰', titulo:'Dinero', desc:'Finanzas, rendición y cobros', secciones:['finanzas','rendicion','cobros'] },
     { id:'proveedores', ic:'planilla', icono:'📋', titulo:'Proveedores', desc:'Compras, cuenta corriente e insumos', secciones:['pedidos_proveedor','insumos'] },
+    { id:'stock', ic:'calendario', icono:'📅', titulo:'Stock y pérdidas', desc:'Vencimientos y mermas', secciones:[], directo:'vencimientos' },
+    { id:'avisos', ic:'campana', icono:'⏰', titulo:'Avisos a clientes', desc:'Cambios de precio y novedades', secciones:[], directo:'avisos' },
     { id:'comercial', ic:'carrito', icono:'🛒', titulo:'Comercial', desc:'Catálogo, precios y mayoristas', secciones:['catalogo','tamanos','cuenta_mayoristas','vendedores','agregado_manual'] },
     { id:'clientes_area', ic:'estrella', icono:'⭐', titulo:'Clientes', desc:'Ranking, reseñas y sugerencias', secciones:['ranking','resenas','sugerencias'] },
     { id:'equipo', ic:'personas', icono:'👥', titulo:'Equipo y empresa', desc:'Personal, trazabilidad y vehículos', secciones:['personal','trazabilidad','vehiculos'] }
@@ -3747,8 +3920,15 @@ async function admin(){
         <span style="font-size:12px;color:#8A8570">${mostrarFormNuevoProveedor?'▲':'▼'}</span>
       </button>
       <div style="display:${mostrarFormNuevoProveedor?'block':'none'};padding:4px 12px 12px">
-        ${suppliers.map(s=>`<div class="row"><span>${s.name}<br><small class="muted">${s.contact_phone||''} ${s.contact_email||''}</small></span></div>`).join('')}
-        <div class="field" style="margin-top:8px"><label>Nombre de la empresa</label><input id="prov_new_name"/></div>
+        ${suppliers.map(s=>`<div class="row"><span>${s.name}${s.tipo&&s.tipo!=='almacen'?' '+pPill(s.tipo==='huevos'?'Huevos':'Huevos y almacén','#FBE9D4','#B8641E'):''}<br><small class="muted">${s.contact_phone||''} ${s.contact_email||''}</small></span></div>`).join('')}
+        <div class="field" style="margin-top:8px"><label>Nombre de la empresa o productor</label><input id="prov_new_name"/></div>
+        <div class="field"><label>¿Qué le comprás?</label>
+          <div class="grid three">
+            <button type="button" class="btn ${proveedorTipoNuevo==='almacen'?'primary':'ghost'}" data-prov-tipo="almacen">Almacén</button>
+            <button type="button" class="btn ${proveedorTipoNuevo==='huevos'?'primary':'ghost'}" data-prov-tipo="huevos">Huevos</button>
+            <button type="button" class="btn ${proveedorTipoNuevo==='ambos'?'primary':'ghost'}" data-prov-tipo="ambos">Los dos</button>
+          </div>
+        </div>
         <div class="grid two">
           <div class="field"><label>Teléfono (WhatsApp)</label><input id="prov_new_phone" placeholder="Ej: 3411234567"/></div>
           <div class="field"><label>Email</label><input id="prov_new_email"/></div>
@@ -3768,11 +3948,38 @@ async function admin(){
         <div class="field"><label>Nombre del producto</label><input id="catprod_new_name" placeholder="Ej: Aceite de girasol 900ml"/></div>
         <div class="field"><label>Descripción</label><textarea id="catprod_new_desc" rows="2" placeholder="Ej: Ideal para todo tipo de cocción"></textarea></div>
         <div class="grid two">
-          <div class="field"><label>Precio</label><input id="catprod_new_price" type="number" min="0"/></div>
+          <div class="field"><label>Precio de costo</label><input id="catprod_new_costo" type="number" min="0" placeholder="Lo que te cuesta"/></div>
           <div class="field"><label>Unidad</label><input id="catprod_new_unit" placeholder="Ej: botella, paquete"/></div>
+        </div>
+        <div style="background:${NOM.verdeClaro};border-radius:12px;padding:12px;margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <span style="font-size:13.5px;font-weight:500;color:${NOM.tinta}">Minorista</span>
+            <label style="display:flex;align-items:center;gap:7px;font-size:12px"><input type="checkbox" id="catprod_vis_min" checked style="width:17px;height:17px"/> Se vende</label>
+          </div>
+          <div class="grid two">
+            <div class="field" style="margin:0"><label style="font-size:11.5px">Margen %</label><input id="catprod_margen_min" type="number" min="0" value="${margenDefMin}"/></div>
+            <div class="field" style="margin:0"><label style="font-size:11.5px">Precio de venta</label><input id="catprod_new_price" type="number" min="0"/></div>
+          </div>
+          <p id="ganancia_min" class="muted" style="font-size:12px;margin:7px 0 0"></p>
+        </div>
+        <div style="background:${NOM.verdeClaro};border-radius:12px;padding:12px;margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <span style="font-size:13.5px;font-weight:500;color:${NOM.tinta}">Mayorista</span>
+            <label style="display:flex;align-items:center;gap:7px;font-size:12px"><input type="checkbox" id="catprod_vis_may" checked style="width:17px;height:17px"/> Se vende</label>
+          </div>
+          <div class="grid two">
+            <div class="field" style="margin:0"><label style="font-size:11.5px">Margen %</label><input id="catprod_margen_may" type="number" min="0" value="${margenDefMay}"/></div>
+            <div class="field" style="margin:0"><label style="font-size:11.5px">Precio de venta</label><input id="catprod_price_may" type="number" min="0"/></div>
+          </div>
+          <p id="ganancia_may" class="muted" style="font-size:12px;margin:7px 0 0"></p>
         </div>
         <div class="field"><label>Categoría</label><select id="catprod_new_cat">${CATEGORIAS_CATALOGO.map(cat=>`<option value="${cat}">${cat}</option>`).join('')}</select></div>
         <div class="field"><label>Stock disponible (opcional — dejalo vacío si no querés controlarlo)</label><input id="catprod_new_stock" type="number" min="0" placeholder="Ej: 20"/></div>
+        <label style="display:flex;align-items:center;gap:10px;font-size:14px;margin-bottom:10px"><input type="checkbox" id="catprod_new_venc" ${productoControlaVenc?'checked':''} style="width:18px;height:18px"/> Este producto vence</label>
+        <div id="campo_vida_util" style="display:${productoControlaVenc?'block':'none'}">
+          <div class="field"><label>¿Cuántos días dura desde que lo recibimos?</label><input id="catprod_new_vida" type="number" min="1" placeholder="Ej: 540 para un aceite, 21 para huevos"/>
+          <p class="muted" style="font-size:12px;margin-top:6px">El sistema calcula el vencimiento solo. Al recibir la mercadería vas a poder corregir la fecha si el envase dice otra cosa.</p></div>
+        </div>
         <div class="field"><label>Foto del producto</label><input type="file" id="prod_new_foto" accept="image/*"/></div>
         <button id="btn_crear_producto_catalogo" style="width:100%;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:10px 0;font-size:13px;font-weight:600">💾 Guardar producto</button>
       </div>
@@ -3888,6 +4095,17 @@ async function admin(){
               <b style="font-size:12.5px">$${(Number(it.price)*Number(r.received_qty)).toLocaleString('es-AR')}</b>
             </div>
             ${!r.checked?`<div style="display:flex;align-items:center;gap:8px;padding-left:24px"><span class="muted" style="font-size:12px">Cantidad realmente recibida:</span><input type="number" min="0" data-recep-qty="${it.id}" value="${r.received_qty}" style="width:60px"/></div>`:''}
+            ${(()=>{
+              const prod = catalogo.find(p=>p.id===it.product_id || p.name===it.name)
+              if(!prod || !prod.controla_vencimiento) return ''
+              const sugerida = prod.vida_util_dias ? new Date(Date.now()+prod.vida_util_dias*86400000).toISOString().slice(0,10) : ''
+              const valor = r.vencimiento !== undefined ? r.vencimiento : sugerida
+              return `<div style="padding-left:24px;width:100%">
+                <label style="font-size:12px;color:${NOM.tintaSuave};display:block;margin-bottom:4px">Vencimiento que dice el envase</label>
+                <input type="date" data-recep-venc="${it.id}" value="${valor}" style="width:100%"/>
+                <p class="muted" style="font-size:11px;margin:4px 0 0">${prod.vida_util_dias?`Según lo aprendido dura ${prod.vida_util_dias} días. Corregilo si el envase dice otra cosa.`:'Primera vez que recibís este producto — cargá la fecha y el sistema la va a recordar.'}</p>
+              </div>`
+            })()}
           </div>`
         }).join('')}
         <div style="margin-top:12px;background:#F5EFE0;border-radius:10px;padding:10px 12px;font-size:13px">
@@ -4444,7 +4662,11 @@ async function admin(){
     box.innerHTML = `<div class="alert info"><b>✅ Código generado para ${full_name||'este usuario'}:</b><br><span style="font-size:20px;font-weight:bold;letter-spacing:2px">${data.code}</span><br><small>Copialo ahora — no se vuelve a mostrar. Pasáselo a la persona para que entre por "Acceso del equipo".</small></div>`
     adminData = null; render()
   }
-  document.querySelectorAll('[data-area]').forEach(b=>b.onclick=()=>{ adminAreaAbierta = b.dataset.area; adminOpenSection = null; window.scrollTo(0,0); render() })
+  document.querySelectorAll('[data-area]').forEach(b=>b.onclick=()=>{
+    const area = AREAS.find(a=>a.id===b.dataset.area)
+    if(area && area.directo){ current = area.directo; render(); return }
+    adminAreaAbierta = b.dataset.area; adminOpenSection = null; window.scrollTo(0,0); render()
+  })
   const btnVolverAreas = document.querySelector('#btn_volver_areas')
   if(btnVolverAreas) btnVolverAreas.onclick = ()=>{ adminAreaAbierta = null; adminOpenSection = null; window.scrollTo(0,0); render() }
   const btnIrAuditoria = document.querySelector('#btn_ir_auditoria')
@@ -4641,6 +4863,10 @@ async function admin(){
   }
   const btnToggleFormProveedor = document.querySelector('#btn_toggle_form_proveedor')
   if(btnToggleFormProveedor) btnToggleFormProveedor.onclick = ()=>{ mostrarFormNuevoProveedor = !mostrarFormNuevoProveedor; render() }
+  document.querySelectorAll('[data-prov-tipo]').forEach(b=>b.onclick=()=>{
+    proveedorTipoNuevo = b.dataset.provTipo
+    document.querySelectorAll('[data-prov-tipo]').forEach(x=> x.className = 'btn '+(x.dataset.provTipo===proveedorTipoNuevo?'primary':'ghost'))
+  })
   const btnCrearProveedor = document.querySelector('#btn_crear_proveedor')
   if(btnCrearProveedor) btnCrearProveedor.onclick = async ()=>{
     const name = document.querySelector('#prov_new_name').value.trim()
@@ -4649,14 +4875,54 @@ async function admin(){
       name,
       contact_phone: document.querySelector('#prov_new_phone').value.trim(),
       contact_email: document.querySelector('#prov_new_email').value.trim(),
-      address: document.querySelector('#prov_new_address').value.trim()
+      address: document.querySelector('#prov_new_address').value.trim(),
+      tipo: proveedorTipoNuevo
     })
     if(error){ mostrarAlerta('Error: '+error.message); return }
-    mostrarFormNuevoProveedor = false
+    mostrarFormNuevoProveedor = false; proveedorTipoNuevo = 'almacen'
     adminData = null; render()
   }
   const btnToggleFormProducto = document.querySelector('#btn_toggle_form_producto')
   if(btnToggleFormProducto) btnToggleFormProducto.onclick = ()=>{ mostrarFormNuevoProducto = !mostrarFormNuevoProducto; render() }
+  const inCosto = document.querySelector('#catprod_new_costo')
+  const inMargenMin = document.querySelector('#catprod_margen_min')
+  const inPrecioMin = document.querySelector('#catprod_new_price')
+  const inMargenMay = document.querySelector('#catprod_margen_may')
+  const inPrecioMay = document.querySelector('#catprod_price_may')
+  if(inCosto){
+    const pintar = ()=>{
+      const costo = Number(inCosto.value)||0
+      const pMin = Number(inPrecioMin.value)||0
+      const pMay = Number(inPrecioMay.value)||0
+      const gMin = document.querySelector('#ganancia_min')
+      const gMay = document.querySelector('#ganancia_may')
+      if(gMin) gMin.textContent = (costo>0 && pMin>0) ? `Ganás $${(pMin-costo).toLocaleString('es-AR')} por unidad` : 'Cargá el costo para ver la ganancia'
+      if(gMay) gMay.textContent = (costo>0 && pMay>0) ? `Ganás $${(pMay-costo).toLocaleString('es-AR')} por unidad` : ''
+    }
+    const desdeMargen = (inMargen, inPrecio)=>{
+      const costo = Number(inCosto.value)||0
+      const m = Number(inMargen.value)||0
+      if(costo>0) inPrecio.value = Math.round(costo*(1+m/100))
+      pintar()
+    }
+    const desdePrecio = (inPrecio, inMargen)=>{
+      const costo = Number(inCosto.value)||0
+      const p = Number(inPrecio.value)||0
+      if(costo>0 && p>0) inMargen.value = Math.round((p-costo)/costo*1000)/10
+      pintar()
+    }
+    inCosto.oninput = ()=>{ desdeMargen(inMargenMin, inPrecioMin); desdeMargen(inMargenMay, inPrecioMay) }
+    inMargenMin.oninput = ()=> desdeMargen(inMargenMin, inPrecioMin)
+    inPrecioMin.oninput = ()=> desdePrecio(inPrecioMin, inMargenMin)
+    inMargenMay.oninput = ()=> desdeMargen(inMargenMay, inPrecioMay)
+    inPrecioMay.oninput = ()=> desdePrecio(inPrecioMay, inMargenMay)
+    pintar()
+  }
+  const chkVenc = document.querySelector('#catprod_new_venc')
+  if(chkVenc) chkVenc.onchange = ()=>{
+    productoControlaVenc = chkVenc.checked
+    document.querySelector('#campo_vida_util').style.display = productoControlaVenc?'block':'none'
+  }
   const btnCrearProductoCatalogo = document.querySelector('#btn_crear_producto_catalogo')
   if(btnCrearProductoCatalogo) btnCrearProductoCatalogo.onclick = async ()=>{
     const name = document.querySelector('#catprod_new_name').value.trim()
@@ -4675,6 +4941,14 @@ async function admin(){
     const stockVal = document.querySelector('#catprod_new_stock').value.trim()
     const { error } = await supabase.from('catalog_products').insert({
       supplier_id: document.querySelector('#catprod_new_supplier').value || null,
+      controla_vencimiento: productoControlaVenc,
+      costo: Number(document.querySelector('#catprod_new_costo').value) || null,
+      margen_minorista: Number(document.querySelector('#catprod_margen_min').value) || null,
+      margen_mayorista: Number(document.querySelector('#catprod_margen_may').value) || null,
+      wholesale_price: Number(document.querySelector('#catprod_price_may').value) || null,
+      visible_minorista: document.querySelector('#catprod_vis_min').checked,
+      visible_mayorista: document.querySelector('#catprod_vis_may').checked,
+      vida_util_dias: (productoControlaVenc && document.querySelector('#catprod_new_vida')?.value) ? Number(document.querySelector('#catprod_new_vida').value) : null,
       name, price,
       description: document.querySelector('#catprod_new_desc').value.trim(),
       unit_label: document.querySelector('#catprod_new_unit').value.trim() || 'unidad',
@@ -4940,16 +5214,42 @@ async function admin(){
     const id = inp.dataset.recepQty
     pedidoProveedorRecibido[id] = { checked:false, received_qty: Number(inp.value)||0 }
   })
+  document.querySelectorAll('[data-recep-venc]').forEach(inp=>inp.onchange=()=>{
+    const id = inp.dataset.recepVenc
+    const actual = pedidoProveedorRecibido[id] || { checked:false, received_qty:0 }
+    pedidoProveedorRecibido[id] = { ...actual, vencimiento: inp.value }
+  })
   const confirmarRecepcion = async (resolutionType)=>{
     const orden = pedidosProveedor.find(o=>o.id===pedidoProveedorRecibiendoId)
     if(!orden) return
     const receivedItems = (orden.items||[]).map(it=>{
       const r = pedidoProveedorRecibido[it.id] || { checked:false, received_qty: it.qty }
-      return { id: it.id, name: it.name, price: it.price, received_qty: r.received_qty }
+      const prod = catalogo.find(p=>p.id===it.product_id || p.name===it.name)
+      const sugerida = (prod && prod.controla_vencimiento && prod.vida_util_dias) ? new Date(Date.now()+prod.vida_util_dias*86400000).toISOString().slice(0,10) : ''
+      return {
+        id: it.id, name: it.name, price: it.price, received_qty: r.received_qty,
+        product_id: it.product_id || prod?.id || null,
+        vencimiento: (prod && prod.controla_vencimiento) ? (r.vencimiento !== undefined ? r.vencimiento : sugerida) : ''
+      }
     })
     const { data, error } = await supabase.rpc('admin_recibir_pedido_proveedor', { p_order_id: orden.id, p_received_items: receivedItems, p_resolution_type: resolutionType })
     if(error || !data?.ok){ mostrarAlerta(data?.error || error?.message || 'No se pudo registrar la recepción.'); return }
     pedidoProveedorRecibiendoId = null; pedidoProveedorRecibido = {}
+    const { data: cambios } = await supabase.rpc('aplicar_costos_recepcion', { p_order_id: orden.id, p_items: receivedItems })
+    if(cambios?.ok && (cambios.cambios||[]).length){
+      const detalle = cambios.cambios.map(c=>`${c.producto}: $${Number(c.precio_anterior||0).toLocaleString('es-AR')} → $${Number(c.precio_nuevo).toLocaleString('es-AR')}`).join('\n')
+      if(await mostrarConfirmacion(`Se actualizaron precios para mantener tu margen:\n\n${detalle}\n\n¿Preparo los avisos para los clientes?`)){
+        for(const c of cambios.cambios){
+          const prod = catalogo.find(p=>p.name===c.producto)
+          if(prod) await supabase.rpc('encolar_aviso_precios', { p_product_id: prod.id, p_solo_interesados: true })
+        }
+        mostrarAlerta('Avisos preparados. Están en Comercial → Avisos a clientes, listos para enviar.')
+      }
+    }
+    if((data.lotes||[]).length){
+      const detalle = data.lotes.map(l=>`${l.producto}: lote ${l.lote}${l.vencimiento?` — vence ${new Date(l.vencimiento+'T00:00:00').toLocaleDateString('es-AR')}`:''}${l.aprendido?` (aprendí que dura ${l.dias} días)`:''}`).join('\n')
+      mostrarAlerta('Lotes creados\n\n'+detalle)
+    }
     pedidoProveedorRecienRecibido = { id: orden.id, order_number: orden.order_number, total_a_pagar: data.total_a_pagar, supplier_id: orden.supplier_id }
     adminData = null
     render()
@@ -5916,6 +6216,293 @@ async function documentoPadronClientes(filtroTipo){
     pie: 'Documento de uso interno. Contiene datos personales: no compartir fuera de la empresa.' })
 }
 
+
+// ---------- Orden de compra al productor de huevos ----------
+async function documentoPedidoHuevos(pedido){
+  const empresa = await datosEmpresa()
+  const numero = await numeroDocumento('orden_compra')
+  const huevos = Number(pedido.huevos||0)
+  const total = Number(pedido.total||0)
+  const cuerpo = `
+    <div class="box"><div class="grid">
+      <div><div class="lbl">Productor</div><div class="val">${pedido.supplier_name||'-'}</div></div>
+      <div><div class="lbl">Modalidad</div><div class="val">${pedido.delivery_type==='retiro'?'Lo pasamos a retirar':'Nos lo entregan'}</div></div>
+    </div></div>
+    <h2>Detalle del pedido</h2>
+    <table>
+      <tr><th>Concepto</th><th class="num">Cantidad</th><th class="num">Precio unitario</th><th class="num">Importe</th></tr>
+      <tr><td>Huevos</td><td class="num">${huevos.toLocaleString('es-AR')}</td><td class="num">${total&&huevos?moneda(Math.round(total/huevos*100)/100):'a convenir'}</td><td class="num">${total?moneda(total):'a convenir'}</td></tr>
+      <tr class="tot"><td colspan="3">TOTAL</td><td class="num">${total?moneda(total):'a convenir'}</td></tr>
+    </table>
+    <div class="box">Al recibir la mercadería se controla cantidad y estado. Cualquier diferencia se ajusta antes de emitir el pago.</div>
+    <div class="firma"><div>Solicita — ${empresa.nombre}</div><div>Conforme — ${pedido.supplier_name||'Productor'}</div></div>`
+  abrirDocumento({ titulo:'Orden de compra', numero, empresa, cuerpo,
+    pie:`Pedido interno N° ${pedido.order_number||'-'}. Ante dudas, comunicate con ${empresa.telefono||'nosotros'}.` })
+}
+
+
+// ============ AVISOS A CLIENTES ============
+let avisosEstado = 'pendiente'
+
+async function avisosClientes(){
+  const { data } = await supabase.rpc('admin_cola_avisos', { p_estado: avisosEstado })
+  const avisos = Array.isArray(data) ? data : []
+
+  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <button class="btn ghost" id="btn_volver_avisos" style="padding:6px 12px">← Volver</button>
+    <h2 style="margin:0">Avisos a clientes</h2>
+  </div>
+  <div class="card">
+    <p class="muted" style="margin-bottom:10px">Cuando cambia un precio, el sistema prepara el mensaje para cada cliente. Tocás enviar y se abre WhatsApp con el texto escrito.</p>
+    <div class="grid two">
+      <button class="btn ${avisosEstado==='pendiente'?'primary':'ghost'}" data-avisos-estado="pendiente">Pendientes</button>
+      <button class="btn ${avisosEstado==='enviado'?'primary':'ghost'}" data-avisos-estado="enviado">Enviados</button>
+    </div>
+  </div>
+  ${avisos.length ? avisos.map(a=>{
+    const tel = (a.telefono||'').replace(/\D/g,'')
+    return pCard(`
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div style="flex:1">
+          <div style="font-weight:500">${a.cliente||''}</div>
+          <div style="font-size:12px;color:${NOM.tintaSuave}">${a.canal==='whatsapp'?(a.telefono||'sin teléfono'):(a.email||'sin email')}</div>
+        </div>
+        ${a.estado==='enviado'?pPill('Enviado'):pPill('Pendiente','#FBE9D4','#B8641E')}
+      </div>
+      <div style="background:${NOM.fondo};border-radius:11px;padding:11px 12px;margin-top:10px;font-size:13px;line-height:1.5">${a.mensaje}</div>
+      ${a.estado==='pendiente'?`<div style="display:flex;gap:8px;margin-top:10px">
+        ${tel?`<a href="https://wa.me/54${tel}?text=${encodeURIComponent(a.mensaje)}" target="_blank" data-enviar-aviso="${a.id}" style="flex:1;text-align:center;background:#25D366;color:#fff;border-radius:11px;padding:11px 0;font-size:13px;font-weight:500;text-decoration:none">Enviar por WhatsApp</a>`:''}
+        ${a.email?`<a href="mailto:${a.email}?subject=${encodeURIComponent(a.asunto||'')}&body=${encodeURIComponent(a.mensaje)}" data-enviar-aviso="${a.id}" style="flex:1;text-align:center;background:${NOM.superficie};border:1px solid ${NOM.borde};color:${NOM.tinta};border-radius:11px;padding:11px 0;font-size:13px;font-weight:500;text-decoration:none">Email</a>`:''}
+        <button class="btn ghost" data-marcar-aviso="${a.id}" style="flex:0 0 auto;padding:11px 14px;font-size:12px">Listo</button>
+      </div>`:''}
+    `)
+  }).join('') : estadoVacio(avisosEstado==='pendiente'?'No hay avisos pendientes.':'Todavía no enviaste ningún aviso.')}`)
+
+  document.querySelector('#btn_volver_avisos').onclick = ()=>{ current='admin'; adminAreaAbierta=null; render() }
+  document.querySelectorAll('[data-avisos-estado]').forEach(b=>b.onclick=()=>{ avisosEstado = b.dataset.avisosEstado; render() })
+  document.querySelectorAll('[data-enviar-aviso]').forEach(a=>a.onclick=async()=>{
+    await supabase.rpc('marcar_aviso_enviado', { p_id: a.dataset.enviarAviso })
+    setTimeout(()=>render(), 800)
+  })
+  document.querySelectorAll('[data-marcar-aviso]').forEach(b=>b.onclick=async()=>{
+    await supabase.rpc('marcar_aviso_enviado', { p_id: b.dataset.marcarAviso })
+    render()
+  })
+}
+
+// ============ MERMAS Y VENCIMIENTOS ============
+const MOTIVOS_MERMA = [
+  { value:'rotura', label:'Rotura' },
+  { value:'vencido', label:'Vencido' },
+  { value:'mal_estado', label:'Mal estado' },
+  { value:'robo', label:'Faltante o robo' },
+  { value:'error', label:'Error de carga' }
+]
+const LUGARES_MERMA = [
+  { value:'campo', label:'Campo' },
+  { value:'deposito', label:'Depósito' },
+  { value:'preparacion', label:'Preparación' },
+  { value:'reparto', label:'Reparto' }
+]
+const LUGAR_LABEL = { campo:'Campo', deposito:'Depósito', preparacion:'Preparación', reparto:'Reparto' }
+const MOTIVO_LABEL = { rotura:'Rotura', vencido:'Vencido', mal_estado:'Mal estado', robo:'Faltante o robo', error:'Error de carga' }
+
+let mermaProducto = ''
+let mermaLote = ''
+let mermaMotivo = ''
+let mermaLugar = 'deposito'
+let mermaCantidad = ''
+let mermaDescripcion = ''
+let mermaFoto = null
+let mermaLotes = []
+
+async function registrarMermaPantalla(){
+  const [{ data: catRaw }, { data: resumenRaw }] = await Promise.all([
+    supabase.from('catalog_products').select('id,name,controla_vencimiento,stock').eq('active', true).order('name'),
+    tengoRol('admin') ? supabase.rpc('admin_resumen_mermas', {}) : Promise.resolve({ data:null })
+  ])
+  const catalogo = catRaw || []
+  const resumen = resumenRaw || null
+
+  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <button class="btn ghost" id="btn_volver_merma" style="padding:6px 12px">← Volver</button>
+    <h2 style="margin:0">Registrar una pérdida</h2>
+  </div>
+
+  <div class="card">
+    <p class="muted" style="margin-bottom:12px">Se rompió, se venció o falta algo. Registralo — sirve para saber dónde se está perdiendo plata, no para buscar culpables.</p>
+
+    <div class="field"><label>¿Qué producto?</label>
+      <select id="merma_producto">
+        <option value="">Elegí un producto</option>
+        ${catalogo.map(p=>`<option value="${p.id}" ${mermaProducto===p.id?'selected':''}>${p.name}</option>`).join('')}
+      </select>
+    </div>
+
+    ${mermaLotes.length?`<div class="field"><label>¿De qué lote?</label>
+      <select id="merma_lote">
+        ${mermaLotes.map(l=>`<option value="${l.id}" ${mermaLote===l.id?'selected':''}>Lote ${l.lote} — ${l.cantidad_disponible} disponibles${l.vencimiento?` · vence ${fechaCorta(l.vencimiento)}`:''}</option>`).join('')}
+      </select>
+    </div>`:''}
+
+    <div class="field"><label>¿Cuántas unidades?</label><input id="merma_cantidad" type="number" min="0" step="1" value="${mermaCantidad}"/></div>
+
+    <div class="field"><label>¿Qué pasó?</label>
+      <div class="grid two">
+        ${MOTIVOS_MERMA.map(m=>`<button type="button" class="btn ${mermaMotivo===m.value?'primary':'ghost'}" data-merma-motivo="${m.value}">${m.label}</button>`).join('')}
+      </div>
+    </div>
+
+    <div class="field"><label>¿Dónde pasó?</label>
+      <div class="grid two">
+        ${LUGARES_MERMA.map(l=>`<button type="button" class="btn ${mermaLugar===l.value?'primary':'ghost'}" data-merma-lugar="${l.value}">${l.label}</button>`).join('')}
+      </div>
+    </div>
+
+    <div class="field"><label>Contanos qué pasó (opcional)</label><textarea id="merma_desc" rows="2" placeholder="Ej: se cayó la caja al bajarla de la camioneta">${mermaDescripcion}</textarea></div>
+    <div class="field"><label>Foto (opcional)</label><input type="file" id="merma_foto" accept="image/*"/></div>
+
+    <div id="err_merma" class="alert danger" style="display:none"></div>
+    <button class="btn primary" id="btn_guardar_merma" style="width:100%">Registrar la pérdida</button>
+  </div>
+
+  ${resumen && !resumen.error ? `
+  <h3 style="margin:18px 0 8px">Últimos 30 días</h3>
+  <div class="card">
+    <div style="font-size:11px;color:${NOM.tintaSuave}">Se perdió</div>
+    <div style="font-size:26px;font-weight:500;font-variant-numeric:tabular-nums;color:${NOM.tinta}">$${Number(resumen.total||0).toLocaleString('es-AR')}</div>
+    ${(resumen.por_motivo||[]).length?`<div style="margin-top:12px">
+      ${(resumen.por_motivo||[]).map(m=>`<div class="row"><span>${MOTIVO_LABEL[m.motivo]||m.motivo}</span><span style="font-variant-numeric:tabular-nums">$${Number(m.costo||0).toLocaleString('es-AR')}</span></div>`).join('')}
+    </div>`:''}
+    ${(resumen.por_lugar||[]).length?`<div style="margin-top:12px"><div style="font-size:11px;color:${NOM.tintaSuave};margin-bottom:4px">DÓNDE</div>
+      ${(resumen.por_lugar||[]).map(m=>`<div class="row"><span>${LUGAR_LABEL[m.lugar]||m.lugar}</span><span style="font-variant-numeric:tabular-nums">$${Number(m.costo||0).toLocaleString('es-AR')}</span></div>`).join('')}
+    </div>`:''}
+  </div>
+  ${(resumen.lista||[]).length?(resumen.lista||[]).slice(0,15).map(m=>pCard(`
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+      <div style="flex:1">
+        <div style="font-weight:500">${m.cantidad} × ${m.producto}</div>
+        <div style="font-size:12px;color:${NOM.tintaSuave}">${fechaCorta(m.fecha)} · ${MOTIVO_LABEL[m.motivo]||m.motivo} · ${LUGAR_LABEL[m.lugar]||m.lugar}</div>
+        <div style="font-size:12px;color:${NOM.tintaSuave};margin-top:2px">Registró: ${m.quien||'-'}</div>
+        ${m.descripcion?`<div style="font-size:12px;margin-top:4px">${m.descripcion}</div>`:''}
+      </div>
+      <div style="text-align:right">
+        <div style="font-weight:500;font-variant-numeric:tabular-nums">$${Number(m.costo||0).toLocaleString('es-AR')}</div>
+        ${m.foto_url?`<a href="${m.foto_url}" target="_blank" style="font-size:11px">Ver foto</a>`:''}
+      </div>
+    </div>`)).join(''):''}
+  ` : ''}`)
+
+  document.querySelector('#btn_volver_merma').onclick = ()=>{ current = pantallaInicialSegunRoles(); render() }
+
+  const selProd = document.querySelector('#merma_producto')
+  selProd.onchange = async ()=>{
+    mermaProducto = selProd.value
+    mermaLote = ''
+    mermaLotes = []
+    if(mermaProducto){
+      const prod = catalogo.find(p=>p.id===mermaProducto)
+      if(prod && prod.controla_vencimiento){
+        const { data } = await supabase.from('inventory_lots')
+          .select('id,lote,vencimiento,cantidad_disponible')
+          .eq('product_id', mermaProducto).gt('cantidad_disponible', 0)
+          .order('vencimiento', { nullsFirst:false })
+        mermaLotes = data || []
+        if(mermaLotes.length) mermaLote = mermaLotes[0].id
+      }
+    }
+    render()
+  }
+  const selLote = document.querySelector('#merma_lote')
+  if(selLote) selLote.onchange = ()=>{ mermaLote = selLote.value }
+  document.querySelector('#merma_cantidad').oninput = (e)=>{ mermaCantidad = e.target.value }
+  document.querySelector('#merma_desc').oninput = (e)=>{ mermaDescripcion = e.target.value }
+  document.querySelector('#merma_foto').onchange = (e)=>{ mermaFoto = e.target.files[0] || null }
+  document.querySelectorAll('[data-merma-motivo]').forEach(b=>b.onclick=()=>{ mermaMotivo = b.dataset.mermaMotivo; render() })
+  document.querySelectorAll('[data-merma-lugar]').forEach(b=>b.onclick=()=>{ mermaLugar = b.dataset.mermaLugar; render() })
+
+  document.querySelector('#btn_guardar_merma').onclick = async ()=>{
+    const box = document.querySelector('#err_merma')
+    const cantidad = Number(document.querySelector('#merma_cantidad').value)
+    if(!mermaProducto){ box.textContent='Elegí qué producto se perdió.'; box.style.display='block'; return }
+    if(!cantidad || cantidad<=0){ box.textContent='Ingresá cuántas unidades.'; box.style.display='block'; return }
+    if(!mermaMotivo){ box.textContent='Elegí qué pasó.'; box.style.display='block'; return }
+
+    let fotoUrl = null
+    if(mermaFoto){
+      const path = `merma_${Date.now()}_${mermaFoto.name}`
+      const { error: upErr } = await supabase.storage.from('finance-attachments').upload(path, mermaFoto)
+      if(upErr){ box.textContent='No se pudo subir la foto: '+upErr.message; box.style.display='block'; return }
+      const { data: pub } = supabase.storage.from('finance-attachments').getPublicUrl(path)
+      fotoUrl = pub.publicUrl
+    }
+
+    const { data, error } = await supabase.rpc('registrar_merma', {
+      p_product_id: mermaProducto,
+      p_lot_id: mermaLote || null,
+      p_cantidad: cantidad,
+      p_motivo: mermaMotivo,
+      p_lugar: mermaLugar,
+      p_descripcion: document.querySelector('#merma_desc').value.trim() || null,
+      p_foto_url: fotoUrl
+    })
+    if(error || !data?.ok){ box.textContent='No se pudo registrar: '+(data?.error||error?.message||''); box.style.display='block'; return }
+    mermaProducto=''; mermaLote=''; mermaLotes=[]; mermaMotivo=''; mermaCantidad=''; mermaDescripcion=''; mermaFoto=null
+    mostrarAlerta(`Pérdida registrada${Number(data.costo)>0?`\n\nSe descontó $${Number(data.costo).toLocaleString('es-AR')} del resultado.`:''}`)
+    render()
+  }
+}
+
+async function controlVencimientos(){
+  const { data } = await supabase.rpc('admin_control_vencimientos', {})
+  const d = data || {}
+  const porVencer = d.por_vencer || []
+  const vencidos = d.vencidos || []
+
+  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <button class="btn ghost" id="btn_volver_venc" style="padding:6px 12px">← Volver</button>
+    <h2 style="margin:0">Vencimientos</h2>
+  </div>
+
+  <div class="grid two" style="margin-bottom:12px">
+    <div class="card" style="margin:0"><div style="font-size:11px;color:${NOM.tintaSuave}">Por vencer</div><div style="font-size:22px;font-weight:500;font-variant-numeric:tabular-nums">$${Number(d.valor_por_vencer||0).toLocaleString('es-AR')}</div></div>
+    <div class="card" style="margin:0"><div style="font-size:11px;color:${NOM.tintaSuave}">Ya vencido</div><div style="font-size:22px;font-weight:500;color:${Number(d.valor_vencido||0)>0?NOM.rojo:NOM.tinta};font-variant-numeric:tabular-nums">$${Number(d.valor_vencido||0).toLocaleString('es-AR')}</div></div>
+  </div>
+
+  ${vencidos.length?`<h3 style="margin:16px 0 8px;color:${NOM.rojo}">Vencidos — sacar del stock</h3>
+    ${vencidos.map(l=>pCard(`
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div><div style="font-weight:500">${l.producto}</div><div style="font-size:12px;color:${NOM.tintaSuave}">Lote ${l.lote} · venció hace ${l.dias} día(s)</div></div>
+        <div style="text-align:right"><div style="font-weight:500;font-variant-numeric:tabular-nums">${l.disponible}</div><div style="font-size:11px;color:${NOM.tintaSuave}">$${Number(l.valor||0).toLocaleString('es-AR')}</div></div>
+      </div>
+      <button class="btn ghost" data-dar-baja="${l.id}" data-cant="${l.disponible}" style="width:100%;margin-top:10px">Dar de baja</button>
+    `, `border-color:rgba(176,58,46,0.3)`)).join('')}`:''}
+
+  ${porVencer.length?`<h3 style="margin:16px 0 8px">Por vencer</h3>
+    ${porVencer.map(l=>pCard(`
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div><div style="font-weight:500">${l.producto}</div><div style="font-size:12px;color:${NOM.tintaSuave}">Lote ${l.lote} · vence ${fechaCorta(l.vencimiento)}</div></div>
+        <div style="text-align:right">
+          ${pPill(`${l.dias} día(s)`, l.nivel==='rojo'?'#FBE9D4':NOM.verdeClaro, l.nivel==='rojo'?'#B8641E':NOM.verde)}
+          <div style="font-size:12px;color:${NOM.tintaSuave};margin-top:4px">${l.disponible} unidades</div>
+        </div>
+      </div>`)).join('')}`:''}
+
+  ${(!porVencer.length && !vencidos.length)?estadoVacio('No hay nada por vencer. Todo el stock está en fecha.'):''}`)
+
+  document.querySelector('#btn_volver_venc').onclick = ()=>{ current='admin'; adminAreaAbierta=null; render() }
+  document.querySelectorAll('[data-dar-baja]').forEach(b=>b.onclick=async()=>{
+    if(!(await mostrarConfirmacion('¿Dar de baja todo este lote? Se va a registrar como pérdida por vencimiento.'))) return
+    const { data, error } = await supabase.rpc('registrar_merma', {
+      p_product_id: null, p_lot_id: b.dataset.darBaja, p_cantidad: Number(b.dataset.cant),
+      p_motivo: 'vencido', p_lugar: 'deposito', p_descripcion: 'Baja automática por vencimiento', p_foto_url: null
+    })
+    if(error || !data?.ok){ mostrarAlerta('No se pudo dar de baja: '+(data?.error||error?.message||'')); return }
+    mostrarAlerta('Lote dado de baja')
+    render()
+  })
+}
+
 // ============ PANTALLA: HISTORIAL DE PAGOS A PROVEEDORES ============
 let histPagosFiltroProveedor = ''
 let histPagosDesde = ''
@@ -6159,6 +6746,9 @@ async function render(){
   else if(current==='vehiculo-historial') await vehiculoHistorial();
   else if(current==='telefonico') await telefonico();
   else if(current==='historial-pagos') await historialPagosProveedores();
+  else if(current==='merma') await registrarMermaPantalla();
+  else if(current==='vencimientos') await controlVencimientos();
+  else if(current==='avisos') await avisosClientes();
   else if(current==='auditoria') await auditoria();
   else if(current==='admin-detalle') await adminDetalle();
   else await admin()
