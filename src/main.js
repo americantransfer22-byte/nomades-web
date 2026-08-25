@@ -28,6 +28,8 @@ const IC = {
   recibo:'<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
   trofeo:'<path d="M8 4h8v5a4 4 0 01-8 0z"/><path d="M8 6H5v1a3 3 0 003 3M16 6h3v1a3 3 0 01-3 3M10 14h4l.5 6h-5z"/>',
   vendedor:'<circle cx="12" cy="7" r="3"/><path d="M5 21a7 7 0 0114 0"/><path d="M15 12l1.5 3 3-1"/>',
+  tienda:'<path d="M3 9l1.5-5h15L21 9"/><path d="M4 9v11h16V9"/><path d="M3 9a3 3 0 006 0 3 3 0 006 0 3 3 0 006 0"/><path d="M9 20v-6h6v6"/>',
+  aviso:'<path d="M12 3l9 16H3l9-16z"/><path d="M12 10v4"/><circle cx="12" cy="17" r="0.6" fill="currentColor"/>',
   idea:'<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 00-3.5 10.9c.4.3.5.7.5 1.1h6c0-.4.1-.8.5-1.1A6 6 0 0012 3z"/>',
   lupa:'<circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/>',
   engranaje:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',
@@ -65,7 +67,7 @@ let adminDetalleTipo = null // qué tarjeta de resumen se está viendo en detall
 
 const ICONOS_NAV = {
   admin:'panel', pedidos:'paquete', telefonico:'telefono', clientes:'personas', preparador:'canasta',
-  repartidor:'camion', campo:'huevo', vendedor:'vendedor', vehiculo:'moto', historial:'historial',
+  repartidor:'camion', campo:'huevo', vendedor:'vendedor', 'alta-comercio':'tienda', 'mayoristas-riesgo':'aviso', deudores:'moneda', fincanales:'grafico', vehiculo:'moto', historial:'historial',
   'mis-suscriptores':'personas', 'mis-comisiones':'moneda', perfil:'engranaje', logout:'salir',
   merma:'campana', vencimientos:'calendario', avisos:'campana', inicio:'huevo'
 }
@@ -75,7 +77,7 @@ const MENU_POR_ROL = {
   campo: [['campo','Campo'],['merma','Registrar pérdida'],['inicio','Ver la tienda']],
   repartidor: [['repartidor','Ruta'],['historial','Historial'],['vehiculo','Mi vehículo'],['merma','Registrar pérdida'],['inicio','Ver la tienda']],
   preparador: [['preparador','Preparar'],['vencimientos','Vencimientos'],['merma','Registrar pérdida'],['inicio','Ver la tienda']],
-  vendedor: [['vendedor','Vender'],['mis-suscriptores','Suscriptores'],['mis-comisiones','Comisiones'],['inicio','Ver la tienda']],
+  vendedor: [['vendedor','Vender'],['alta-comercio','Comercio'],['mis-suscriptores','Suscriptores'],['mis-comisiones','Comisiones'],['inicio','Ver la tienda']],
   telefonico: [['telefonico','Teléfono'],['inicio','Ver la tienda']]
 }
 
@@ -1630,6 +1632,15 @@ function editarDatosForm(c){
   }
 }
 
+const GRADOS_HUEVO = [
+  { value:'extra', label:'Extra grande' },
+  { value:'grande', label:'Grande' },
+  { value:'mediano', label:'Mediano' },
+  { value:'chico', label:'Chico' },
+  { value:'mixto', label:'De campo (mezclado)' }
+]
+const GRADO_LABEL = { extra:'Extra grande', grande:'Grande', mediano:'Mediano', chico:'Chico', mixto:'De campo' }
+
 const ROLES_STAFF = [
   { value: 'admin', label: 'Administrador' },
   { value: 'campo', label: 'Personal de campo' },
@@ -1917,7 +1928,7 @@ async function miVehiculo(){
 async function mayoristaLanding(){
   layout(`<h2>🏭 Vendemos a mayoristas</h2><div class="card">${skeletonBloque(4)}</div>`)
   const [{ data: planesRaw }, { data: catalogoRaw }] = await Promise.all([
-    supabase.from('plan_prices').select('egg_quantity,price').eq('active', true).eq('customer_type','mayorista').order('egg_quantity'),
+    supabase.from('plan_prices').select('id,egg_quantity,price,grade,unidad').eq('active', true).eq('customer_type','mayorista').order('egg_quantity'),
     supabase.rpc('mayorista_catalogo', {})
   ])
   const planes = planesRaw || []
@@ -1939,10 +1950,19 @@ async function mayoristaLanding(){
 const mayoristaAlta = { first_name:'', last_name:'', dni:'', phone:'', email:'', street:'', street_number:'', neighborhood:'', city:'Rosario', province:'Santa Fe', zone:'', carrito:{}, frequency:'weekly', payment_method:'transfer' }
 async function mayoristaSignupForm(){
   const c = mayoristaAlta
-  const { data: planesRaw } = await supabase.from('plan_prices').select('egg_quantity,price').eq('active', true).eq('customer_type','mayorista').order('egg_quantity')
+  const { data: planesRaw } = await supabase.from('plan_prices').select('id,egg_quantity,price,grade,unidad').eq('active', true).eq('customer_type','mayorista').order('egg_quantity')
   const planes = planesRaw || []
-  const totalCant = ()=>Object.entries(c.carrito).reduce((s,[q,n])=>s+Number(q)*n,0)
-  const totalPrecio = ()=>Object.entries(c.carrito).reduce((s,[q,n])=>{ const pl=planes.find(p=>String(p.egg_quantity)===q); return s+(pl?Number(pl.price):0)*n }, 0)
+  const { data: prodRaw } = await supabase.from('catalog_products')
+    .select('id,name,photo_url,unit_label,units_per_bulto,price,wholesale_price,category')
+    .eq('active', true).order('name')
+  const productosAlta = (prodRaw||[]).map(p=>({ ...p, precio: p.wholesale_price || p.price }))
+  c.productos = c.productos || {}
+  const totalCant = ()=>Object.entries(c.carrito).reduce((s,[id,n])=>{ const pl=planes.find(p=>p.id===id); return s + (pl?Number(pl.egg_quantity):0)*n }, 0)
+  const totalPrecio = ()=>Object.entries(c.carrito).reduce((s,[id,n])=>{ const pl=planes.find(p=>p.id===id); return s+(pl?Number(pl.price):0)*n }, 0)
+  const totalMaples = ()=>Object.values(c.carrito).reduce((s,n)=>s+Number(n||0),0)
+  const totalProductos = ()=>Object.entries(c.productos||{}).reduce((s,[id,n])=>{
+    const p = productosAlta.find(x=>x.id===id); return s + (p?Number(p.precio):0)*n
+  }, 0)
   let enviando = false
   const dibujar = ()=>{
     layout(`<h2>🏭 Alta de cuenta mayorista</h2>
@@ -1965,8 +1985,51 @@ async function mayoristaSignupForm(){
       </div>
     </div>
     <div class="card"><h3>Tu pedido de huevos</h3>
-      ${planes.length? planes.map(pl=>`<div class="row"><span>${pl.egg_quantity} huevos <small class="muted">$${Number(pl.price).toLocaleString('es-AR')}</small></span><span style="display:flex;align-items:center;gap:8px"><button type="button" data-ma-menos="${pl.egg_quantity}" class="btn ghost" style="padding:6px 14px">−</button><b>${c.carrito[pl.egg_quantity]||0}</b><button type="button" data-ma-mas="${pl.egg_quantity}" class="btn ghost" style="padding:6px 14px">+</button></span></div>`).join('') : '<p class="muted">Todavía no hay tamaños mayoristas cargados.</p>'}
-      <div class="alert info" style="margin-top:8px"><b>Total: ${totalCant()} huevos</b> · $${totalPrecio().toLocaleString('es-AR')}</div>
+      ${planes.length? planes.map(pl=>{
+        const etiqueta = pl.grade ? (GRADO_LABEL[pl.grade]||pl.grade) : `${pl.egg_quantity} huevos`
+        const unidadTxt = pl.unidad==='caja'?'caja':pl.unidad==='cajon'?'cajón':'maple'
+        const porHuevo = pl.egg_quantity ? Math.round(Number(pl.price)/pl.egg_quantity) : 0
+        return `<div style="background:${NOM.superficie};border:1px solid ${NOM.borde};border-radius:14px;padding:12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:11px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:14px;font-weight:500;color:${NOM.tinta}">${etiqueta}</div>
+            <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">${unidadTxt} de ${pl.egg_quantity} · $${Number(pl.price).toLocaleString('es-AR')}</div>
+            ${porHuevo?`<div style="font-size:11.5px;color:${NOM.verde};margin-top:2px">$${porHuevo.toLocaleString('es-AR')} por huevo</div>`:''}
+          </div>
+          <span style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+            <button type="button" data-ma-menos="${pl.id}" class="btn ghost" style="padding:7px 14px">−</button>
+            <b style="min-width:22px;text-align:center;display:inline-block">${c.carrito[pl.id]||0}</b>
+            <button type="button" data-ma-mas="${pl.id}" class="btn ghost" style="padding:7px 14px">+</button>
+          </span>
+        </div>`
+      }).join('') : `<div style="background:${NOM.verdeClaro};border-radius:12px;padding:14px;text-align:center">
+        <p style="margin:0;font-size:13px;color:#5F5E5A;line-height:1.5">Todavía no publicamos la lista mayorista. Escribinos y te la pasamos por WhatsApp.</p>
+      </div>`}
+      <div class="alert info" style="margin-top:4px;font-size:12px">Todos los maples son de 30 huevos.</div>
+    </div>
+
+    ${productosAlta.length?`<div class="card"><h3>Almacén (precio mayorista)</h3>
+      <p class="muted" style="margin-bottom:10px;font-size:12.5px">Sumalos al mismo pedido y viajan con los huevos.</p>
+      ${productosAlta.map(p=>{
+        const cargado = (c.productos[p.id]||0) > 0
+        return `<div style="background:${NOM.superficie};border:1px solid ${NOM.borde};${cargado?`border-left:3px solid ${NOM.verde};border-radius:0 14px 14px 0`:'border-radius:14px'};padding:11px 12px;margin-bottom:8px;display:flex;gap:11px;align-items:center">
+          ${p.photo_url
+            ? `<img src="${p.photo_url}" alt="" style="width:44px;height:44px;border-radius:10px;object-fit:cover;flex-shrink:0;background:${NOM.verdeClaro}"/>`
+            : `<div style="width:44px;height:44px;border-radius:10px;background:${NOM.verdeClaro};display:flex;align-items:center;justify-content:center;flex-shrink:0">${ico('carrito',19,NOM.verde)}</div>`}
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13.5px;font-weight:500;color:${NOM.tinta};line-height:1.3">${p.name}</div>
+            <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">$${Number(p.precio).toLocaleString('es-AR')} · ${p.unit_label||'unidad'}${p.units_per_bulto>1?` · bulto ${p.units_per_bulto}`:''}</div>
+          </div>
+          <span style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+            <button type="button" data-ma-prod-menos="${p.id}" class="btn ghost" style="padding:7px 13px">−</button>
+            <b style="min-width:22px;text-align:center;display:inline-block">${c.productos[p.id]||0}</b>
+            <button type="button" data-ma-prod-mas="${p.id}" class="btn ghost" style="padding:7px 13px">+</button>
+          </span>
+        </div>`
+      }).join('')}
+    </div>`:''}
+
+    <div class="card">
+      <div class="alert info" style="margin-top:0"><b>${totalMaples()} maple(s) · ${totalCant()} huevos</b> · $${(totalPrecio()+totalProductos()).toLocaleString('es-AR')}${totalProductos()>0?`<br><small>Huevos $${totalPrecio().toLocaleString('es-AR')} · Almacén $${totalProductos().toLocaleString('es-AR')}</small>`:''}</div>
       <div class="field" style="margin-top:10px"><label>Frecuencia</label><div class="grid three">${Object.entries(FRECUENCIAS).map(([v,l])=>`<button type="button" data-ma-frecuencia="${v}" class="btn ${c.frequency===v?'primary':'ghost'}">${l}</button>`).join('')}</div></div>
       <div class="field"><label>Forma de pago</label><div class="grid three">
         <button type="button" data-ma-metodo="transfer" class="btn ${c.payment_method==='transfer'?'primary':'ghost'}">Transferencia</button>
@@ -1983,22 +2046,36 @@ async function mayoristaSignupForm(){
     document.querySelectorAll('[data-ma-menos]').forEach(b=>b.onclick=()=>{ if(c.carrito[b.dataset.maMenos]>0) c.carrito[b.dataset.maMenos]--; dibujar() })
     document.querySelectorAll('[data-ma-frecuencia]').forEach(b=>b.onclick=()=>{ c.frequency=b.dataset.maFrecuencia; dibujar() })
     document.querySelectorAll('[data-ma-metodo]').forEach(b=>b.onclick=()=>{ c.payment_method=b.dataset.maMetodo; dibujar() })
+    document.querySelectorAll('[data-ma-prod-mas]').forEach(b=>b.onclick=()=>{ const id=b.dataset.maProdMas; c.productos[id]=(c.productos[id]||0)+1; dibujar() })
+    document.querySelectorAll('[data-ma-prod-menos]').forEach(b=>b.onclick=()=>{ const id=b.dataset.maProdMenos; if(c.productos[id]>0) c.productos[id]--; dibujar() })
     document.querySelector('#btn_volver_landing').onclick = ()=>{ current='mayorista-landing'; render() }
     document.querySelector('#btn_confirmar_alta_mayorista').onclick = async ()=>{
       const box = document.querySelector('#err_alta_mayorista')
       if(!c.first_name.trim() || !c.last_name.trim()){ box.textContent='Falta el nombre.'; box.style.display='block'; return }
-      if(!/^\d{7,8}$/.test(c.dni.trim())){ box.textContent='El DNI/CUIT debe tener 7 u 8 números, sin puntos ni guiones.'; box.style.display='block'; return }
+      if(!/^(\d{7,8}|\d{11})$/.test(c.dni.trim())){ box.textContent='Ingresá el DNI (7 u 8 números) o el CUIT (11 números), sin puntos ni guiones.'; box.style.display='block'; return }
       if(!c.phone.trim()){ box.textContent='Falta el teléfono.'; box.style.display='block'; return }
       if(totalCant()<=0){ box.textContent='Elegí al menos un tamaño de maple.'; box.style.display='block'; return }
       box.style.display='none'
       enviando = true; dibujar()
-      const breakdown = Object.entries(c.carrito).filter(([,q])=>q>0).map(([size,qty])=>({size:Number(size),qty}))
+      const breakdown = Object.entries(c.carrito).filter(([,q])=>q>0).map(([pid,qty])=>{
+        const pl = planes.find(p=>p.id===pid) || {}
+        return { size: Number(pl.egg_quantity||30), qty, grade: pl.grade || null, plan_id: pid }
+      })
       const { data, error } = await supabase.rpc('mayorista_signup', {
         p_customer: { first_name:c.first_name.trim(), last_name:c.last_name.trim(), dni:c.dni.trim(), phone:c.phone.trim(), email:c.email.trim(), street:c.street.trim(), street_number:c.street_number.trim(), neighborhood:c.neighborhood.trim(), city:c.city.trim()||'Rosario', province:c.province.trim()||'Santa Fe', zone:c.zone },
         p_subscription: { frequency:c.frequency, egg_quantity: totalCant(), payment_method:c.payment_method, plan_breakdown: breakdown, price: totalPrecio() }
       })
       enviando = false
       if(error || !data?.ok){ box.textContent = data?.error || 'No pudimos crear tu cuenta. Probá de nuevo.'; box.style.display='block'; dibujar(); return }
+      const prodElegidos = Object.entries(c.productos||{}).filter(([,q])=>q>0)
+      if(prodElegidos.length && data.customer_id){
+        for(const [pid, qty] of prodElegidos){
+          await supabase.from('customer_product_interest').insert({
+            customer_id: data.customer_id, product_id: pid, quantity: qty,
+            target_order_id: data.order_id || null, status: 'pendiente'
+          })
+        }
+      }
       const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni.trim() })
       if(fresh?.found) cuenta = fresh
       mostrarAlerta(data.status==='active' ? '✅ Cuenta creada. Próxima entrega: '+data.next_delivery_date : '🕒 Cuenta creada — quedaste en lista de espera para ese volumen, te contactamos apenas se libere lugar.')
@@ -2033,6 +2110,38 @@ function mayoristaLogin(){
 
 let mayoristaCarrito = {}
 let mayoristaCarritoProductosNuevo = {}
+
+async function cargarLoDeSiempre(c, redibujar){
+  const box = document.querySelector('#card_repetir')
+  if(!box) return
+  const { data } = await supabase.rpc('ultimo_pedido_cliente', { p_dni: c.dni, p_customer_id: c.id })
+  if(!data?.ok || !data.hay){ box.style.display = 'none'; return }
+
+  const bd = data.plan_breakdown || []
+  const prods = data.productos || []
+  const resumen = [
+    ...bd.map(b=>`${b.qty}× ${b.grade?(GRADO_LABEL[b.grade]||b.grade):`maple ${b.size}`}`),
+    ...prods.map(p=>`${p.cantidad}× ${p.nombre}`)
+  ]
+  if(!resumen.length){ box.style.display='none'; return }
+
+  box.innerHTML = `<h3>Lo de siempre</h3>
+    <p class="muted" style="font-size:12.5px;margin:0 0 10px">Lo que pediste el ${formatearFecha(data.delivery_date)}</p>
+    <div style="background:${NOM.fondo};border-radius:11px;padding:12px;margin-bottom:11px">
+      ${resumen.map(t=>`<div style="display:flex;gap:9px;align-items:center;padding:4px 0;font-size:13px;color:${NOM.tinta}">${ico('check',15,NOM.verde)}<span>${t}</span></div>`).join('')}
+      ${Number(data.total)>0?`<div style="border-top:1px solid ${NOM.borde};margin-top:9px;padding-top:9px;font-size:13px;font-weight:500;color:${NOM.verde}">Fueron $${Number(data.total).toLocaleString('es-AR')}</div>`:''}
+    </div>
+    <button class="btn primary" id="btn_repetir_pedido" style="width:100%">Pedir lo mismo</button>`
+
+  document.querySelector('#btn_repetir_pedido').onclick = ()=>{
+    Object.keys(mayoristaCarrito).forEach(k=>delete mayoristaCarrito[k])
+    bd.forEach(b=>{ if(b.plan_id) mayoristaCarrito[b.plan_id] = b.qty })
+    prods.forEach(p=>{ mayoristaCarritoProductosNuevo[p.product_id] = p.cantidad })
+    mostrarAlerta('Listo, cargamos el mismo pedido. Revisá abajo y confirmá.')
+    if(redibujar) redibujar()
+  }
+}
+
 async function mayoristaPanel(){
   panelVolver = mayoristaPanel
   if(!cuenta){ current='mayorista-login'; render(); return }
@@ -2040,7 +2149,7 @@ async function mayoristaPanel(){
   const next = cuenta.next_order
   const hoy = new Date().toISOString().slice(0,10)
   const esHoy = next && next.delivery_date === hoy
-  const { data: planesRaw } = await supabase.from('plan_prices').select('egg_quantity,price').eq('active', true).eq('customer_type','mayorista').order('egg_quantity')
+  const { data: planesRaw } = await supabase.from('plan_prices').select('id,egg_quantity,price,grade,unidad').eq('active', true).eq('customer_type','mayorista').order('egg_quantity')
   const planes = planesRaw || []
   const { data: catalogoMayorista } = await supabase.rpc('mayorista_catalogo', {})
   const productosMayoristas = catalogoMayorista || []
@@ -2048,20 +2157,40 @@ async function mayoristaPanel(){
   let frecuenciaSel = subActiva?.frequency || 'weekly'
   let metodoSel = subActiva?.payment_method || 'transfer'
   if(subActiva && !Object.keys(mayoristaCarrito).length){
-    (subActiva.plan_breakdown||[]).forEach(b=>{ mayoristaCarrito[b.size] = b.qty })
+    (subActiva.plan_breakdown||[]).forEach(b=>{ if(b.plan_id) mayoristaCarrito[b.plan_id] = b.qty })
   }
-  const totalCant = ()=>Object.entries(mayoristaCarrito).reduce((s,[q,c])=>s+Number(q)*c,0)
-  const totalPrecio = ()=>Object.entries(mayoristaCarrito).reduce((s,[q,c])=>{ const pl=planes.find(p=>String(p.egg_quantity)===q); return s+(pl?Number(pl.price):0)*c }, 0)
+  const totalCant = ()=>Object.entries(mayoristaCarrito).reduce((s,[id,n])=>{ const pl=planes.find(p=>p.id===id); return s + (pl?Number(pl.egg_quantity):0)*n }, 0)
+  const totalPrecio = ()=>Object.entries(mayoristaCarrito).reduce((s,[id,n])=>{ const pl=planes.find(p=>p.id===id); return s+(pl?Number(pl.price):0)*n }, 0)
+  const totalMaples = ()=>Object.values(mayoristaCarrito).reduce((s,n)=>s+Number(n||0),0)
 
   const dibujar = ()=>{
     layout(`<h2>🏭 Hola, ${c.first_name}</h2>
     <div id="card_hoy_banner"></div>
     <div class="card" id="card_repartidor"><h3>🚚 Tu repartidor</h3>${skeletonBloque(2)}</div>
     ${next && (next.customer_stage || next.status==='out_for_delivery') ? barraEstadoPedido(next.customer_stage, next.status, next.out_for_delivery_at, next.en_route_at) : ''}
+    <div class="card" id="card_repetir"></div>
     <div class="card" id="card_subs"><h3>Tu pedido de huevos</h3>
       ${subActiva?`<p class="muted">Próxima entrega: ${subActiva.next_delivery_date?formatearFecha(subActiva.next_delivery_date):'-'}${subActiva.status==='paused'?' · <span class="badge" style="background:#8A8570">⏸️ Pausada</span>':''}${subActiva.status==='paused'&&subActiva.paused_until?` (hasta ${formatearFecha(subActiva.paused_until)})`:''}</p>`:'<p class="muted">Todavía no tenés un pedido activo — armalo abajo.</p>'}
-      ${planes.length? planes.map(pl=>`<div class="row"><span>${pl.egg_quantity} huevos <small class="muted">$${Number(pl.price).toLocaleString('es-AR')}</small></span><span style="display:flex;align-items:center;gap:8px"><button type="button" data-may-menos="${pl.egg_quantity}" class="btn ghost" style="padding:6px 14px">−</button><b>${mayoristaCarrito[pl.egg_quantity]||0}</b><button type="button" data-may-mas="${pl.egg_quantity}" class="btn ghost" style="padding:6px 14px">+</button></span></div>`).join('') : '<p class="muted">Todavía no hay tamaños mayoristas cargados — consultá con NÓMADES.</p>'}
-      <div class="alert info" style="margin-top:8px"><b>Total: ${totalCant()} huevos</b> · $${totalPrecio().toLocaleString('es-AR')}</div>
+      ${planes.length? planes.map(pl=>{
+        const etiqueta = pl.grade ? (GRADO_LABEL[pl.grade]||pl.grade) : `${pl.egg_quantity} huevos`
+        const unidadTxt = pl.unidad==='caja'?'caja':pl.unidad==='cajon'?'cajón':'maple'
+        const porHuevo = pl.egg_quantity ? Math.round(Number(pl.price)/pl.egg_quantity) : 0
+        const cargado = (mayoristaCarrito[pl.id]||0) > 0
+        return `<div style="background:${NOM.superficie};border:1px solid ${NOM.borde};${cargado?`border-left:3px solid ${NOM.verde};border-radius:0 14px 14px 0`:'border-radius:14px'};padding:12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:11px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:14px;font-weight:500;color:${NOM.tinta}">${etiqueta}</div>
+            <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">${unidadTxt} de ${pl.egg_quantity} · $${Number(pl.price).toLocaleString('es-AR')}</div>
+            ${porHuevo?`<div style="font-size:11.5px;color:${NOM.verde};margin-top:2px">$${porHuevo.toLocaleString('es-AR')} por huevo</div>`:''}
+          </div>
+          <span style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+            <button type="button" data-may-menos="${pl.id}" class="btn ghost" style="padding:7px 14px">−</button>
+            <b style="min-width:22px;text-align:center;display:inline-block">${mayoristaCarrito[pl.id]||0}</b>
+            <button type="button" data-may-mas="${pl.id}" class="btn ghost" style="padding:7px 14px">+</button>
+          </span>
+        </div>`
+      }).join('') : `<div style="background:${NOM.verdeClaro};border-radius:12px;padding:14px;text-align:center"><p style="margin:0;font-size:13px;color:#5F5E5A;line-height:1.5">Todavía no publicamos la lista. Escribinos y te la pasamos.</p></div>`}
+      <div class="alert info" style="margin-top:4px;font-size:12px">Todos los maples son de 30 huevos.</div>
+      <div class="alert info" style="margin-top:8px"><b>${totalMaples()} maple(s) · ${totalCant()} huevos</b> · $${totalPrecio().toLocaleString('es-AR')}</div>
       <div class="field" style="margin-top:10px"><label>Frecuencia</label><div class="grid three">${Object.entries(FRECUENCIAS).map(([v,l])=>`<button type="button" data-may-frecuencia="${v}" class="btn ${frecuenciaSel===v?'primary':'ghost'}">${l}</button>`).join('')}</div></div>
       <div class="field"><label>Forma de pago</label><div class="grid three">
         <button type="button" data-may-metodo="cash" class="btn ${metodoSel==='cash'?'primary':'ghost'}">Efectivo</button>
@@ -2157,7 +2286,10 @@ async function mayoristaPanel(){
       const errBox = document.querySelector('#err_mayorista')
       const total = totalCant()
       if(total<=0){ errBox.textContent='Elegí al menos un tamaño.'; errBox.style.display='block'; return }
-      const breakdown = Object.entries(mayoristaCarrito).filter(([,q])=>q>0).map(([size,qty])=>({size:Number(size),qty}))
+      const breakdown = Object.entries(mayoristaCarrito).filter(([,q])=>q>0).map(([pid,qty])=>{
+        const pl = planes.find(p=>p.id===pid) || {}
+        return { size: Number(pl.egg_quantity||30), qty, grade: pl.grade || null, plan_id: pid }
+      })
       const { data, error } = await supabase.rpc('mayorista_hacer_pedido', { p_dni: c.dni, p_customer_id: c.id, p_egg_quantity: total, p_frequency: frecuenciaSel, p_payment_method: metodoSel, p_plan_breakdown: breakdown, p_price: totalPrecio() })
       if(error || !data?.ok){ errBox.textContent = 'No se pudo confirmar: '+(data?.error||error?.message||''); errBox.style.display='block'; return }
       mostrarAlerta(`¡Listo! Próxima entrega: ${formatearFecha(data.next_delivery_date)}`)
@@ -2167,6 +2299,7 @@ async function mayoristaPanel(){
     }
   }
   dibujar()
+  cargarLoDeSiempre(c, dibujar)
 }
 
 async function preparador(){
@@ -2196,6 +2329,7 @@ async function abrirPreparacion(id){
   <div class="card">
     <h3>${c.last_name||''}, ${c.first_name||''}</h3>
     <p class="muted">${c.neighborhood||''} · Entrega: ${formatearFecha(o.delivery_date)}</p>
+    ${c.customer_type==='mayorista'?`<div style="margin:8px 0">${pPill('Mayorista','#FBE9D4','#B8641E')}</div>`:''}
     ${o.channel==='phone'?`<div style="margin:8px 0">${pPill('📞 Pedido telefónico','#FAEEDA','#854F0B')}${o.taken_by_name?`<small class="muted"> lo tomó ${o.taken_by_name}</small>`:''}</div>`:''}
     ${(o.extra_eggs&&o.extra_eggs.length)?`<div class="alert info">🥚 Huevos sumados por teléfono: ${o.extra_eggs.map(e=>`${e.qty}×${e.size}`).join(' + ')}</div>`:''}
     ${o.needs_review?`<div class="alert warning">⚠️ Revisar antes de preparar: ${o.review_note||'este pedido quedó marcado para revisión.'}</div>`:''}
@@ -2204,7 +2338,17 @@ async function abrirPreparacion(id){
   <div class="card">
     <h3>✅ Checklist</h3>
     <p class="muted" style="font-size:11.5px;margin-bottom:8px">Podés salir y volver cuando quieras — lo que ya tildaste queda guardado.</p>
-    <label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #F0EBDD"><input type="checkbox" class="check-prep" data-item-key="eggs" ${marcados.includes('eggs')?'checked':''} style="width:18px;height:18px"/> <span>🥚 ${FRECUENCIAS[sub.frequency]||sub.frequency||''} · ${sub.egg_quantity||'-'} huevos${sub.plan_breakdown?` (${sub.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')})`:''}</span></label>
+    ${(sub.plan_breakdown && sub.plan_breakdown.length)
+      ? sub.plan_breakdown.map((b,i)=>`<label style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #F0EBDD">
+          <input type="checkbox" class="check-prep" data-item-key="eggs_${i}" ${marcados.includes('eggs_'+i)?'checked':''} style="width:19px;height:19px"/>
+          <div style="width:30px;height:30px;border-radius:8px;background:${NOM.verdeClaro};display:flex;align-items:center;justify-content:center;flex-shrink:0">${ico('huevo',16,NOM.verde)}</div>
+          <span style="flex:1"><b>${b.qty}</b> × ${b.grade?`maple ${b.size} <span style="color:${NOM.verde}">${GRADO_LABEL[b.grade]||b.grade}</span>`:`maple de ${b.size}`}</span>
+        </label>`).join('')
+      : `<label style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #F0EBDD">
+          <input type="checkbox" class="check-prep" data-item-key="eggs" ${marcados.includes('eggs')?'checked':''} style="width:19px;height:19px"/>
+          <div style="width:30px;height:30px;border-radius:8px;background:${NOM.verdeClaro};display:flex;align-items:center;justify-content:center;flex-shrink:0">${ico('huevo',16,NOM.verde)}</div>
+          <span style="flex:1">${sub.egg_quantity||'-'} huevos</span>
+        </label>`}
     ${productos.map(p=>`<label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #F0EBDD">
       <input type="checkbox" class="check-prep" data-item-key="${p.id}" ${marcados.includes(p.id)?'checked':''} style="width:18px;height:18px"/>
       ${p.photo_url?`<img src="${p.photo_url}" style="width:28px;height:28px;border-radius:6px;object-fit:cover"/>`:'<span>🛒</span>'}
@@ -2657,6 +2801,7 @@ async function clientes(){
                 <button type="button" data-tipo-cliente="${c.id}" data-valor="minorista" class="btn ${(detalle.customer.customer_type||'minorista')==='minorista'?'primary':'ghost'}">🛍️ Minorista</button>
                 <button type="button" data-tipo-cliente="${c.id}" data-valor="mayorista" class="btn ${detalle.customer.customer_type==='mayorista'?'primary':'ghost'}">🏭 Mayorista</button>
               </div>
+              <button type="button" data-condiciones="${c.id}" style="width:100%;margin-top:10px;background:#FFFFFF;color:#2F4D2A;border:1px solid #E3DCC8;border-radius:10px;padding:9px 0;font-size:12.5px">Condiciones comerciales</button>
             </div>
           </div>
           <div style="margin-top:16px"><h3 style="font-size:14px;color:#2F4D2A;margin-bottom:8px">📦 Suscripciones</h3>
@@ -2710,6 +2855,7 @@ async function clientes(){
     render()
   })
   if(clienteExpandido) attachAvisoNumeroEnCalle(`cl_street_${clienteExpandido}`, `cl_street_number_${clienteExpandido}`, `aviso_numero_cl_${clienteExpandido}`)
+  document.querySelectorAll('[data-condiciones]').forEach(b=>b.onclick=()=>condicionesComerciales(b.dataset.condiciones))
   document.querySelectorAll('[data-guardar-cliente]').forEach(b=>b.onclick=async()=>{
     const id = b.dataset.guardarCliente
     const box = document.querySelector(`#err_cliente_${id}`)
@@ -3342,9 +3488,25 @@ async function openDelivery(id){
   const descuentoBilletera = sub.payment_method==='mp' ? calcularDescuentoBilletera(montoOriginal, cfg.wallet_discount_type, cfg.wallet_discount_value) : 0
   const montoTrasBilletera = montoOriginal - descuentoBilletera
   const montoDefault = credito ? Math.max(0, montoTrasBilletera - credito.discount_amount) : montoTrasBilletera
+  const { data: recepcion } = await supabase.rpc('puede_recibir', { p_customer_id: c.id, p_fecha: r.delivery_date })
   const { data: linkPago } = await supabase.from('payment_links').select('id,estado,init_point,monto').eq('order_id', id).in('estado',['pendiente','pagado']).order('created_at',{ascending:false}).limit(1).maybeSingle()
   const yaPago = linkPago && linkPago.estado === 'pagado'
+  const hhmm = (t)=> t ? String(t).slice(0,5) : ''
+  const DIAS_CORTOS = ['','Dom','Lun','Mar','Mié','Jue','Vie','Sáb']
   layout(`<h2>Detalle de entrega</h2>${r.important_note?`<div class="alert warning"><b>⚠️ OBSERVACIÓN IMPORTANTE</b><br>${r.important_note}</div>`:''}
+  ${recepcion && !recepcion.sin_restriccion ? `<div style="background:${recepcion.ok?NOM.verdeClaro:'#FCEBEB'};border-radius:14px;padding:13px;margin-bottom:12px">
+    <div style="display:flex;gap:10px;align-items:flex-start">
+      ${ico('reloj',19,recepcion.ok?NOM.verde:'#A32D2D')}
+      <div style="flex:1">
+        <div style="font-size:13.5px;font-weight:500;color:${recepcion.ok?NOM.tinta:'#A32D2D'}">${recepcion.ok?'Horario de recepción':'No recibe hoy'}</div>
+        <div style="font-size:12.5px;color:#5F5E5A;margin-top:3px">
+          ${recepcion.desde||recepcion.hasta ? `De ${hhmm(recepcion.desde)} a ${hhmm(recepcion.hasta)}` : ''}
+          ${recepcion.dias&&recepcion.dias.length ? ` · ${recepcion.dias.map(d=>DIAS_CORTOS[d]).join(', ')}` : ''}
+        </div>
+        ${recepcion.nota?`<div style="font-size:12px;color:#5F5E5A;margin-top:4px">${recepcion.nota}</div>`:''}
+      </div>
+    </div>
+  </div>`:''}
   ${yaPago?`<div style="background:${NOM.verde};border-radius:14px;padding:14px;margin-bottom:12px;display:flex;align-items:center;gap:11px">
     ${ico('moneda',22,'#F7F4EC')}
     <div><div style="color:#F7F4EC;font-size:15px;font-weight:500">Ya está pago</div><div style="color:${NOM.verdePastel};font-size:12.5px">Pagó $${Number(linkPago.monto).toLocaleString('es-AR')} online. No le cobres nada.</div></div>
@@ -3358,6 +3520,7 @@ async function openDelivery(id){
       <p>📞 ${c.phone||'-'}</p>
       <p>💰 A cobrar: <b>$${Number(montoDefault).toLocaleString('es-AR')}</b>${(descuentoBilletera>0||credito)?` <span class="muted" style="text-decoration:line-through">$${Number(montoOriginal).toLocaleString('es-AR')}</span>`:''}</p>
       <p>💳 Método configurado: <b>${METODOS_PAGO_LABEL[sub.payment_method]||sub.payment_method||'-'}</b></p>
+      <button class="btn ghost" data-remito="${id}" style="width:100%;margin-bottom:8px">Imprimir remito</button>
       <button class="btn ghost" onclick="window.open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent('${(c.street||'')+' '+(c.street_number||'')+' '+(c.neighborhood||'')}'),'_blank')">📍 Google Maps</button>
     </div>
     <div class="card">
@@ -3373,6 +3536,20 @@ async function openDelivery(id){
   </div>
   <div class="card">
       <h3>Confirmar entrega</h3>
+      ${(() => {
+        const items = []
+        if(sub.plan_breakdown && sub.plan_breakdown.length){
+          sub.plan_breakdown.forEach(b=>items.push(`<b>${b.qty}</b> × ${b.grade?`maple ${b.size} ${GRADO_LABEL[b.grade]||b.grade}`:`maple de ${b.size}`}`))
+        } else if(sub.egg_quantity){
+          items.push(`${sub.egg_quantity} huevos`)
+        }
+        productos.forEach(p=>items.push(`<b>${p.quantity}</b> × ${p.name}`))
+        if(!items.length) return ''
+        return `<div style="background:${NOM.fondo};border-radius:12px;padding:12px;margin-bottom:13px">
+          <div style="font-size:12px;color:${NOM.tintaSuave};margin-bottom:8px">Qué le entregás</div>
+          ${items.map(t=>`<div style="display:flex;gap:9px;align-items:center;padding:5px 0;font-size:13px;color:${NOM.tinta}">${ico('check',15,NOM.verde)}<span>${t}</span></div>`).join('')}
+        </div>`
+      })()}
       <div class="field"><label>DNI de quien recibe</label><input id="dni" autocomplete="off" /></div>
       <button class="btn primary" id="validate">Validar DNI</button>
       <div id="validation" style="margin-top:12px"></div>
@@ -3445,6 +3622,8 @@ async function openDelivery(id){
     renderDatosTransferencia()
   })
 
+  const btnRemito = document.querySelector('[data-remito]')
+  if(btnRemito) btnRemito.onclick = ()=>documentoRemito(id)
   const btnGenerarLink = document.querySelector('#btn_generar_link_pago')
   if(btnGenerarLink) btnGenerarLink.onclick = async ()=>{
     const box = document.querySelector('#err_link_pago')
@@ -3616,6 +3795,10 @@ async function admin(){
     { id:'avisos', ic:'campana', icono:'⏰', titulo:'Avisos a clientes', desc:'Cambios de precio y novedades', secciones:[], directo:'avisos' },
     { id:'comercial', ic:'carrito', icono:'🛒', titulo:'Comercial', desc:'Catálogo, precios y mayoristas', secciones:['catalogo','tamanos','cuenta_mayoristas','vendedores','agregado_manual'] },
     { id:'clientes_area', ic:'estrella', icono:'⭐', titulo:'Clientes', desc:'Ranking, reseñas y sugerencias', secciones:['ranking','resenas','sugerencias'] },
+    { id:'deudores', ic:'moneda', icono:'💰', titulo:'Te deben', desc:'Cuenta corriente y cobros', secciones:[], directo:'deudores' },
+    { id:'fincanales', ic:'grafico', icono:'📊', titulo:'Los dos negocios', desc:'Minorista y mayorista por separado', secciones:[], directo:'fincanales' },
+    { id:'alta_comercio', ic:'tienda', icono:'🏪', titulo:'Sumar un comercio', desc:'Alta de mayorista en el momento', secciones:[], directo:'alta-comercio' },
+    { id:'mayoristas_riesgo', ic:'aviso', icono:'⚠️', titulo:'Comercios que se enfrían', desc:'Los que dejaron de pedir', secciones:[], directo:'mayoristas-riesgo' },
     { id:'riesgo', ic:'personas', icono:'👥', titulo:'Clientes que se van', desc:'Los que dejaron de comprar', secciones:[], directo:'riesgo' },
     { id:'equipo', ic:'personas', icono:'👥', titulo:'Equipo y empresa', desc:'Personal, trazabilidad y vehículos', secciones:['personal','trazabilidad','vehiculos'] },
     { id:'backup', ic:'planilla', icono:'📋', titulo:'Copia de seguridad', desc:'Descargá todos tus datos', secciones:[], directo:'backup' }
@@ -3961,7 +4144,7 @@ async function admin(){
     ${planPrices.length? planPrices.map(pp=>pCard(`
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
         <div>
-          <div style="font-weight:700;color:#2F4D2A">${pp.egg_quantity} huevos ${pp.customer_type==='mayorista'?'<span class="badge" style="background:#B85C00">🏭 Mayorista</span>':''}</div>
+          <div style="font-weight:700;color:#2F4D2A">${pp.customer_type==='mayorista' && pp.grade ? `${GRADO_LABEL[pp.grade]||pp.grade} · ${pp.egg_quantity} huevos` : `${pp.egg_quantity} huevos`} ${pp.customer_type==='mayorista'?'<span class="badge" style="background:#B85C00">🏭 Mayorista</span>':''}</div>
           ${!pp.active?pPill('Inactivo','#F3E2D8','#B85C00'):''}
         </div>
         <div style="display:flex;gap:6px;align-items:center">
@@ -3979,6 +4162,17 @@ async function admin(){
       <div class="grid two">
         <button type="button" id="btn_pp_tipo_minorista" class="btn primary">🛍️ Minorista</button>
         <button type="button" id="btn_pp_tipo_mayorista" class="btn ghost">🏭 Mayorista</button>
+      </div>
+    </div>
+    <div class="field" id="pp_grade_wrap" style="display:none"><label>Tamaño del huevo</label>
+      <div class="grid two">
+        ${GRADOS_HUEVO.map(g=>`<button type="button" class="btn ghost" data-pp-grade="${g.value}">${g.label}</button>`).join('')}
+      </div>
+      <p class="muted" style="font-size:11.5px;margin:6px 0 0">El de campo va mezclado, sin clasificar por tamaño.</p>
+    </div>
+    <div class="field" id="pp_unidad_wrap" style="display:none"><label>Cómo se vende</label>
+      <div class="grid three">
+        ${[['maple','Maple'],['caja','Caja'],['cajon','Cajón']].map(([v,l])=>`<button type="button" class="btn ${v==='maple'?'primary':'ghost'}" data-pp-unidad="${v}">${l}</button>`).join('')}
       </div>
     </div>
     <button class="btn primary" id="btn_agregar_tamano">➕ Agregar tamaño</button>
@@ -4736,6 +4930,14 @@ async function admin(){
         </div>
       </div>
       <div class="field"><label>Categoría</label><select id="fin_categoria"><option value="">Elegí el tipo primero</option></select></div>
+      <div class="field"><label>¿De qué negocio es?</label>
+        <div class="grid three">
+          <button type="button" class="btn primary" data-fin-canal="compartido">Compartido</button>
+          <button type="button" class="btn ghost" data-fin-canal="minorista">Minorista</button>
+          <button type="button" class="btn ghost" data-fin-canal="mayorista">Mayorista</button>
+        </div>
+        <p class="muted" style="font-size:11.5px;margin:6px 0 0">Compartido se reparte entre los dos según cuánto vendió cada uno.</p>
+      </div>
       <div class="grid two">
         <div class="field"><label>Monto</label><input id="fin_amount" type="number" min="0"/></div>
         <div class="field"><label>Fecha</label><input id="fin_date" type="date" value="${new Date().toISOString().slice(0,10)}"/></div>
@@ -5081,13 +5283,35 @@ async function admin(){
   const btnPpMinorista = document.querySelector('#btn_pp_tipo_minorista')
   const btnPpMayorista = document.querySelector('#btn_pp_tipo_mayorista')
   if(btnPpMinorista) btnPpMinorista.onclick = ()=>{ ppTipoSel='minorista'; btnPpMinorista.className='btn primary'; btnPpMayorista.className='btn ghost' }
-  if(btnPpMayorista) btnPpMayorista.onclick = ()=>{ ppTipoSel='mayorista'; btnPpMayorista.className='btn primary'; btnPpMinorista.className='btn ghost' }
+  let ppGradeSel = ''
+  let ppUnidadSel = 'maple'
+  const mostrarCamposMayorista = (mostrar)=>{
+    const g = document.querySelector('#pp_grade_wrap')
+    const u = document.querySelector('#pp_unidad_wrap')
+    if(g) g.style.display = mostrar ? 'block' : 'none'
+    if(u) u.style.display = mostrar ? 'block' : 'none'
+  }
+  if(btnPpMayorista) btnPpMayorista.onclick = ()=>{ ppTipoSel='mayorista'; btnPpMayorista.className='btn primary'; btnPpMinorista.className='btn ghost'; mostrarCamposMayorista(true) }
+  if(btnPpMinorista) btnPpMinorista.onclick = ()=>{ ppTipoSel='minorista'; btnPpMinorista.className='btn primary'; btnPpMayorista.className='btn ghost'; mostrarCamposMayorista(false) }
+  document.querySelectorAll('[data-pp-grade]').forEach(b=>b.onclick=()=>{
+    ppGradeSel = b.dataset.ppGrade
+    document.querySelectorAll('[data-pp-grade]').forEach(x=> x.className = 'btn '+(x.dataset.ppGrade===ppGradeSel?'primary':'ghost'))
+  })
+  document.querySelectorAll('[data-pp-unidad]').forEach(b=>b.onclick=()=>{
+    ppUnidadSel = b.dataset.ppUnidad
+    document.querySelectorAll('[data-pp-unidad]').forEach(x=> x.className = 'btn '+(x.dataset.ppUnidad===ppUnidadSel?'primary':'ghost'))
+  })
   document.querySelector('#btn_agregar_tamano').onclick = async ()=>{
     const qty = Number(document.querySelector('#pp_new_qty').value)
     const price = Number(document.querySelector('#pp_new_price').value)
     const box = document.querySelector('#err_tamano')
     if(!qty || qty<=0 || !price || price<=0){ box.textContent='Completá cantidad de huevos y precio, ambos mayores a 0.'; box.style.display='block'; return }
-    const { error } = await supabase.from('plan_prices').insert({ egg_quantity: qty, price, active: true, customer_type: ppTipoSel })
+    if(ppTipoSel==='mayorista' && !ppGradeSel){ box.textContent='Elegí el tamaño del huevo.'; box.style.display='block'; return }
+    const { error } = await supabase.from('plan_prices').insert({
+      egg_quantity: qty, price, active: true, customer_type: ppTipoSel,
+      grade: ppTipoSel==='mayorista' ? ppGradeSel : null,
+      unidad: ppTipoSel==='mayorista' ? ppUnidadSel : null
+    })
     if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
     adminData = null; render()
   }
@@ -5873,6 +6097,11 @@ async function admin(){
   })
   pintarTipoFin()
   actualizarCategoriasFinanzas()
+  let finCanalSel = 'compartido'
+  document.querySelectorAll('[data-fin-canal]').forEach(b=>b.onclick=()=>{
+    finCanalSel = b.dataset.finCanal
+    document.querySelectorAll('[data-fin-canal]').forEach(x=> x.className = 'btn '+(x.dataset.finCanal===finCanalSel?'primary':'ghost'))
+  })
   let comprobanteFinanzas = null
   const finReceipt = document.querySelector('#fin_receipt')
   if(finReceipt) finReceipt.onchange = (e)=>{ comprobanteFinanzas = e.target.files[0]||null }
@@ -5893,7 +6122,7 @@ async function admin(){
       const { data: pub } = supabase.storage.from('finance-attachments').getPublicUrl(path)
       attachment_url = pub.publicUrl
     }
-    const { error } = await supabase.from('finance_entries').insert({ category_id, type: finTipoSel, amount, entry_date, description: description||null, attachment_url, created_by: session?.user?.id||null })
+    const { error } = await supabase.from('finance_entries').insert({ category_id, type: finTipoSel, amount, entry_date, description: description||null, attachment_url, canal: finCanalSel, created_by: session?.user?.id||null })
     if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
     adminData = null; render()
   }
@@ -6396,6 +6625,71 @@ ${cuerpo}
 }
 
 // ---------- Orden de pago a proveedor ----------
+
+async function documentoRemito(orderId){
+  const { data } = await supabase.rpc('datos_remito', { p_order_id: orderId })
+  if(!data || data.error) return mostrarAlerta('No se pudo armar el remito')
+  const numero = await numeroDocumento('remito')
+  const c = data.cliente || {}
+  const items = data.items || []
+
+  const cuerpo = `
+    <div style="display:flex;justify-content:space-between;gap:20px;margin-bottom:18px">
+      <div style="flex:1">
+        <div style="font-size:10px;letter-spacing:1px;color:#8A8570;margin-bottom:4px">DESTINATARIO</div>
+        <div style="font-size:14px;font-weight:600">${c.nombre||''}</div>
+        <div style="font-size:12px;color:#5F5E5A;margin-top:3px">${c.direccion||''}</div>
+        <div style="font-size:12px;color:#5F5E5A">${c.localidad||''}</div>
+        ${c.dni?`<div style="font-size:12px;color:#5F5E5A">DNI/CUIT ${c.dni}</div>`:''}
+        ${c.telefono?`<div style="font-size:12px;color:#5F5E5A">Tel ${c.telefono}</div>`:''}
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:10px;letter-spacing:1px;color:#8A8570;margin-bottom:4px">ENTREGA</div>
+        <div style="font-size:13px">${data.delivery_date ? new Date(data.delivery_date+'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'}) : ''}</div>
+        ${data.order_number?`<div style="font-size:12px;color:#5F5E5A;margin-top:3px">Pedido N° ${data.order_number}</div>`:''}
+        ${c.cuenta_corriente?`<div style="font-size:12px;color:#5F5E5A;margin-top:3px">Cuenta corriente${c.dias_plazo?` · ${c.dias_plazo} días`:''}</div>`:''}
+      </div>
+    </div>
+
+    <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
+      <thead>
+        <tr style="border-bottom:1.5px solid #2F4D2A">
+          <th style="text-align:left;padding:8px 0;font-size:11px;letter-spacing:0.5px;color:#2F4D2A">DESCRIPCIÓN</th>
+          <th style="text-align:right;padding:8px 0;font-size:11px;letter-spacing:0.5px;color:#2F4D2A;width:70px">CANT.</th>
+          <th style="text-align:left;padding:8px 0 8px 10px;font-size:11px;letter-spacing:0.5px;color:#2F4D2A;width:80px">UNIDAD</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.length ? items.map(it=>`<tr style="border-bottom:1px solid #E8E2D3">
+          <td style="padding:9px 0;font-size:12.5px">${it.descripcion||''}</td>
+          <td style="padding:9px 0;font-size:12.5px;text-align:right;font-weight:600">${it.cantidad||0}</td>
+          <td style="padding:9px 0 9px 10px;font-size:12.5px;color:#5F5E5A">${it.unidad||''}</td>
+        </tr>`).join('') : '<tr><td colspan="3" style="padding:12px 0;font-size:12px;color:#8A8570">Sin ítems.</td></tr>'}
+      </tbody>
+    </table>
+
+    ${Number(data.total)>0?`<div style="text-align:right;margin-bottom:20px">
+      ${Number(data.envio)>0?`<div style="font-size:12px;color:#5F5E5A;margin-bottom:3px">Envío: $${Number(data.envio).toLocaleString('es-AR')}</div>`:''}
+      <div style="font-size:15px;font-weight:600;color:#2F4D2A">Total: $${Number(data.total).toLocaleString('es-AR')}</div>
+    </div>`:''}
+
+    <div style="border:1px solid #E8E2D3;border-radius:8px;padding:14px;margin-top:26px">
+      <div style="font-size:11px;color:#8A8570;margin-bottom:26px">Recibí conforme la mercadería detallada</div>
+      <div style="display:flex;gap:24px">
+        <div style="flex:1;border-top:1px solid #8A8570;padding-top:6px;font-size:10.5px;color:#8A8570">Firma</div>
+        <div style="flex:1;border-top:1px solid #8A8570;padding-top:6px;font-size:10.5px;color:#8A8570">Aclaración</div>
+        <div style="width:110px;border-top:1px solid #8A8570;padding-top:6px;font-size:10.5px;color:#8A8570">DNI</div>
+      </div>
+    </div>`
+
+  abrirDocumento({
+    titulo: 'REMITO',
+    numero,
+    cuerpo,
+    pie: 'Este remito no es factura. Documento no válido como comprobante fiscal.'
+  })
+}
+
 async function documentoOrdenPago(pago){
   const empresa = await datosEmpresa()
   const numero = await numeroDocumento('orden_pago')
@@ -6613,6 +6907,543 @@ async function copiaSeguridad(){
       <br><small>Se descargó como nomades-copia-${hoy}.json. Mandátela por correo para tenerla fuera del teléfono.</small>
     </div>`
   }
+}
+
+
+
+async function condicionesComerciales(customerId){
+  const { data: c } = await supabase.from('customers')
+    .select('id,first_name,last_name,customer_type,cuenta_corriente,dias_plazo,limite_credito,recepcion_desde,recepcion_hasta,recepcion_dias,recepcion_nota,compra_minima')
+    .eq('id', customerId).single()
+  if(!c) return mostrarAlerta('No se pudo cargar el cliente')
+
+  let cc = !!c.cuenta_corriente
+  let dias = new Set(c.recepcion_dias || [])
+  const DIAS = [[2,'Lun'],[3,'Mar'],[4,'Mié'],[5,'Jue'],[6,'Vie'],[7,'Sáb'],[1,'Dom']]
+
+  const dibujar = ()=>{
+    layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <button class="btn ghost" id="btn_volver_cond" style="padding:6px 12px">← Volver</button>
+      <h2 style="margin:0">Condiciones</h2>
+    </div>
+    <div class="card">
+      <p class="muted" style="margin:0 0 12px">${c.first_name||''} ${c.last_name||''}</p>
+
+      <div class="field"><label>¿Le vendés a cuenta corriente?</label>
+        <div class="grid two">
+          <button type="button" class="btn ${!cc?'primary':'ghost'}" data-cc="0">Paga al recibir</button>
+          <button type="button" class="btn ${cc?'primary':'ghost'}" data-cc="1">A plazo</button>
+        </div>
+      </div>
+
+      ${cc?`<div class="grid two">
+        <div class="field"><label>Días de plazo</label><input id="cond_dias" type="number" inputmode="numeric" min="0" value="${c.dias_plazo||30}"/></div>
+        <div class="field"><label>Límite de crédito</label><input id="cond_limite" type="number" inputmode="numeric" placeholder="Sin límite" value="${c.limite_credito||''}"/></div>
+      </div>
+      <div class="alert info" style="font-size:12px">Con límite, el sistema te avisa cuando un cliente lo supera.</div>`:''}
+
+      <div class="field" style="margin-top:14px"><label>¿Qué días recibe mercadería?</label>
+        <div class="grid three">
+          ${DIAS.map(([v,l])=>`<button type="button" class="btn ${dias.has(v)?'primary':'ghost'}" data-dia-rec="${v}">${l}</button>`).join('')}
+        </div>
+        <p class="muted" style="font-size:11.5px;margin:6px 0 0">Si no marcás ninguno, recibe cualquier día.</p>
+      </div>
+
+      <div class="grid two">
+        <div class="field"><label>Desde</label><input id="cond_desde" type="time" value="${c.recepcion_desde?String(c.recepcion_desde).slice(0,5):''}"/></div>
+        <div class="field"><label>Hasta</label><input id="cond_hasta" type="time" value="${c.recepcion_hasta?String(c.recepcion_hasta).slice(0,5):''}"/></div>
+      </div>
+
+      <div class="field"><label>Nota para el repartidor</label><input id="cond_nota" placeholder="Ej: entrar por el portón de atrás" value="${c.recepcion_nota||''}"/></div>
+      <div class="field"><label>Compra mínima</label><input id="cond_minima" type="number" inputmode="numeric" placeholder="Sin mínimo" value="${c.compra_minima||''}"/></div>
+
+      <div id="err_cond" class="alert danger" style="display:none"></div>
+      <button class="btn primary" id="btn_guardar_cond" style="width:100%">Guardar condiciones</button>
+    </div>`)
+
+    document.querySelector('#btn_volver_cond').onclick = ()=>{ current='clientes'; render() }
+    document.querySelectorAll('[data-cc]').forEach(b=>b.onclick=()=>{ cc = b.dataset.cc==='1'; dibujar() })
+    document.querySelectorAll('[data-dia-rec]').forEach(b=>b.onclick=()=>{
+      const v = Number(b.dataset.diaRec)
+      if(dias.has(v)) dias.delete(v); else dias.add(v)
+      dibujar()
+    })
+    document.querySelector('#btn_guardar_cond').onclick = async ()=>{
+      const box = document.querySelector('#err_cond')
+      const desde = document.querySelector('#cond_desde').value
+      const hasta = document.querySelector('#cond_hasta').value
+      const limite = document.querySelector('#cond_limite')
+      const { data, error } = await supabase.rpc('admin_guardar_condiciones', {
+        p_customer_id: customerId,
+        p_cuenta_corriente: cc,
+        p_dias_plazo: cc ? Number(document.querySelector('#cond_dias').value)||0 : 0,
+        p_limite_credito: limite && limite.value ? Number(limite.value) : null,
+        p_recepcion_desde: desde || null,
+        p_recepcion_hasta: hasta || null,
+        p_recepcion_dias: dias.size ? Array.from(dias) : null,
+        p_recepcion_nota: document.querySelector('#cond_nota').value.trim() || null,
+        p_compra_minima: document.querySelector('#cond_minima').value ? Number(document.querySelector('#cond_minima').value) : null
+      })
+      if(error || !data?.ok){ box.textContent='No se pudo guardar: '+(data?.error||error?.message||''); box.style.display='block'; return }
+      mostrarAlerta('Condiciones guardadas.')
+      current='clientes'; render()
+    }
+  }
+  dibujar()
+}
+
+
+
+// ============ COMERCIOS QUE DEJARON DE PEDIR ============
+async function mayoristasEnRiesgo(){
+  const { data } = await supabase.rpc('admin_mayoristas_en_riesgo', {})
+  const d = data || {}
+  const lista = d.comercios || []
+
+  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <button class="btn ghost" id="btn_volver_mayr" style="padding:6px 12px">← Volver</button>
+    <h2 style="margin:0">Comercios que se enfrían</h2>
+  </div>
+
+  <div class="card" style="margin-bottom:12px">
+    <div style="font-size:11px;color:${NOM.tintaSuave}">Facturación mensual en juego</div>
+    <div style="font-size:26px;font-weight:500;color:${Number(d.plata_en_juego||0)>0?NOM.ambar:NOM.tinta};font-variant-numeric:tabular-nums">$${Number(d.plata_en_juego||0).toLocaleString('es-AR')}</div>
+    <p class="muted" style="font-size:12px;margin:6px 0 0">Es lo que dejás de facturar por mes si no recuperás a estos comercios.</p>
+  </div>
+
+  ${lista.length ? lista.map(x=>{
+    const perdido = x.nivel==='perdido'
+    const tel = (x.telefono||'').replace(/\D/g,'')
+    const msg = encodeURIComponent(`Hola! Te escribimos de NÓMADES. Hace ${x.dias} días que no pasamos por el local y queríamos saber si necesitás reponer. Decinos cuánto y te lo llevamos en la próxima vuelta.`)
+    return pCard(`
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:500">${x.nombre||''}</div>
+          <div style="font-size:12px;color:${NOM.tintaSuave}">${x.barrio||'-'} · ${x.entregas} entrega(s)</div>
+          <div style="font-size:12px;color:${perdido?NOM.rojo:NOM.ambar};margin-top:3px">Hace ${x.dias} días que no pide</div>
+          ${Number(x.debe||0)>0?`<div style="font-size:12px;color:${NOM.rojo};margin-top:3px">Además te debe $${Number(x.debe).toLocaleString('es-AR')}</div>`:''}
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:11px;color:${NOM.tintaSuave}">valía por mes</div>
+          <div style="font-weight:500;font-variant-numeric:tabular-nums">$${Number(x.valor_mensual||0).toLocaleString('es-AR')}</div>
+          <div style="margin-top:5px">${pPill(perdido?'Perdido':'Se enfría', perdido?'#FCEBEB':'#FBE9D4', perdido?'#A32D2D':'#B8641E')}</div>
+        </div>
+      </div>
+      ${tel?`<a href="https://wa.me/54${tel}?text=${msg}" target="_blank" class="btn ghost" style="display:block;text-align:center;text-decoration:none;margin-top:10px;padding:11px 0;font-size:12.5px">Escribirle</a>`:''}
+    `, perdido?'border-color:rgba(176,58,46,0.25)':'')
+  }).join('') : estadoVacio('Todos los comercios están comprando con normalidad.')}`)
+
+  document.querySelector('#btn_volver_mayr').onclick = ()=>{ current='admin'; adminAreaAbierta=null; render() }
+}
+
+// ============ ALTA DE COMERCIO EN LA CALLE ============
+async function altaComercio(){
+  const { data: planesRaw } = await supabase.from('plan_prices')
+    .select('id,egg_quantity,price,grade,unidad').eq('active', true).eq('customer_type','mayorista').order('egg_quantity')
+  const planes = planesRaw || []
+  const { data: prodRaw } = await supabase.from('catalog_products')
+    .select('id,name,photo_url,unit_label,price,wholesale_price').eq('active', true).order('name')
+  const productos = (prodRaw||[]).map(p=>({ ...p, precio: p.wholesale_price || p.price }))
+
+  const f = { first_name:'', dni:'', phone:'', street:'', street_number:'', neighborhood:'', zone:'', recepcion_nota:'', cuenta_corriente:false, dias_plazo:0, nota:'' }
+  const carrito = {}
+  const carritoProd = {}
+  let paso = 1
+  let enviando = false
+
+  const totalHuevos = ()=>Object.entries(carrito).reduce((s,[id,n])=>{ const pl=planes.find(p=>p.id===id); return s+(pl?Number(pl.egg_quantity):0)*n }, 0)
+  const totalPrecio = ()=>Object.entries(carrito).reduce((s,[id,n])=>{ const pl=planes.find(p=>p.id===id); return s+(pl?Number(pl.price):0)*n }, 0)
+  const totalProd = ()=>Object.entries(carritoProd).reduce((s,[id,n])=>{ const p=productos.find(x=>x.id===id); return s+(p?Number(p.precio):0)*n }, 0)
+
+  const dibujar = ()=>{
+    layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <button class="btn ghost" id="btn_volver_alta" style="padding:6px 12px">← Volver</button>
+      <h2 style="margin:0">Nuevo comercio</h2>
+    </div>
+
+    ${paso===1?`<div class="card">
+      <p class="muted" style="margin:0 0 12px">Datos del comercio</p>
+      <div class="field"><label>Nombre del comercio *</label><input id="ac_nombre" value="${f.first_name}" placeholder="Ej: Almacén Don Pedro"/></div>
+      <div class="field"><label>DNI o CUIT *</label><input id="ac_dni" inputmode="numeric" value="${f.dni}" placeholder="Sin puntos ni guiones"/></div>
+      <div class="field"><label>Teléfono *</label><input id="ac_phone" inputmode="tel" value="${f.phone}"/></div>
+      <div class="grid two">
+        <div class="field"><label>Calle</label><input id="ac_street" value="${f.street}"/></div>
+        <div class="field"><label>Número</label><input id="ac_num" value="${f.street_number}"/></div>
+      </div>
+      <div class="field"><label>Barrio</label><input id="ac_barrio" value="${f.neighborhood}"/></div>
+      <div class="field"><label>Zona *</label>
+        <div class="grid two">${ZONAS.map(z=>`<button type="button" class="btn ${f.zone===z.value?'primary':'ghost'}" data-ac-zona="${z.value}">${z.label}</button>`).join('')}</div>
+      </div>
+      <div class="field"><label>¿Cuándo recibe?</label><input id="ac_recepcion" value="${f.recepcion_nota}" placeholder="Ej: martes y viernes de 8 a 11"/></div>
+      <div class="field"><label>¿Le vendés a plazo?</label>
+        <div class="grid two">
+          <button type="button" class="btn ${!f.cuenta_corriente?'primary':'ghost'}" data-ac-cc="0">Paga al recibir</button>
+          <button type="button" class="btn ${f.cuenta_corriente?'primary':'ghost'}" data-ac-cc="1">A plazo</button>
+        </div>
+      </div>
+      ${f.cuenta_corriente?`<div class="field"><label>Días de plazo</label><input id="ac_dias" type="number" inputmode="numeric" value="${f.dias_plazo||30}"/></div>`:''}
+      <div class="field"><label>Nota de la visita</label><input id="ac_nota" value="${f.nota}" placeholder="Ej: quiere probar con poco al principio"/></div>
+      <div id="err_ac" class="alert danger" style="display:none"></div>
+      <button class="btn primary" id="btn_ac_siguiente" style="width:100%">Siguiente</button>
+    </div>`:`
+    <div class="card">
+      <h3>Primer pedido</h3>
+      <p class="muted" style="font-size:12.5px;margin:0 0 10px">Si todavía no quiere pedir, dejalo en cero y lo damos de alta igual.</p>
+      ${planes.length?planes.map(pl=>{
+        const cargado = (carrito[pl.id]||0) > 0
+        return `<div style="background:${NOM.superficie};border:1px solid ${NOM.borde};${cargado?`border-left:3px solid ${NOM.verde};border-radius:0 14px 14px 0`:'border-radius:14px'};padding:11px 12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:11px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13.5px;font-weight:500;color:${NOM.tinta}">${pl.grade?(GRADO_LABEL[pl.grade]||pl.grade):`${pl.egg_quantity} huevos`}</div>
+            <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">maple de ${pl.egg_quantity} · $${Number(pl.price).toLocaleString('es-AR')}</div>
+          </div>
+          <span style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+            <button type="button" data-ac-menos="${pl.id}" class="btn ghost" style="padding:7px 13px">−</button>
+            <b style="min-width:22px;text-align:center;display:inline-block">${carrito[pl.id]||0}</b>
+            <button type="button" data-ac-mas="${pl.id}" class="btn ghost" style="padding:7px 13px">+</button>
+          </span>
+        </div>`
+      }).join(''):'<p class="muted">No hay tamaños mayoristas cargados.</p>'}
+    </div>
+
+    ${productos.length?`<div class="card"><h3>Almacén</h3>
+      ${productos.map(p=>{
+        const cargado = (carritoProd[p.id]||0) > 0
+        return `<div style="background:${NOM.superficie};border:1px solid ${NOM.borde};${cargado?`border-left:3px solid ${NOM.verde};border-radius:0 14px 14px 0`:'border-radius:14px'};padding:11px 12px;margin-bottom:8px;display:flex;gap:11px;align-items:center">
+          ${p.photo_url?`<img src="${p.photo_url}" alt="" style="width:42px;height:42px;border-radius:9px;object-fit:cover;flex-shrink:0"/>`:`<div style="width:42px;height:42px;border-radius:9px;background:${NOM.verdeClaro};display:flex;align-items:center;justify-content:center;flex-shrink:0">${ico('carrito',18,NOM.verde)}</div>`}
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:500;color:${NOM.tinta};line-height:1.3">${p.name}</div>
+            <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">$${Number(p.precio).toLocaleString('es-AR')} · ${p.unit_label||'unidad'}</div>
+          </div>
+          <span style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+            <button type="button" data-ac-pmenos="${p.id}" class="btn ghost" style="padding:7px 12px">−</button>
+            <b style="min-width:22px;text-align:center;display:inline-block">${carritoProd[p.id]||0}</b>
+            <button type="button" data-ac-pmas="${p.id}" class="btn ghost" style="padding:7px 12px">+</button>
+          </span>
+        </div>`
+      }).join('')}
+    </div>`:''}
+
+    <div class="card">
+      <div class="alert info" style="margin-top:0"><b>${totalHuevos()} huevos</b> · $${(totalPrecio()+totalProd()).toLocaleString('es-AR')}</div>
+      <div class="field" style="margin-top:10px"><label>Cada cuánto</label>
+        <div class="grid three">${Object.entries(FRECUENCIAS).map(([v,l])=>`<button type="button" class="btn ${f.frequency===v||(!f.frequency&&v==='weekly')?'primary':'ghost'}" data-ac-frec="${v}">${l}</button>`).join('')}</div>
+      </div>
+      <div id="err_ac2" class="alert danger" style="display:none"></div>
+      <button class="btn primary" id="btn_ac_guardar" style="width:100%" ${enviando?'disabled':''}>${enviando?'Guardando…':'Dar de alta'}</button>
+      <button class="btn ghost" id="btn_ac_atras" style="width:100%;margin-top:8px">← Atrás</button>
+    </div>`}`)
+
+    document.querySelector('#btn_volver_alta').onclick = ()=>{ current = myRole==='vendedor'?'vendedor':'admin'; adminAreaAbierta=null; render() }
+
+    if(paso===1){
+      const g = (id)=>document.querySelector(id)?.value.trim()||''
+      document.querySelectorAll('[data-ac-zona]').forEach(b=>b.onclick=()=>{
+        f.first_name=g('#ac_nombre'); f.dni=g('#ac_dni'); f.phone=g('#ac_phone')
+        f.street=g('#ac_street'); f.street_number=g('#ac_num'); f.neighborhood=g('#ac_barrio')
+        f.recepcion_nota=g('#ac_recepcion'); f.nota=g('#ac_nota')
+        f.zone=b.dataset.acZona; dibujar()
+      })
+      document.querySelectorAll('[data-ac-cc]').forEach(b=>b.onclick=()=>{
+        f.first_name=g('#ac_nombre'); f.dni=g('#ac_dni'); f.phone=g('#ac_phone')
+        f.street=g('#ac_street'); f.street_number=g('#ac_num'); f.neighborhood=g('#ac_barrio')
+        f.recepcion_nota=g('#ac_recepcion'); f.nota=g('#ac_nota')
+        f.cuenta_corriente = b.dataset.acCc==='1'; dibujar()
+      })
+      document.querySelector('#btn_ac_siguiente').onclick = ()=>{
+        const box = document.querySelector('#err_ac')
+        f.first_name=g('#ac_nombre'); f.dni=g('#ac_dni'); f.phone=g('#ac_phone')
+        f.street=g('#ac_street'); f.street_number=g('#ac_num'); f.neighborhood=g('#ac_barrio')
+        f.recepcion_nota=g('#ac_recepcion'); f.nota=g('#ac_nota')
+        const dias = document.querySelector('#ac_dias')
+        if(dias) f.dias_plazo = Number(dias.value)||0
+        if(!f.first_name){ box.textContent='Ponele el nombre al comercio.'; box.style.display='block'; return }
+        if(!/^(\d{7,8}|\d{11})$/.test(f.dni)){ box.textContent='Ingresá DNI (7 u 8 números) o CUIT (11), sin puntos.'; box.style.display='block'; return }
+        if(!f.phone){ box.textContent='Falta el teléfono.'; box.style.display='block'; return }
+        if(!f.zone){ box.textContent='Elegí la zona.'; box.style.display='block'; return }
+        paso = 2; dibujar()
+      }
+    } else {
+      document.querySelectorAll('[data-ac-mas]').forEach(b=>b.onclick=()=>{ const k=b.dataset.acMas; carrito[k]=(carrito[k]||0)+1; dibujar() })
+      document.querySelectorAll('[data-ac-menos]').forEach(b=>b.onclick=()=>{ const k=b.dataset.acMenos; if(carrito[k]>0) carrito[k]--; dibujar() })
+      document.querySelectorAll('[data-ac-pmas]').forEach(b=>b.onclick=()=>{ const k=b.dataset.acPmas; carritoProd[k]=(carritoProd[k]||0)+1; dibujar() })
+      document.querySelectorAll('[data-ac-pmenos]').forEach(b=>b.onclick=()=>{ const k=b.dataset.acPmenos; if(carritoProd[k]>0) carritoProd[k]--; dibujar() })
+      document.querySelectorAll('[data-ac-frec]').forEach(b=>b.onclick=()=>{ f.frequency=b.dataset.acFrec; dibujar() })
+      document.querySelector('#btn_ac_atras').onclick = ()=>{ paso=1; dibujar() }
+      document.querySelector('#btn_ac_guardar').onclick = async ()=>{
+        const box = document.querySelector('#err_ac2')
+        enviando = true; dibujar()
+        const breakdown = Object.entries(carrito).filter(([,q])=>q>0).map(([pid,qty])=>{
+          const pl = planes.find(p=>p.id===pid) || {}
+          return { size: Number(pl.egg_quantity||30), qty, grade: pl.grade||null, plan_id: pid }
+        })
+        const prodPayload = Object.entries(carritoProd).filter(([,q])=>q>0).map(([product_id,quantity])=>({ product_id, quantity }))
+        const { data, error } = await supabase.rpc('vendedor_alta_comercio', {
+          p_customer: { ...f, cuenta_corriente: f.cuenta_corriente, dias_plazo: f.dias_plazo },
+          p_subscription: { frequency: f.frequency||'weekly', egg_quantity: totalHuevos(), payment_method: f.cuenta_corriente?'transfer':'cash', plan_breakdown: breakdown, price: totalPrecio() },
+          p_productos: prodPayload,
+          p_nota: f.nota || null
+        })
+        enviando = false
+        if(error || !data?.ok){
+          const b2 = document.querySelector('#err_ac2')
+          dibujar()
+          const b3 = document.querySelector('#err_ac2')
+          if(b3){ b3.textContent = data?.error || error?.message || 'No se pudo dar de alta.'; b3.style.display='block' }
+          return
+        }
+        mostrarAlerta(data.status==='active'
+          ? `Comercio dado de alta.\n\nPrimera entrega: ${formatearFecha(data.next_delivery_date)}`
+          : data.status==='waitlist'
+            ? 'Comercio dado de alta. Quedó en lista de espera por capacidad.'
+            : 'Comercio dado de alta, sin pedido todavía.')
+        current = myRole==='vendedor'?'vendedor':'clientes'
+        render()
+      }
+    }
+  }
+  dibujar()
+}
+
+// ============ FINANZAS POR CANAL ============
+async function finanzasCanales(){
+  const hoy = new Date()
+  const desde = finCanalDesde || new Date(hoy.getTime() - 29*86400000).toISOString().slice(0,10)
+  const hasta = finCanalHasta || hoy.toISOString().slice(0,10)
+  const { data } = await supabase.rpc('finance_comparar_canales', { p_from: desde, p_to: hasta })
+  const d = data || {}
+  const mi = d.minorista || {}
+  const ma = d.mayorista || {}
+
+  const bloque = (t, x, color)=>{
+    const resultado = Number(x.resultado||0)
+    return `<div style="background:${NOM.superficie};border:1px solid ${NOM.borde};border-top:3px solid ${color};border-radius:14px;padding:15px;margin-bottom:11px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">
+        <span style="font-size:16px;font-weight:500;color:${NOM.tinta}">${t}</span>
+        <span style="font-size:11.5px;color:${NOM.tintaSuave}">${x.participacion||0}% del total</span>
+      </div>
+
+      <div style="font-size:11px;color:${NOM.tintaSuave}">Vendiste</div>
+      <div style="font-size:26px;font-weight:500;color:${NOM.tinta};font-variant-numeric:tabular-nums;line-height:1.1">$${Number(x.ventas||0).toLocaleString('es-AR')}</div>
+      <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:4px">
+        Huevos $${Number(x.ventas_huevos||0).toLocaleString('es-AR')} · Almacén $${Number(x.ventas_almacen||0).toLocaleString('es-AR')}${Number(x.ventas_envio||0)>0?` · Envío $${Number(x.ventas_envio).toLocaleString('es-AR')}`:''}
+      </div>
+
+      <div style="border-top:1px solid ${NOM.borde};margin-top:12px;padding-top:11px">
+        <div class="row" style="border:0;padding:4px 0"><span style="font-size:12.5px;color:${NOM.tintaSuave}">Gastos propios</span><span style="font-size:13px;font-variant-numeric:tabular-nums">$${Number(x.gastos_propios||0).toLocaleString('es-AR')}</span></div>
+        <div class="row" style="border:0;padding:4px 0"><span style="font-size:12.5px;color:${NOM.tintaSuave}">Parte de los compartidos</span><span style="font-size:13px;font-variant-numeric:tabular-nums">$${Number(x.gastos_compartidos_asignados||0).toLocaleString('es-AR')}</span></div>
+        <div class="row" style="border:0;padding:4px 0"><span style="font-size:12.5px;color:${NOM.tintaSuave}">Pérdidas</span><span style="font-size:13px;font-variant-numeric:tabular-nums">$${Number(x.perdidas_asignadas||0).toLocaleString('es-AR')}</span></div>
+      </div>
+
+      <div style="background:${resultado>=0?NOM.verdeClaro:'#FCEBEB'};border-radius:11px;padding:12px;margin-top:11px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <span style="font-size:12.5px;color:${resultado>=0?NOM.tinta:'#A32D2D'};font-weight:500">Te quedó</span>
+          <span style="font-size:20px;font-weight:500;color:${resultado>=0?NOM.verde:'#A32D2D'};font-variant-numeric:tabular-nums">$${resultado.toLocaleString('es-AR')}</span>
+        </div>
+      </div>
+
+      <div class="grid three" style="margin-top:11px;gap:7px">
+        <div style="background:${NOM.fondo};border-radius:10px;padding:9px;text-align:center">
+          <div style="font-size:15px;font-weight:500;font-variant-numeric:tabular-nums">${x.clientes||0}</div>
+          <div style="font-size:10.5px;color:${NOM.tintaSuave}">clientes</div>
+        </div>
+        <div style="background:${NOM.fondo};border-radius:10px;padding:9px;text-align:center">
+          <div style="font-size:15px;font-weight:500;font-variant-numeric:tabular-nums">${x.pedidos||0}</div>
+          <div style="font-size:10.5px;color:${NOM.tintaSuave}">pedidos</div>
+        </div>
+        <div style="background:${NOM.fondo};border-radius:10px;padding:9px;text-align:center">
+          <div style="font-size:15px;font-weight:500;font-variant-numeric:tabular-nums">$${Math.round(Number(x.ticket_promedio||0)/1000)}k</div>
+          <div style="font-size:10.5px;color:${NOM.tintaSuave}">ticket</div>
+        </div>
+      </div>
+
+      ${Number(x.me_deben||0)>0?`<div style="margin-top:10px;font-size:12px;color:${NOM.ambar}">Te deben $${Number(x.me_deben).toLocaleString('es-AR')}</div>`:''}
+    </div>`
+  }
+
+  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <button class="btn ghost" id="btn_volver_fincanal" style="padding:6px 12px">← Volver</button>
+    <h2 style="margin:0">Los dos negocios</h2>
+  </div>
+
+  <div class="card" style="padding:12px">
+    <div class="grid two">
+      <div class="field" style="margin:0"><label style="font-size:11px">Desde</label><input id="fin_c_desde" type="date" value="${desde}"/></div>
+      <div class="field" style="margin:0"><label style="font-size:11px">Hasta</label><input id="fin_c_hasta" type="date" value="${hasta}"/></div>
+    </div>
+    <button class="btn ghost" id="btn_fin_c_aplicar" style="width:100%;margin-top:8px">Ver ese período</button>
+  </div>
+
+  ${bloque('Minorista', mi, NOM.verde)}
+  ${bloque('Mayorista', ma, NOM.ambar)}
+
+  <div class="card">
+    <h3>Cómo se reparten los compartidos</h3>
+    <p class="muted" style="font-size:12.5px;line-height:1.55;margin:0">Los gastos que marcaste como compartidos — el almacén, el stock, la nafta — se reparten entre los dos canales según cuánto vendió cada uno. Si el mayorista hizo el ${ma.participacion||0}% de las ventas, se lleva el ${ma.participacion||0}% de esos gastos.</p>
+    <p class="muted" style="font-size:12.5px;line-height:1.55;margin:9px 0 0">Cuando cargues un gasto, elegí a qué canal pertenece. Si es solo del mayorista — por ejemplo una furgoneta para reparto grande — marcalo así y no se reparte.</p>
+  </div>`)
+
+  document.querySelector('#btn_volver_fincanal').onclick = ()=>{ current='admin'; adminAreaAbierta=null; render() }
+  document.querySelector('#btn_fin_c_aplicar').onclick = ()=>{
+    finCanalDesde = document.querySelector('#fin_c_desde').value
+    finCanalHasta = document.querySelector('#fin_c_hasta').value
+    render()
+  }
+}
+let finCanalDesde = null
+let finCanalHasta = null
+
+// ============ QUIÉNES TE DEBEN ============
+async function deudores(){
+  const { data } = await supabase.rpc('admin_deudores', {})
+  const d = data || {}
+  const lista = d.deudores || []
+
+  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <button class="btn ghost" id="btn_volver_deudores" style="padding:6px 12px">← Volver</button>
+    <h2 style="margin:0">Te deben</h2>
+  </div>
+
+  <div class="grid two" style="margin-bottom:12px">
+    <div class="card" style="margin:0"><div style="font-size:11px;color:${NOM.tintaSuave}">Total a cobrar</div><div style="font-size:22px;font-weight:500;font-variant-numeric:tabular-nums">$${Number(d.total||0).toLocaleString('es-AR')}</div></div>
+    <div class="card" style="margin:0"><div style="font-size:11px;color:${NOM.tintaSuave}">Ya vencido</div><div style="font-size:22px;font-weight:500;color:${Number(d.vencido||0)>0?NOM.rojo:NOM.tinta};font-variant-numeric:tabular-nums">$${Number(d.vencido||0).toLocaleString('es-AR')}</div></div>
+  </div>
+
+  ${lista.length ? lista.map(x=>{
+    const vencido = Number(x.vencido||0) > 0
+    const tel = (x.telefono||'').replace(/\D/g,'')
+    return pCard(`
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:500">${x.nombre||''}</div>
+          <div style="font-size:12px;color:${NOM.tintaSuave}">${x.tipo==='mayorista'?'Mayorista':'Minorista'}${x.dias_plazo?` · ${x.dias_plazo} días de plazo`:' · contra entrega'}</div>
+          ${x.dias_antiguedad>0?`<div style="font-size:12px;color:${vencido?NOM.rojo:NOM.tintaSuave};margin-top:3px">Lo más viejo tiene ${x.dias_antiguedad} días</div>`:''}
+        </div>
+        <div style="text-align:right">
+          <div style="font-weight:500;font-variant-numeric:tabular-nums">$${Number(x.deuda||0).toLocaleString('es-AR')}</div>
+          ${vencido?`<div style="margin-top:5px">${pPill('$'+Number(x.vencido).toLocaleString('es-AR')+' vencido','#FCEBEB','#A32D2D')}</div>`:''}
+        </div>
+      </div>
+      ${pBtnRow([
+        pBtn('','Ver cuenta',`data-ver-cuenta="${x.id}"`,'primary'),
+        pBtn('','Registrar cobro',`data-cobrar="${x.id}"`,'ghost'),
+        tel?pBtn('','WhatsApp',`data-wpp-deuda="${tel}" data-nombre="${(x.nombre||'').split(' ')[0]}" data-monto="${x.deuda}"`,'ghost'):''
+      ].filter(Boolean))}
+    `, vencido?'border-color:rgba(176,58,46,0.25)':'')
+  }).join('') : estadoVacio('Nadie te debe nada. Todo cobrado.')}`)
+
+  document.querySelector('#btn_volver_deudores').onclick = ()=>{ current='admin'; adminAreaAbierta=null; render() }
+  document.querySelectorAll('[data-ver-cuenta]').forEach(b=>b.onclick=()=>cuentaCorrienteCliente(b.dataset.verCuenta))
+  document.querySelectorAll('[data-cobrar]').forEach(b=>b.onclick=()=>formularioCobro(b.dataset.cobrar))
+  document.querySelectorAll('[data-wpp-deuda]').forEach(b=>b.onclick=()=>{
+    const msg = encodeURIComponent(`Hola ${b.dataset.nombre}! Te escribimos de NÓMADES. Tenés un saldo pendiente de $${Number(b.dataset.monto).toLocaleString('es-AR')}. Cuando puedas, avisanos cómo coordinamos el pago. ¡Gracias!`)
+    window.open('https://wa.me/54'+b.dataset.wppDeuda+'?text='+msg, '_blank')
+  })
+}
+
+async function cuentaCorrienteCliente(customerId){
+  const { data } = await supabase.rpc('cuenta_corriente_cliente', { p_customer_id: customerId })
+  if(!data || data.error) return mostrarAlerta('No se pudo cargar la cuenta')
+  const c = data.cliente || {}
+  const pedidos = data.pedidos || []
+
+  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <button class="btn ghost" id="btn_volver_cc" style="padding:6px 12px">← Volver</button>
+    <h2 style="margin:0">${c.nombre||''}</h2>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+      <div>
+        <div style="font-size:11px;color:${NOM.tintaSuave}">Debe</div>
+        <div style="font-size:26px;font-weight:500;font-variant-numeric:tabular-nums">$${Number(data.deuda_total||0).toLocaleString('es-AR')}</div>
+        ${Number(data.deuda_vencida||0)>0?`<div style="font-size:12.5px;color:${NOM.rojo};margin-top:3px">$${Number(data.deuda_vencida).toLocaleString('es-AR')} ya vencido</div>`:''}
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:11px;color:${NOM.tintaSuave}">Condiciones</div>
+        <div style="font-size:13px;margin-top:3px">${c.cuenta_corriente?`${c.dias_plazo||0} días`:'Contra entrega'}</div>
+        ${data.disponible!==null&&data.disponible!==undefined?`<div style="font-size:12px;color:${NOM.tintaSuave};margin-top:3px">Disponible $${Number(data.disponible).toLocaleString('es-AR')}</div>`:''}
+      </div>
+    </div>
+    <button class="btn primary" id="btn_cobrar_cc" style="width:100%;margin-top:12px">Registrar cobro</button>
+  </div>
+
+  <div class="card"><h3>Pendientes de cobro</h3>
+    ${pedidos.length ? pedidos.map(p=>`<div class="row">
+      <span>Pedido N° ${p.order_number||'-'}<br><small class="muted">Entregado ${formatearFecha(p.delivery_date)}${p.vence?` · vence ${formatearFecha(p.vence)}`:''}</small></span>
+      <span style="text-align:right">
+        <b style="font-variant-numeric:tabular-nums">$${Number(p.saldo||0).toLocaleString('es-AR')}</b>
+        ${p.vencido?`<br>${pPill(p.dias_vencido+' días','#FCEBEB','#A32D2D')}`:''}
+      </span>
+    </div>`).join('') : '<p class="muted">Sin saldos pendientes.</p>'}
+  </div>
+
+  <div class="card"><h3>Últimos pagos</h3>
+    ${(data.ultimos_pagos||[]).length ? data.ultimos_pagos.map(p=>`<div class="row">
+      <span>${new Date(p.fecha).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})}<br><small class="muted">${METODOS_PAGO_LABEL[p.metodo]||p.metodo||''}</small></span>
+      <b style="font-variant-numeric:tabular-nums">$${Number(p.monto||0).toLocaleString('es-AR')}</b>
+    </div>`).join('') : '<p class="muted">Todavía no registró pagos.</p>'}
+  </div>`)
+
+  document.querySelector('#btn_volver_cc').onclick = ()=>{ current='deudores'; render() }
+  document.querySelector('#btn_cobrar_cc').onclick = ()=>formularioCobro(customerId)
+}
+
+async function formularioCobro(customerId){
+  const { data } = await supabase.rpc('cuenta_corriente_cliente', { p_customer_id: customerId })
+  if(!data || data.error) return mostrarAlerta('No se pudo cargar la cuenta')
+  const c = data.cliente || {}
+  let metodoSel = 'transfer'
+  let comprobante = null
+
+  const dibujar = ()=>{
+    layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <button class="btn ghost" id="btn_volver_cobro" style="padding:6px 12px">← Volver</button>
+      <h2 style="margin:0">Registrar cobro</h2>
+    </div>
+    <div class="card">
+      <p class="muted" style="margin:0 0 4px">${c.nombre||''}</p>
+      <div style="font-size:13px;color:${NOM.tintaSuave}">Debe</div>
+      <div style="font-size:24px;font-weight:500;font-variant-numeric:tabular-nums;margin-bottom:12px">$${Number(data.deuda_total||0).toLocaleString('es-AR')}</div>
+
+      <div class="field"><label>Cuánto pagó</label><input id="cobro_monto" type="number" inputmode="numeric" placeholder="0" value="${Number(data.deuda_total||0)}"/></div>
+      <div class="field"><label>Con qué pagó</label>
+        <div class="grid three">
+          ${[['cash','Efectivo'],['transfer','Transferencia'],['mp','Mercado Pago']].map(([v,l])=>`<button type="button" class="btn ${metodoSel===v?'primary':'ghost'}" data-cobro-metodo="${v}">${l}</button>`).join('')}
+        </div>
+      </div>
+      ${metodoSel!=='cash'?`<div class="field"><label>Comprobante (opcional)</label><input type="file" id="cobro_comprobante" accept="image/*"/></div>`:''}
+      <div class="field"><label>Nota (opcional)</label><input id="cobro_nota" placeholder="Ej: pagó en el local"/></div>
+      <div class="alert info" style="font-size:12px">Se va a imputar del pedido más viejo al más nuevo. Si sobra, queda a favor.</div>
+      <div id="err_cobro" class="alert danger" style="display:none"></div>
+      <button class="btn primary" id="btn_confirmar_cobro" style="width:100%">Confirmar cobro</button>
+    </div>`)
+
+    document.querySelector('#btn_volver_cobro').onclick = ()=>cuentaCorrienteCliente(customerId)
+    document.querySelectorAll('[data-cobro-metodo]').forEach(b=>b.onclick=()=>{ metodoSel=b.dataset.cobroMetodo; comprobante=null; dibujar() })
+    const inpComp = document.querySelector('#cobro_comprobante')
+    if(inpComp) inpComp.onchange = (e)=>{ comprobante = e.target.files[0]||null }
+
+    document.querySelector('#btn_confirmar_cobro').onclick = async ()=>{
+      const box = document.querySelector('#err_cobro')
+      const monto = Number(document.querySelector('#cobro_monto').value)
+      if(!monto || monto<=0){ box.textContent='Ingresá cuánto pagó.'; box.style.display='block'; return }
+      let url = null
+      if(comprobante){
+        const path = `cobros/${customerId}_${Date.now()}.${(comprobante.name.split('.').pop()||'jpg')}`
+        const { error: upErr } = await supabase.storage.from('payment-receipts').upload(path, comprobante)
+        if(!upErr){ const { data: pub } = supabase.storage.from('payment-receipts').getPublicUrl(path); url = pub.publicUrl }
+      }
+      const { data: res, error } = await supabase.rpc('cobrar_cliente', {
+        p_customer_id: customerId, p_amount: monto, p_method: metodoSel,
+        p_receipt_url: url, p_nota: document.querySelector('#cobro_nota').value.trim() || null
+      })
+      if(error || !res?.ok){ box.textContent='No se pudo registrar: '+(res?.error||error?.message||''); box.style.display='block'; return }
+      const cant = (res.aplicados||[]).length
+      mostrarAlerta(`Cobro registrado.\n\nSe aplicó a ${cant} pedido(s).${Number(res.a_favor)>0?`\nQuedaron $${Number(res.a_favor).toLocaleString('es-AR')} a favor.`:''}`)
+      cuentaCorrienteCliente(customerId)
+    }
+  }
+  dibujar()
 }
 
 // ============ CLIENTES QUE SE ESTÁN YENDO ============
@@ -7215,6 +8046,10 @@ async function render(){
   else if(current==='avisos') await avisosClientes();
   else if(current==='cobrados') await cobradosSinEntregar();
   else if(current==='riesgo') await clientesEnRiesgo();
+  else if(current==='deudores') await deudores();
+  else if(current==='fincanales') await finanzasCanales();
+  else if(current==='mayoristas-riesgo') await mayoristasEnRiesgo();
+  else if(current==='alta-comercio') await altaComercio();
   else if(current==='backup') await copiaSeguridad();
   else if(current==='auditoria') await auditoria();
   else if(current==='admin-detalle') await adminDetalle();
