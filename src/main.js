@@ -2304,6 +2304,8 @@ let mayoristaCarritoProductosNuevo = {}
 let mayoristaFrecuencia = null
 let mayoristaVista = 'tienda'
 let mayoristaCategoria = null
+let mayoristaObservacion = ''
+let mayoristaCierre = null
 
 
 function saludoHora(){
@@ -2486,6 +2488,7 @@ async function mayoristaPanel(){
     }
 
     if(mayoristaVista === 'pedido'){
+      const cierre = mayoristaCierre
       const lineas = []
       Object.entries(mayoristaCarrito).filter(([,n])=>n>0).forEach(([id,n])=>{
         const pl = planes.find(p=>p.id===id); if(!pl) return
@@ -2520,13 +2523,79 @@ async function mayoristaPanel(){
       ${lineas.length?`<div class="card">
         <div class="row" style="border:0;padding:5px 0"><span style="font-size:13px;color:${NOM.tintaSuave}">Huevos</span><span style="font-size:13px;font-variant-numeric:tabular-nums">$${totalHuevosPrecio().toLocaleString('es-AR')}</span></div>
         <div class="row" style="border:0;padding:5px 0"><span style="font-size:13px;color:${NOM.tintaSuave}">Almacén</span><span style="font-size:13px;font-variant-numeric:tabular-nums">$${totalProdPrecio().toLocaleString('es-AR')}</span></div>
-        <div class="row" style="border-top:1px solid ${NOM.borde};padding:9px 0 0;margin-top:5px"><span style="font-size:14px;font-weight:500">Total</span><span style="font-size:19px;font-weight:500;color:${NOM.verde};font-variant-numeric:tabular-nums">$${totalGeneral().toLocaleString('es-AR')}</span></div>
+        ${cierre && Number(cierre.envio)>0?`<div class="row" style="border:0;padding:5px 0"><span style="font-size:13px;color:${NOM.tintaSuave}">Envío</span><span style="font-size:13px;font-variant-numeric:tabular-nums">$${Number(cierre.envio).toLocaleString('es-AR')}</span></div>`:''}
+        ${cierre && cierre.envio_gratis?`<div class="row" style="border:0;padding:5px 0"><span style="font-size:13px;color:${NOM.verde}">Envío</span><span style="font-size:13px;color:${NOM.verde}">sin cargo</span></div>`:''}
+        <div class="row" style="border-top:1px solid ${NOM.borde};padding:9px 0 0;margin-top:5px"><span style="font-size:14px;font-weight:500">Total</span><span style="font-size:21px;font-weight:500;color:${NOM.verde};font-variant-numeric:tabular-nums">$${(totalGeneral() + Number(cierre?.envio||0)).toLocaleString('es-AR')}</span></div>
 
-        <div class="field" style="margin-top:14px"><label>Cada cuánto lo querés</label>
-          <div class="grid three">${Object.entries(FRECUENCIAS).map(([v,l])=>`<button type="button" class="btn ${(mayoristaFrecuencia||subActiva?.frequency||'weekly')===v?'primary':'ghost'}" data-may-frec="${v}">${l}</button>`).join('')}</div>
+        ${cierre && Number(cierre.falta_para_gratis)>0?`<div style="background:#FBE9D4;border-radius:11px;padding:11px;margin-top:12px">
+          <div style="font-size:12.5px;color:${NOM.ambar};line-height:1.5">Sumá <b>$${Number(cierre.falta_para_gratis).toLocaleString('es-AR')}</b> más y el envío te sale sin cargo.</div>
+        </div>`:''}
+
+        <div style="background:${NOM.fondo};border-radius:11px;padding:13px;margin-top:12px">
+          <div style="font-size:11px;letter-spacing:1px;color:${NOM.tintaSuave};margin-bottom:10px">CÓMO SIGUE</div>
+          <div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0">
+            ${ico('camion',16,NOM.verde)}
+            <div>
+              <div style="font-size:12.5px;color:${NOM.tinta}">Te lo llevamos en la próxima vuelta${cierre?.barrio?` por ${cierre.barrio}`:''}</div>
+              <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">Te confirmamos el día apenas lo agendemos</div>
+            </div>
+          </div>
+          ${cierre && (cierre.recepcion_dias || cierre.recepcion_desde)?`<div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0">
+            ${ico('reloj',16,NOM.verde)}
+            <div>
+              <div style="font-size:12.5px;color:${NOM.tinta}">Llegamos en tu horario de recepción</div>
+              <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">${cierre.recepcion_dias||''}${cierre.recepcion_desde?`${cierre.recepcion_dias?', de ':'De '}${String(cierre.recepcion_desde).slice(0,5)} a ${String(cierre.recepcion_hasta||'').slice(0,5)}`:''}</div>
+            </div>
+          </div>`:''}
+          <div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0">
+            ${ico('moneda',16,NOM.verde)}
+            <div>
+              <div style="font-size:12.5px;color:${NOM.tinta}">${cierre?.cuenta_corriente?`Tenés ${cierre.dias_plazo} días para pagarlo`:'Pagás al recibir'}</div>
+              <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">Efectivo o transferencia</div>
+            </div>
+          </div>
         </div>
+
+        <details style="border:1px solid ${NOM.borde};border-radius:11px;padding:13px;margin-top:12px">
+          <summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center">
+            <span style="display:flex;gap:9px;align-items:center">${ico('check',17,NOM.verde)}<span style="font-size:13px;font-weight:500;color:${NOM.tinta}">Cuando llegue el repartidor</span></span>
+            ${ico('flecha',17,NOM.verde)}
+          </summary>
+          <div style="padding-top:13px">
+            ${[['Te avisa desde la app','Vas a ver un aviso acá diciendo que está en tu puerta'],
+               ['Contás la mercadería','Se abre la lista de lo que pediste y vas tildando. Sin apuro'],
+               ['Si falta algo, lo marcás','Elegís si pagás solo lo que llegó o si te queda a favor']].map(([t,d],i)=>`
+              <div style="display:flex;gap:11px;padding:${i===0?'0 0 11px':'11px 0'};border-bottom:1px solid ${NOM.borde}">
+                <span style="flex-shrink:0;width:22px;height:22px;border-radius:7px;background:${NOM.verdeClaro};color:${NOM.verde};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500">${i+1}</span>
+                <div><div style="font-size:12.5px;color:${NOM.tinta}">${t}</div><div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px;line-height:1.45">${d}</div></div>
+              </div>`).join('')}
+            <div style="display:flex;gap:11px;padding:11px 0 13px">
+              <span style="flex-shrink:0;width:22px;height:22px;border-radius:7px;background:${NOM.verdeClaro};color:${NOM.verde};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500">4</span>
+              <div style="flex:1">
+                <div style="font-size:12.5px;color:${NOM.tinta}">Firma quien recibe</div>
+                <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px;line-height:1.45">No hace falta que estés vos: puede firmar quien esté en el mostrador</div>
+                <div style="background:${NOM.fondo};border-radius:9px;padding:11px;margin-top:9px">
+                  <div style="display:flex;gap:9px;align-items:flex-start;padding-bottom:8px;border-bottom:1px solid ${NOM.borde}">
+                    ${ico('personas',14,NOM.verde)}
+                    <div><div style="font-size:11.5px;color:${NOM.tinta};font-weight:500">Sus datos</div><div style="font-size:11px;color:${NOM.tintaSuave}">Nombre y DNI de quien recibe</div></div>
+                  </div>
+                  <div style="display:flex;gap:9px;align-items:flex-start;padding-top:8px">
+                    ${ico('moto',14,NOM.verde)}
+                    <div><div style="font-size:11.5px;color:${NOM.tinta};font-weight:500">Los del repartidor</div><div style="font-size:11px;color:${NOM.tintaSuave}">Se los pide y él se los dicta ahí mismo</div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div style="background:${NOM.verdeClaro};border-radius:9px;padding:11px">
+              <div style="font-size:11.5px;color:#5F5E5A;line-height:1.5">Si no tenés el teléfono a mano, el repartidor te presta el suyo y firmás igual.</div>
+            </div>
+          </div>
+        </details>
+
+        <div class="field" style="margin-top:13px"><label>¿Algo que tengamos que saber?</label><input id="may_observacion" value="${mayoristaObservacion||''}" placeholder="Ej: tocar el timbre de al lado"/></div>
+
         <div id="err_may_pedido" class="alert danger" style="display:none"></div>
-        <button class="btn primary" id="btn_confirmar_may" style="width:100%">${subActiva?'Actualizar mi pedido':'Confirmar pedido'}</button>
+        <button class="btn primary" id="btn_confirmar_may" style="width:100%">Confirmar pedido</button>
       </div>`:''}`)
       engancharPedido()
       return
@@ -2622,19 +2691,27 @@ async function mayoristaPanel(){
       Object.keys(mayoristaCarritoProductosNuevo).forEach(k=>delete mayoristaCarritoProductosNuevo[k])
       ;(ultimo.plan_breakdown||[]).forEach(b=>{ if(b.plan_id) mayoristaCarrito[b.plan_id] = b.qty })
       ;(ultimo.productos||[]).forEach(p=>{ mayoristaCarritoProductosNuevo[p.product_id] = p.cantidad })
-      mayoristaVista = 'pedido'
-      dibujar()
+      irAlPedido()
     }
     const btnRevisar = document.querySelector('#btn_ir_revisar')
     if(btnRevisar) btnRevisar.onclick = ()=>revisionConformidad(hayQueRevisar.order_id, c, 'cliente')
     const btnHistorial = document.querySelector('#btn_ver_historial_may')
     if(btnHistorial) btnHistorial.onclick = ()=>{ mayoristaVista='historial'; dibujar() }
     const btnVer = document.querySelector('#btn_ver_pedido_may')
-    if(btnVer) btnVer.onclick = ()=>{ mayoristaVista='pedido'; dibujar() }
+    if(btnVer) btnVer.onclick = ()=>irAlPedido()
     const btnSalir = document.querySelector('#btn_salir_may')
     if(btnSalir) btnSalir.onclick = ()=>{ cuenta=null; mayoristaVista='tienda'; current='inicio'; render() }
     engancharSuscripcion()
     cargarRepartidorAsignado()
+  }
+
+  const irAlPedido = async ()=>{
+    const { data } = await supabase.rpc('mayorista_datos_cierre', {
+      p_dni: c.dni, p_customer_id: c.id, p_subtotal: totalGeneral()
+    })
+    mayoristaCierre = data?.ok ? data : null
+    mayoristaVista = 'pedido'
+    dibujar()
   }
 
   const engancharTienda = ()=>{
@@ -2644,16 +2721,20 @@ async function mayoristaPanel(){
     document.querySelectorAll('[data-may-pmas]').forEach(b=>b.onclick=()=>{ const k=b.dataset.mayPmas; mayoristaCarritoProductosNuevo[k]=(mayoristaCarritoProductosNuevo[k]||0)+1; dibujar() })
     document.querySelectorAll('[data-may-pmenos]').forEach(b=>b.onclick=()=>{ const k=b.dataset.mayPmenos; if(mayoristaCarritoProductosNuevo[k]>0) mayoristaCarritoProductosNuevo[k]--; dibujar() })
     const btnVer = document.querySelector('#btn_ver_pedido_may')
-    if(btnVer) btnVer.onclick = ()=>{ mayoristaVista='pedido'; dibujar() }
+    if(btnVer) btnVer.onclick = ()=>irAlPedido()
   }
 
   const engancharPedido = ()=>{
     document.querySelector('#btn_volver_tienda').onclick = ()=>{ mayoristaVista='tienda'; mayoristaCategoria=null; dibujar() }
-    const mover = (clave, delta)=>{
+    const mover = async (clave, delta)=>{
       const [tipo, id] = clave.split(':')
       const bolsa = tipo==='huevo' ? mayoristaCarrito : mayoristaCarritoProductosNuevo
       bolsa[id] = Math.max(0, (bolsa[id]||0) + delta)
       if(bolsa[id]===0) delete bolsa[id]
+      const { data } = await supabase.rpc('mayorista_datos_cierre', {
+        p_dni: c.dni, p_customer_id: c.id, p_subtotal: totalGeneral()
+      })
+      mayoristaCierre = data?.ok ? data : mayoristaCierre
       dibujar()
     }
     document.querySelectorAll('[data-ped-mas]').forEach(b=>b.onclick=()=>mover(b.dataset.pedMas, 1))
@@ -2666,6 +2747,9 @@ async function mayoristaPanel(){
     })
     document.querySelectorAll('[data-may-frec]').forEach(b=>b.onclick=()=>{ mayoristaFrecuencia = b.dataset.mayFrec; dibujar() })
 
+    const inpObs = document.querySelector('#may_observacion')
+    if(inpObs) inpObs.oninput = ()=>{ mayoristaObservacion = inpObs.value }
+
     const btnConf = document.querySelector('#btn_confirmar_may')
     if(btnConf) btnConf.onclick = async ()=>{
       const box = document.querySelector('#err_may_pedido')
@@ -2673,43 +2757,30 @@ async function mayoristaPanel(){
       btnConf.disabled = true
       btnConf.textContent = 'Enviando…'
 
-      const breakdown = Object.entries(mayoristaCarrito).filter(([,q])=>q>0).map(([pid,qty])=>{
-        const pl = planes.find(p=>p.id===pid) || {}
-        return { size: Number(pl.egg_quantity||30), qty, grade: pl.grade||null, plan_id: pid }
-      })
+      const huevos = Object.entries(mayoristaCarrito).filter(([,q])=>q>0).map(([plan_id,qty])=>({ plan_id, qty }))
+      const productos = Object.entries(mayoristaCarritoProductosNuevo||{}).filter(([,q])=>q>0).map(([product_id,quantity])=>({ product_id, quantity }))
 
-      const { data, error } = await supabase.rpc('customer_update_subscription', {
+      const { data, error } = await supabase.rpc('mayorista_tomar_pedido', {
         p_dni: c.dni, p_customer_id: c.id,
-        p_subscription_id: subActiva?.id || null,
-        p_egg_quantity: totalHuevos(),
-        p_frequency: mayoristaFrecuencia || subActiva?.frequency || 'weekly',
-        p_preferred_weekday: null,
-        p_plan_breakdown: breakdown,
-        p_price: totalHuevosPrecio()
+        p_huevos: huevos, p_productos: productos,
+        p_observacion: mayoristaObservacion || null
       })
 
       if(error || !data?.ok){
         btnConf.disabled = false
-        btnConf.textContent = subActiva?'Actualizar mi pedido':'Confirmar pedido'
-        box.textContent = 'No pudimos guardar el pedido. Probá de nuevo.'
-        box.style.display='block'
+        btnConf.textContent = 'Confirmar pedido'
+        box.textContent = data?.error || 'No pudimos guardar el pedido. Probá de nuevo.'
+        box.style.display = 'block'
         return
-      }
-
-      const prodElegidos = Object.entries(mayoristaCarritoProductosNuevo||{}).filter(([,q])=>q>0)
-      for(const [pid, qty] of prodElegidos){
-        await supabase.from('customer_product_interest').insert({
-          customer_id: c.id, product_id: pid, quantity: qty,
-          target_order_id: data.order_id || null, status: 'pendiente'
-        })
       }
 
       const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
       if(fresh?.found) cuenta = fresh
+      Object.keys(mayoristaCarrito).forEach(k=>delete mayoristaCarrito[k])
       Object.keys(mayoristaCarritoProductosNuevo).forEach(k=>delete mayoristaCarritoProductosNuevo[k])
-      mostrarAlerta(data.status==='waitlist'
-        ? 'Por ahora estamos a tope, pero quedaste anotado. Te avisamos apenas se libere lugar.'
-        : 'Listo, ya lo anotamos. Te lo llevamos el '+formatearFecha(data.next_delivery_date).toLowerCase())
+      mayoristaObservacion = ''
+      mayoristaCierre = null
+      mostrarAlerta('Listo, ya lo anotamos. Te avisamos el día de la entrega.')
       mayoristaVista = 'tienda'
       render()
     }
