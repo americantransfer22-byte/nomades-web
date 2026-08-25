@@ -2133,7 +2133,10 @@ let clienteDetalleCache = {}
 async function clientes(){
   const rows=await q('customers','id,first_name,last_name,phone,neighborhood,zone,city,status,dni')
   layout(`<h2>Clientes</h2>
-  <button id="btn_exportar_clientes" class="btn ghost" style="width:100%;margin-bottom:12px">📊 Exportar a Excel (CSV)</button>
+  <div style="display:flex;gap:8px;margin-bottom:12px">
+    <button id="btn_exportar_clientes" class="btn ghost" style="flex:1">📊 Excel</button>
+    <button id="btn_padron_clientes" class="btn ghost" style="flex:1">📄 Padrón</button>
+  </div>
   ${rows.length? rows.map((c,i)=>{
     const abierto = clienteExpandido===c.id
     const detalle = clienteDetalleCache[c.id]
@@ -2199,6 +2202,12 @@ async function clientes(){
       </div>
     </div>`
   }).join('') : estadoVacio('Todavía no hay clientes cargados.')}`)
+  const btnPadron = document.querySelector('#btn_padron_clientes')
+  if(btnPadron) btnPadron.onclick = ()=>{
+    const tipo = prompt('¿Qué clientes querés listar?\n\n1. Todos\n2. Solo minoristas\n3. Solo mayoristas\n\nEscribí el número:')
+    const filtro = tipo==='2' ? 'minorista' : tipo==='3' ? 'mayorista' : null
+    documentoPadronClientes(filtro)
+  }
 
   document.querySelector('#btn_exportar_clientes').onclick = ()=>{
     descargarCSV('clientes_nomades.csv', [
@@ -2980,7 +2989,7 @@ async function fetchAdminData(){
     entriesRes, dashRes, vehiculosRes, alertasRes, driverLedgerRes,
     rankingRes, reviewsRes,
     suppliersRes, catalogRes, recordatoriosRes, rendicionVendedoresRes, sugerenciasRes, rankingSugerenciasRes,
-    pedidosProveedorRes, rankingProveedoresRes, cuentaCorrienteMayoristasRes
+    pedidosProveedorRes, rankingProveedoresRes, cuentaCorrienteMayoristasRes, cuentaProveedoresRes
   ] = await Promise.all([
     q('orders','id,status,delivery_date,egg_quantity,important_note,time_restriction_manual'),
     q('customers','id'),
@@ -2989,7 +2998,7 @@ async function fetchAdminData(){
     q('products','id,name,unit_label,category,current_qty,active'),
     supabase.from('stock_movements').select('id,product_id,type,quantity,note,created_by,created_at').order('created_at',{ascending:false}).limit(20),
     supabase.from('waitlist').select('id,customer_id,egg_quantity,frequency,position,created_at,customers(first_name,last_name,phone)').order('position'),
-    supabase.from('farm_settings').select('key,value').in('key',['default_daily_capacity_maples','transfer_cbu','transfer_alias','transfer_bank_name','transfer_holder_name','transfer_holder_doc','mp_alias','mp_wallet_name','mp_cbu','mp_holder_name','mp_holder_doc','assignment_mode','wallet_discount_type','wallet_discount_value','company_legal_name','company_cuit','company_address','company_phone','company_email']),
+    supabase.from('farm_settings').select('key,value').in('key',['default_daily_capacity_maples','transfer_cbu','transfer_alias','transfer_bank_name','transfer_holder_name','transfer_holder_doc','mp_alias','mp_wallet_name','mp_cbu','mp_holder_name','mp_holder_doc','assignment_mode','wallet_discount_type','wallet_discount_value','company_legal_name','company_cuit','company_address','company_phone','company_email','whatsapp_pedidos_urgentes','shipping_cost','free_shipping_min','top_clients_count','empresa_nombre','empresa_direccion','empresa_telefono','empresa_email','empresa_cuit']),
     supabase.from('zone_drivers').select('zone,driver_user_id'),
     supabase.from('neighborhood_drivers').select('neighborhood,driver_user_id'),
     supabase.from('customers').select('neighborhood,zone').not('neighborhood','is',null),
@@ -3012,7 +3021,8 @@ async function fetchAdminData(){
     supabase.rpc('admin_suggestions_ranking', {}),
     supabase.rpc('admin_pedidos_proveedores', {}),
     supabase.rpc('admin_ranking_proveedores', {}),
-    supabase.rpc('admin_cuenta_corriente_mayoristas', {})
+    supabase.rpc('admin_cuenta_corriente_mayoristas', {}),
+    supabase.rpc('admin_cuenta_proveedores', {})
   ])
 
   const movimientos = movimientosRes.data || []
@@ -3046,8 +3056,9 @@ async function fetchAdminData(){
   const pedidosProveedor = pedidosProveedorRes.data || []
   const rankingProveedores = rankingProveedoresRes.data || []
   const cuentaCorrienteMayoristas = cuentaCorrienteMayoristasRes.data || []
+  const cuentaProveedores = cuentaProveedoresRes.data || []
 
-  return { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews,suppliers,catalogo,recordatorios,rendicionVendedores,sugerencias,rankingSugerencias,pedidosProveedor,rankingProveedores,cuentaCorrienteMayoristas }
+  return { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews,suppliers,catalogo,recordatorios,rendicionVendedores,sugerencias,rankingSugerencias,pedidosProveedor,rankingProveedores,cuentaCorrienteMayoristas,cuentaProveedores }
 }
 
 async function admin(){
@@ -3055,7 +3066,7 @@ async function admin(){
     layout(`<h2>Panel de administración</h2><div class="card">${skeletonBloque(5)}</div>`)
     adminData = await fetchAdminData()
   }
-  const { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews,suppliers,catalogo,recordatorios,rendicionVendedores,sugerencias,rankingSugerencias,pedidosProveedor,rankingProveedores,cuentaCorrienteMayoristas } = adminData
+  const { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews,suppliers,catalogo,recordatorios,rendicionVendedores,sugerencias,rankingSugerencias,pedidosProveedor,rankingProveedores,cuentaCorrienteMayoristas,cuentaProveedores } = adminData
   const capacidadBase = settingsMap.default_daily_capacity_maples || '300'
   const assignmentMode = settingsMap.assignment_mode || 'zone'
   const staffMap = Object.fromEntries(staff.map(s=>[s.user_id, s.full_name||'(sin nombre)']))
@@ -3105,6 +3116,19 @@ async function admin(){
     ${statCard('reprogramados','Reprogramados',count('rescheduled'))}
   </div>
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:14px">
+  ${accHead('trazabilidad','🔍','Trazabilidad y datos de la empresa')}
+    <p class="muted">Cada cambio que hace cualquier persona queda registrado con su nombre, la fecha y el valor anterior.</p>
+    <button id="btn_ir_auditoria" style="width:100%;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:11px 0;font-size:13px;font-weight:600;margin-bottom:14px">🔍 Ver quién hizo qué</button>
+    <h4 style="font-size:13px;color:#2F4D2A;margin:0 0 6px">🏢 Datos que salen en los documentos</h4>
+    <p class="muted" style="font-size:12px">Aparecen en el encabezado de las órdenes de pago, estados de cuenta y reportes.</p>
+    <div class="field"><label>Nombre de la empresa</label><input id="emp_nombre" value="${settingsMap.empresa_nombre||'NÓMADES'}"/></div>
+    <div class="field"><label>Dirección</label><input id="emp_direccion" value="${settingsMap.empresa_direccion||''}"/></div>
+    <div class="field"><label>Teléfono</label><input id="emp_telefono" value="${settingsMap.empresa_telefono||''}"/></div>
+    <div class="field"><label>Email</label><input id="emp_email" value="${settingsMap.empresa_email||''}"/></div>
+    <div class="field"><label>CUIT</label><input id="emp_cuit" value="${settingsMap.empresa_cuit||''}"/></div>
+    <button id="btn_guardar_empresa" class="btn ghost" style="width:100%">💾 Guardar datos de la empresa</button>
+  </div></div>
+  <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('personal','👥','Gestión de personal')}
     <div class="field"><label>Nombre y apellido</label><input id="staff_new_name"/></div>
     <div class="field"><label>Roles — puede tener varios</label>
@@ -3796,31 +3820,67 @@ async function admin(){
       ${pedidosProveedor.filter(o=>o.status==='generado').map(o=>`<div class="row"><span>N° ${o.order_number} · ${o.supplier_name||''}<br><small class="muted">${(o.items||[]).length} producto(s) · $${Number(o.total_pedido).toLocaleString('es-AR')}</small></span><span style="display:flex;gap:6px"><button data-editar-pedido="${o.id}" class="btn ghost" style="padding:6px 10px;font-size:11px">✏️ Editar</button><button data-recibir-pedido="${o.id}" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:6px 10px;font-size:11px;font-weight:600">✅ Recibir</button></span></div>`).join('')}
     </div>`:''}
     <details style="margin-bottom:14px;border:1px solid #E3DCC8;border-radius:10px;padding:0">
-      <summary style="cursor:pointer;padding:10px 12px;font-size:12.5px;font-weight:700;color:#2F4D2A">💰 Pagar un pedido</summary>
+      <summary style="cursor:pointer;padding:10px 12px;font-size:12.5px;font-weight:700;color:#2F4D2A">💰 Cuenta corriente con proveedores</summary>
       <div style="padding:0 12px 12px">
-        <div class="field"><label>Empresa</label><select id="sel_pago_proveedor">
-          <option value="">Elegí una empresa</option>
-          ${suppliers.map(s=>`<option value="${s.id}" ${pagoProveedorSeleccionado===s.id?'selected':''}>${s.name}</option>`).join('')}
-        </select></div>
-        ${pagoProveedorSeleccionado ? (()=>{
-          const pendientes = pedidosProveedor.filter(o=>o.supplier_id===pagoProveedorSeleccionado && o.status==='recibido' && (Number(o.total_a_pagar)-Number(o.total_pagado))>0.5)
-          if(!pendientes.length) return '<p class="muted" style="font-size:12.5px">Esta empresa no tiene pedidos recibidos con saldo pendiente.</p>'
-          return `<div class="field"><label>Pedido</label><select id="sel_pago_pedido">
-            <option value="">Elegí un pedido</option>
-            ${pendientes.map(o=>`<option value="${o.id}" ${pagoPedidoSeleccionado===o.id?'selected':''}>N° ${o.order_number} — saldo $${(Number(o.total_a_pagar)-Number(o.total_pagado)).toLocaleString('es-AR')}</option>`).join('')}
-          </select></div>
-          ${pagoPedidoSeleccionado ? (()=>{
-            const orden = pendientes.find(o=>o.id===pagoPedidoSeleccionado)
-            const saldo = orden ? Number(orden.total_a_pagar)-Number(orden.total_pagado) : 0
-            if(!orden) return ''
-            return `<div class="grid two" style="margin-top:8px">
-              <button type="button" id="btn_pago_tipo_total" class="btn ${pagoTipo==='total'?'primary':'ghost'}">Total ($${saldo.toLocaleString('es-AR')})</button>
-              <button type="button" id="btn_pago_tipo_parcial" class="btn ${pagoTipo==='parcial'?'primary':'ghost'}">Parcial</button>
+        ${cuentaProveedores.length ? cuentaProveedores.map(cp=>{
+          const abierto = pagoProveedorSeleccionado === cp.supplier_id
+          const dias = cp.dias_mas_viejo
+          const alerta = dias !== null && dias !== undefined && dias >= 30
+          return `<div style="border:1px solid ${alerta?'#E8833A':'#E3DCC8'};border-radius:10px;padding:10px 12px;margin-bottom:8px;background:#FFFFFF">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+              <div style="flex:1">
+                <div style="font-weight:700;color:#2F4D2A;font-size:14px">${cp.supplier_name||''}</div>
+                <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">
+                  ${dias!==null&&dias!==undefined?pPill(`${dias} día(s) el más viejo`, alerta?'#FAEEDA':'#EAF0DC', alerta?'#854F0B':'#2F4D2A'):''}
+                  ${Number(cp.saldo_a_favor)>0?pPill(`A favor $${Number(cp.saldo_a_favor).toLocaleString('es-AR')}`,'#EAF0DC','#2F4D2A'):''}
+                </div>
+              </div>
+              <div style="text-align:right">
+                <div style="color:#5F5E5A;font-size:11px">Le debés</div>
+                <div style="color:#2F4D2A;font-size:16px;font-weight:700">$${Number(cp.deuda).toLocaleString('es-AR')}</div>
+              </div>
             </div>
-            ${pagoTipo==='parcial'?`<div class="field" style="margin-top:8px"><label>Monto a pagar</label><input id="input_pago_parcial" type="number" min="0" max="${saldo}" value="${pagoMontoParcial}"/></div>`:''}
-            <button id="btn_guardar_pago_proveedor" style="width:100%;margin-top:10px;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:10px 0;font-size:13px;font-weight:600">💾 Guardar pago</button>`
-          })() : ''}`
-        })() : ''}
+            <div style="margin-top:8px">
+              ${(cp.pedidos||[]).map(pd=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-top:1px solid #F0EADB">
+                <span style="color:#5F5E5A">N° ${pd.order_number} · ${pd.dias} día(s)</span>
+                <span style="color:#2F4D2A;font-weight:600">$${Number(pd.saldo).toLocaleString('es-AR')}</span>
+              </div>`).join('')}
+            </div>
+            <button data-abrir-pago="${cp.supplier_id}" style="width:100%;margin-top:10px;background:${abierto?'#F5EFE0':'#2F4D2A'};color:${abierto?'#2F4D2A':'#F5EFE0'};border:none;border-radius:9px;padding:9px 0;font-size:12.5px;font-weight:600">${abierto?'Cerrar':'💵 Registrar un pago'}</button>
+            ${abierto?(()=>{
+              const monto = Number(pagoMontoParcial)||0
+              let restante = monto
+              const previa = (cp.pedidos||[]).map(pd=>{
+                const aplica = Math.min(restante, Number(pd.saldo))
+                restante -= aplica
+                return { pd, aplica }
+              }).filter(x=>x.aplica>0)
+              return `<div style="margin-top:10px;border-top:1px solid #E3DCC8;padding-top:10px">
+                <div class="field"><label>¿Cuánto le pagás?</label><input id="pago_prov_monto" type="number" min="0" value="${pagoMontoParcial}" placeholder="Ej: 1000000"/></div>
+                <div class="field"><label>¿Cómo le pagaste?</label>
+                  <div class="grid three">
+                    <button type="button" class="btn ${pagoTipo==='transfer'?'primary':'ghost'}" data-pago-metodo="transfer">Transferencia</button>
+                    <button type="button" class="btn ${pagoTipo==='cash'?'primary':'ghost'}" data-pago-metodo="cash">Efectivo</button>
+                    <button type="button" class="btn ${pagoTipo==='mp'?'primary':'ghost'}" data-pago-metodo="mp">Billetera</button>
+                  </div>
+                </div>
+                <div class="field"><label>Comprobante (opcional)</label><input type="file" id="pago_prov_comprobante" accept="image/*,application/pdf"/></div>
+                ${Number(cp.saldo_a_favor)>0?`<label style="display:flex;align-items:center;gap:10px;font-size:13px;margin-bottom:8px"><input type="checkbox" id="pago_prov_credito" style="width:18px;height:18px"/> Usar el saldo a favor de $${Number(cp.saldo_a_favor).toLocaleString('es-AR')}</label>`:''}
+                ${monto>0?`<div class="alert info" style="font-size:12px">
+                  <b>Se va a imputar así:</b><br>
+                  ${previa.map(x=>`N° ${x.pd.order_number}: $${x.aplica.toLocaleString('es-AR')}${x.aplica>=Number(x.pd.saldo)?' (queda saldado)':''}`).join('<br>')}
+                  ${restante>0?`<br>Sobran $${restante.toLocaleString('es-AR')} — quedan a favor`:''}
+                </div>`:''}
+                <div id="err_pago_prov" class="alert danger" style="display:none"></div>
+                <button id="btn_guardar_pago_proveedor" style="width:100%;margin-top:8px;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:10px 0;font-size:13px;font-weight:600">💾 Guardar pago</button>
+              </div>`
+            })():''}
+          </div>`
+        }).join('') : '<p class="muted" style="font-size:12.5px">No le debés nada a ninguna empresa. 🎉</p>'}
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button id="btn_ir_historial_pagos" class="btn ghost" style="flex:1;font-size:12px">🧾 Historial de pagos</button>
+          <button id="btn_estado_cuenta_prov" class="btn ghost" style="flex:1;font-size:12px">📄 Estado de cuenta</button>
+        </div>
       </div>
     </details>
     <div class="field"><label>¿A qué empresa le querés pedir?</label>
@@ -3976,17 +4036,44 @@ async function admin(){
   </div></div>
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('finanzas','💰','Finanzas')}
-    <div class="grid two">
-      <div style="background:#2F4D2A;border-radius:12px;padding:10px 12px"><div style="color:#C9D8B0;font-size:11px">Ventas (30 días)</div><div style="color:#F5EFE0;font-size:17px;font-weight:700">$${Number(dash.ventas||0).toLocaleString('es-AR')}</div></div>
-      <div style="background:#2F4D2A;border-radius:12px;padding:10px 12px"><div style="color:#C9D8B0;font-size:11px">Gastos (30 días)</div><div style="color:#F5EFE0;font-size:17px;font-weight:700">$${Number(dash.gastos||0).toLocaleString('es-AR')}</div></div>
-      <div style="background:#2F4D2A;border-radius:12px;padding:10px 12px"><div style="color:#C9D8B0;font-size:11px">Pérdidas (30 días)</div><div style="color:#F5EFE0;font-size:17px;font-weight:700">$${Number(dash.perdidas||0).toLocaleString('es-AR')}</div></div>
-      <div style="background:#2F4D2A;border-radius:12px;padding:10px 12px"><div style="color:#C9D8B0;font-size:11px">Beneficio neto (30 días)</div><div style="color:${Number(dash.beneficio_neto||0)>=0?'#F5EFE0':'#F0997B'};font-size:17px;font-weight:700">$${Number(dash.beneficio_neto||0).toLocaleString('es-AR')}</div></div>
+    <div style="background:#2F4D2A;border-radius:14px;padding:12px;margin-bottom:10px">
+      <div style="color:#C9D8B0;font-size:11px;font-weight:700;letter-spacing:0.5px;margin-bottom:8px">RESULTADO — lo que pasó de verdad</div>
+      <div class="grid two">
+        <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:9px 11px"><div style="color:#C9D8B0;font-size:11px">Ventas (30 días)</div><div style="color:#F5EFE0;font-size:17px;font-weight:700">$${Number(dash.ventas||0).toLocaleString('es-AR')}</div></div>
+        <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:9px 11px"><div style="color:#C9D8B0;font-size:11px">Gastos (30 días)</div><div style="color:#F5EFE0;font-size:17px;font-weight:700">$${Number(dash.gastos||0).toLocaleString('es-AR')}</div></div>
+        <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:9px 11px"><div style="color:#C9D8B0;font-size:11px">Pérdidas (30 días)</div><div style="color:#F5EFE0;font-size:17px;font-weight:700">$${Number(dash.perdidas||0).toLocaleString('es-AR')}</div></div>
+        <div style="background:rgba(255,255,255,0.08);border-radius:10px;padding:9px 11px"><div style="color:#C9D8B0;font-size:11px">Ganancia (30 días)</div><div style="color:${Number(dash.beneficio_neto||0)>=0?'#F5EFE0':'#F0997B'};font-size:17px;font-weight:700">$${Number(dash.beneficio_neto||0).toLocaleString('es-AR')}</div></div>
+      </div>
+      <div style="color:#C9D8B0;font-size:10.5px;margin-top:8px">La mercadería se cuenta como gasto el día que la recibís, no el día que la pagás.</div>
     </div>
-    <div class="grid two" style="margin-top:8px">
-      <div style="background:#EAF0DC;border-radius:12px;padding:10px 12px"><div style="color:#5F5E5A;font-size:11px">🛍️ Minoristas (30 días)</div><div style="color:#2F4D2A;font-size:16px;font-weight:700">$${Number(dash.ventas_minorista||0).toLocaleString('es-AR')}</div></div>
-      <div style="background:#EAF0DC;border-radius:12px;padding:10px 12px"><div style="color:#5F5E5A;font-size:11px">🏭 Mayoristas (30 días)</div><div style="color:#2F4D2A;font-size:16px;font-weight:700">$${Number(dash.ventas_mayorista||0).toLocaleString('es-AR')}</div></div>
+
+    <div style="background:#EAF0DC;border-radius:14px;padding:12px;margin-bottom:10px">
+      <div style="color:#2F4D2A;font-size:11px;font-weight:700;letter-spacing:0.5px;margin-bottom:8px">CAJA — la plata que se movió</div>
+      <div class="grid two">
+        <div style="background:#FFFFFF;border-radius:10px;padding:9px 11px"><div style="color:#5F5E5A;font-size:11px">Cobraste</div><div style="color:#2F4D2A;font-size:16px;font-weight:700">$${Number(dash.cobrado||0).toLocaleString('es-AR')}</div></div>
+        <div style="background:#FFFFFF;border-radius:10px;padding:9px 11px"><div style="color:#5F5E5A;font-size:11px">Pagaste</div><div style="color:#2F4D2A;font-size:16px;font-weight:700">$${(Number(dash.pagado_proveedores||0)+Number(dash.pagado_otros||0)).toLocaleString('es-AR')}</div></div>
+      </div>
+      <div style="background:#FFFFFF;border-radius:10px;padding:9px 11px;margin-top:8px"><div style="color:#5F5E5A;font-size:11px">Caja acumulada</div><div style="color:${Number(dash.caja||0)>=0?'#2F4D2A':'#B03A2E'};font-size:18px;font-weight:700">$${Number(dash.caja||0).toLocaleString('es-AR')}</div></div>
     </div>
-    <div class="alert info" style="margin-top:10px"><b>Caja total acumulada: $${Number(dash.caja||0).toLocaleString('es-AR')}</b></div>
+
+    <div class="grid two" style="margin-bottom:10px">
+      <div style="background:#FFFFFF;border:1px solid #E3DCC8;border-radius:12px;padding:10px 12px"><div style="color:#5F5E5A;font-size:11px">💚 Me deben</div><div style="color:#2F4D2A;font-size:16px;font-weight:700">$${Number(dash.me_deben||0).toLocaleString('es-AR')}</div></div>
+      <div style="background:#FFFFFF;border:1px solid ${Number(dash.debo||0)>0?'#E8833A':'#E3DCC8'};border-radius:12px;padding:10px 12px"><div style="color:#5F5E5A;font-size:11px">🧾 Debo</div><div style="color:#2F4D2A;font-size:16px;font-weight:700">$${Number(dash.debo||0).toLocaleString('es-AR')}</div>${Number(dash.saldo_a_favor_proveedores||0)>0?`<div style="color:#5F5E5A;font-size:10.5px;margin-top:2px">A favor: $${Number(dash.saldo_a_favor_proveedores).toLocaleString('es-AR')}</div>`:''}</div>
+    </div>
+
+    <details style="border:1px solid #E3DCC8;border-radius:12px;margin-bottom:10px">
+      <summary style="cursor:pointer;padding:9px 12px;font-size:12.5px;font-weight:700;color:#2F4D2A">📊 De dónde vienen las ventas</summary>
+      <div style="padding:0 12px 12px">
+        <div style="font-size:11px;color:#5F5E5A;font-weight:700;margin:8px 0 4px">POR LÍNEA</div>
+        <div class="row"><span>🥚 Huevos propios</span><span><b>$${Number(dash.ventas_huevos||0).toLocaleString('es-AR')}</b></span></div>
+        <div class="row"><span>🛒 Almacén de reventa</span><span><b>$${Number(dash.ventas_almacen||0).toLocaleString('es-AR')}</b></span></div>
+        <div class="row"><span>🚚 Envíos cobrados</span><span><b>$${Number(dash.ventas_envio||0).toLocaleString('es-AR')}</b></span></div>
+        <div style="font-size:11px;color:#5F5E5A;font-weight:700;margin:12px 0 4px">POR CANAL</div>
+        <div class="row"><span>🛍️ Minoristas</span><span><b>$${Number(dash.ventas_minorista||0).toLocaleString('es-AR')}</b></span></div>
+        <div class="row"><span>🏭 Mayoristas</span><span><b>$${Number(dash.ventas_mayorista||0).toLocaleString('es-AR')}</b></span></div>
+        <div class="row"><span>📞 Telefónicos</span><span><b>$${Number(dash.ventas_telefonico||0).toLocaleString('es-AR')}</b></span></div>
+      </div>
+    </details>
 
     <div style="margin-top:20px;background:#FFFFFF;border:1px solid #E3DCC8;border-radius:14px;overflow:hidden">
       <button type="button" id="btn_toggle_seccion_categorias" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:12px 14px;cursor:pointer;gap:10px;background:${mostrarSeccionCategorias?'#F5EFE0':'transparent'}">
@@ -4049,7 +4136,7 @@ async function admin(){
     <div style="margin-top:20px"><h3 style="font-size:15px;color:#2F4D2A">Últimos movimientos</h3>
       <div style="display:flex;gap:8px;margin-bottom:12px">
         <button id="btn_exportar_finanzas_csv" class="btn ghost" style="flex:1">📊 Excel</button>
-        <button id="btn_exportar_finanzas_pdf" class="btn ghost" style="flex:1">🖨️ PDF</button>
+        <button id="btn_reporte_ventas_pdf" class="btn ghost" style="flex:1">📄 Reporte</button>
       </div>
       ${movimientosFinanzas.length? movimientosFinanzas.map(m=>{
         const cat = categoriaMap[m.category_id]
@@ -4230,6 +4317,23 @@ async function admin(){
     }
     box.innerHTML = `<div class="alert info"><b>✅ Código generado para ${full_name||'este usuario'}:</b><br><span style="font-size:20px;font-weight:bold;letter-spacing:2px">${data.code}</span><br><small>Copialo ahora — no se vuelve a mostrar. Pasáselo a la persona para que entre por "Acceso del equipo".</small></div>`
     adminData = null; render()
+  }
+  const btnIrAuditoria = document.querySelector('#btn_ir_auditoria')
+  if(btnIrAuditoria) btnIrAuditoria.onclick = ()=>{ current='auditoria'; render() }
+  const btnGuardarEmpresa = document.querySelector('#btn_guardar_empresa')
+  if(btnGuardarEmpresa) btnGuardarEmpresa.onclick = async ()=>{
+    const valores = {
+      empresa_nombre: document.querySelector('#emp_nombre').value.trim(),
+      empresa_direccion: document.querySelector('#emp_direccion').value.trim(),
+      empresa_telefono: document.querySelector('#emp_telefono').value.trim(),
+      empresa_email: document.querySelector('#emp_email').value.trim(),
+      empresa_cuit: document.querySelector('#emp_cuit').value.trim()
+    }
+    for(const [key, value] of Object.entries(valores)){
+      await supabase.from('farm_settings').upsert({ key, value })
+    }
+    adminData = null
+    mostrarAlerta('✅ Datos guardados. Van a aparecer en los documentos.')
   }
   document.querySelectorAll('[data-editar-roles]').forEach(b=>b.onclick=()=>{ staffEditandoRoles = b.dataset.editarRoles; render() })
   document.querySelectorAll('[data-cancelar-roles]').forEach(b=>b.onclick=()=>{ staffEditandoRoles = null; render() })
@@ -4717,7 +4821,7 @@ async function admin(){
     const { data, error } = await supabase.rpc('admin_recibir_pedido_proveedor', { p_order_id: orden.id, p_received_items: receivedItems, p_resolution_type: resolutionType })
     if(error || !data?.ok){ mostrarAlerta(data?.error || error?.message || 'No se pudo registrar la recepción.'); return }
     pedidoProveedorRecibiendoId = null; pedidoProveedorRecibido = {}
-    pedidoProveedorRecienRecibido = { id: orden.id, order_number: orden.order_number, total_a_pagar: data.total_a_pagar }
+    pedidoProveedorRecienRecibido = { id: orden.id, order_number: orden.order_number, total_a_pagar: data.total_a_pagar, supplier_id: orden.supplier_id }
     adminData = null
     render()
   }
@@ -4730,7 +4834,7 @@ async function admin(){
   const btnPagarAhoraTotal = document.querySelector('#btn_pagar_ahora_total')
   if(btnPagarAhoraTotal) btnPagarAhoraTotal.onclick = async ()=>{
     const r = pedidoProveedorRecienRecibido
-    const { data, error } = await supabase.rpc('admin_pagar_pedido_proveedor', { p_order_id: r.id, p_amount: r.total_a_pagar })
+    const { data, error } = await supabase.rpc('admin_pagar_proveedor', { p_supplier_id: r.supplier_id, p_amount: r.total_a_pagar, p_payment_method: 'transfer', p_receipt_url: null, p_imputaciones: [{ order_id: r.id, amount: r.total_a_pagar }], p_usar_credito: false })
     if(error || !data?.ok){ mostrarAlerta(data?.error || error?.message || 'No se pudo registrar el pago.'); return }
     mostrarAlerta('✅ Pago registrado')
     pedidoProveedorRecienRecibido = null
@@ -4747,7 +4851,7 @@ async function admin(){
     const r = pedidoProveedorRecienRecibido
     const monto = Number(document.querySelector('#pagar_ahora_monto').value)
     if(!monto || monto<=0){ mostrarAlerta('Ingresá un monto válido.'); return }
-    const { data, error } = await supabase.rpc('admin_pagar_pedido_proveedor', { p_order_id: r.id, p_amount: monto })
+    const { data, error } = await supabase.rpc('admin_pagar_proveedor', { p_supplier_id: r.supplier_id, p_amount: monto, p_payment_method: 'transfer', p_receipt_url: null, p_imputaciones: [{ order_id: r.id, amount: monto }], p_usar_credito: false })
     if(error || !data?.ok){ mostrarAlerta(data?.error || error?.message || 'No se pudo registrar el pago.'); return }
     mostrarAlerta('✅ Pago parcial registrado')
     pedidoProveedorRecienRecibido = null
@@ -4756,29 +4860,58 @@ async function admin(){
   }
   const btnPagarAhoraNo = document.querySelector('#btn_pagar_ahora_no')
   if(btnPagarAhoraNo) btnPagarAhoraNo.onclick = ()=>{ pedidoProveedorRecienRecibido = null; render() }
-  const selPagoProveedor = document.querySelector('#sel_pago_proveedor')
-  if(selPagoProveedor) selPagoProveedor.onchange = (e)=>{ pagoProveedorSeleccionado = e.target.value || null; pagoPedidoSeleccionado = null; pagoTipo='total'; pagoMontoParcial=''; render() }
-  const selPagoPedido = document.querySelector('#sel_pago_pedido')
-  if(selPagoPedido) selPagoPedido.onchange = (e)=>{ pagoPedidoSeleccionado = e.target.value || null; pagoTipo='total'; pagoMontoParcial=''; render() }
-  const btnPagoTipoTotal = document.querySelector('#btn_pago_tipo_total')
-  if(btnPagoTipoTotal) btnPagoTipoTotal.onclick = ()=>{ pagoTipo='total'; render() }
-  const btnPagoTipoParcial = document.querySelector('#btn_pago_tipo_parcial')
-  if(btnPagoTipoParcial) btnPagoTipoParcial.onclick = ()=>{ pagoTipo='parcial'; render() }
+  const btnIrHistPagos = document.querySelector('#btn_ir_historial_pagos')
+  if(btnIrHistPagos) btnIrHistPagos.onclick = ()=>{ current='historial-pagos'; render() }
+  const btnEstadoCuentaProv = document.querySelector('#btn_estado_cuenta_prov')
+  if(btnEstadoCuentaProv) btnEstadoCuentaProv.onclick = async ()=>{
+    if(!suppliers.length){ mostrarAlerta('Todavía no cargaste ninguna empresa proveedora.'); return }
+    if(suppliers.length === 1){ documentoEstadoCuenta(suppliers[0].id); return }
+    const nombres = suppliers.map((sp,i)=>`${i+1}. ${sp.name}`).join('\n')
+    const idx = prompt('¿De qué empresa querés el estado de cuenta?\n\n'+nombres+'\n\nEscribí el número:')
+    const elegido = suppliers[Number(idx)-1]
+    if(elegido) documentoEstadoCuenta(elegido.id)
+  }
+  document.querySelectorAll('[data-abrir-pago]').forEach(b=>b.onclick=()=>{
+    const id = b.dataset.abrirPago
+    pagoProveedorSeleccionado = (pagoProveedorSeleccionado===id) ? null : id
+    pagoMontoParcial = ''; pagoTipo = 'transfer'
+    render()
+  })
+  const inputPagoProvMonto = document.querySelector('#pago_prov_monto')
+  if(inputPagoProvMonto){
+    inputPagoProvMonto.onchange = ()=>{ pagoMontoParcial = inputPagoProvMonto.value; render() }
+    inputPagoProvMonto.onblur = ()=>{ if(pagoMontoParcial !== inputPagoProvMonto.value){ pagoMontoParcial = inputPagoProvMonto.value; render() } }
+  }
+  document.querySelectorAll('[data-pago-metodo]').forEach(b=>b.onclick=()=>{ pagoTipo = b.dataset.pagoMetodo; render() })
   const btnGuardarPagoProveedor = document.querySelector('#btn_guardar_pago_proveedor')
   if(btnGuardarPagoProveedor) btnGuardarPagoProveedor.onclick = async ()=>{
-    const orden = pedidosProveedor.find(o=>o.id===pagoPedidoSeleccionado)
-    if(!orden) return
-    const saldo = Number(orden.total_a_pagar) - Number(orden.total_pagado)
-    let monto = saldo
-    if(pagoTipo==='parcial'){
-      monto = Number(document.querySelector('#input_pago_parcial').value)
-      if(!monto || monto<=0){ mostrarAlerta('Ingresá un monto válido.'); return }
-      if(monto>saldo){ mostrarAlerta('Ese monto es mayor al saldo pendiente ($'+saldo.toLocaleString('es-AR')+').'); return }
+    const box = document.querySelector('#err_pago_prov')
+    const monto = Number(document.querySelector('#pago_prov_monto').value)
+    if(!monto || monto<=0){ box.textContent='Ingresá cuánto le pagaste.'; box.style.display='block'; return }
+    if(!['transfer','cash','mp'].includes(pagoTipo)){ box.textContent='Elegí cómo le pagaste.'; box.style.display='block'; return }
+    const usarCredito = !!document.querySelector('#pago_prov_credito')?.checked
+    let receiptUrl = null
+    const fileInput = document.querySelector('#pago_prov_comprobante')
+    const file = fileInput && fileInput.files[0]
+    if(file){
+      const path = `proveedor_${Date.now()}_${file.name}`
+      const { error: upErr } = await supabase.storage.from('finance-attachments').upload(path, file)
+      if(upErr){ box.textContent='No se pudo subir el comprobante: '+upErr.message; box.style.display='block'; return }
+      const { data: pub } = supabase.storage.from('finance-attachments').getPublicUrl(path)
+      receiptUrl = pub.publicUrl
     }
-    const { data, error } = await supabase.rpc('admin_pagar_pedido_proveedor', { p_order_id: orden.id, p_amount: monto })
-    if(error || !data?.ok){ mostrarAlerta(data?.error || error?.message || 'No se pudo registrar el pago.'); return }
-    mostrarAlerta('✅ Pago de $'+monto.toLocaleString('es-AR')+' registrado')
-    pagoProveedorSeleccionado = null; pagoPedidoSeleccionado = null; pagoTipo='total'; pagoMontoParcial=''
+    const { data, error } = await supabase.rpc('admin_pagar_proveedor', {
+      p_supplier_id: pagoProveedorSeleccionado,
+      p_amount: monto,
+      p_payment_method: pagoTipo,
+      p_receipt_url: receiptUrl,
+      p_imputaciones: null,
+      p_usar_credito: usarCredito
+    })
+    if(error || !data?.ok){ box.textContent = data?.error || error?.message || 'No se pudo registrar el pago.'; box.style.display='block'; return }
+    const detalle = (data.imputado||[]).map(x=>`N° ${x.order_number}: $${Number(x.aplicado).toLocaleString('es-AR')}`).join('\n')
+    mostrarAlerta('✅ Pago de $'+monto.toLocaleString('es-AR')+' registrado\n\n'+detalle+(Number(data.sobrante_a_favor)>0?`\n\nQuedaron $${Number(data.sobrante_a_favor).toLocaleString('es-AR')} a favor.`:''))
+    pagoProveedorSeleccionado = null; pagoMontoParcial=''; pagoTipo='transfer'
     adminData = null
     render()
   }
@@ -5029,8 +5162,14 @@ async function admin(){
       {label:'Descripción', value:'description'}, {label:'Monto', value:'amount'}
     ], movimientosFinanzas)
   }
-  const btnExportarFinPdf = document.querySelector('#btn_exportar_finanzas_pdf')
-  if(btnExportarFinPdf) btnExportarFinPdf.onclick = ()=>window.print()
+  const btnReporteVentasPdf = document.querySelector('#btn_reporte_ventas_pdf')
+  if(btnReporteVentasPdf) btnReporteVentasPdf.onclick = ()=>{
+    const desde = prompt('¿Desde qué fecha? (formato AAAA-MM-DD, vacío = últimos 30 días)') || ''
+    if(desde && !/^\d{4}-\d{2}-\d{2}$/.test(desde)){ mostrarAlerta('Fecha inválida. Usá el formato 2026-08-01.'); return }
+    const hasta = desde ? (prompt('¿Hasta qué fecha? (vacío = hoy)') || '') : ''
+    if(hasta && !/^\d{4}-\d{2}-\d{2}$/.test(hasta)){ mostrarAlerta('Fecha inválida. Usá el formato 2026-08-31.'); return }
+    documentoReporteVentas(desde||null, hasta||null)
+  }
   animarContadores()
 }
 
@@ -5418,6 +5557,381 @@ function telBindAlta(){
   }
 }
 
+// ============ MOTOR DE DOCUMENTOS IMPRIMIBLES ============
+// Abre una ventana limpia con membrete, numeración y solo el contenido del documento.
+// El usuario elige "Guardar como PDF" desde el diálogo de impresión del celular.
+
+async function datosEmpresa(){
+  const { data } = await supabase.from('farm_settings').select('key,value')
+    .in('key',['empresa_nombre','empresa_direccion','empresa_telefono','empresa_email','empresa_cuit'])
+  const cfg = Object.fromEntries((data||[]).map(x=>[x.key,x.value]))
+  return {
+    nombre: cfg.empresa_nombre || 'NÓMADES',
+    direccion: cfg.empresa_direccion || '',
+    telefono: cfg.empresa_telefono || '',
+    email: cfg.empresa_email || '',
+    cuit: cfg.empresa_cuit || ''
+  }
+}
+
+async function numeroDocumento(tipo){
+  const { data } = await supabase.rpc('siguiente_numero_documento', { p_doc_type: tipo })
+  return data || 0
+}
+
+function moneda(n){ return '$' + Number(n||0).toLocaleString('es-AR') }
+
+function fechaCorta(f){
+  if(!f) return '-'
+  const d = new Date(String(f).length<=10 ? f+'T00:00:00' : f)
+  return d.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})
+}
+
+function abrirDocumento({ titulo, numero, empresa, subtitulo, cuerpo, pie }){
+  const hoy = new Date().toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})
+  const hora = new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>${titulo}${numero?' N° '+numero:''} — ${empresa.nombre}</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1F2A1B;background:#FFF;font-size:13px;line-height:1.55}
+  .hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #2F4D2A;padding-bottom:14px;margin-bottom:18px;gap:16px}
+  .marca{font-size:22px;font-weight:800;color:#2F4D2A;letter-spacing:1px}
+  .sub{font-size:11px;color:#5F5E5A;margin-top:2px}
+  .doc{text-align:right}
+  .doc .t{font-size:15px;font-weight:800;color:#2F4D2A;text-transform:uppercase;letter-spacing:0.5px}
+  .doc .n{font-size:12px;color:#5F5E5A;margin-top:3px}
+  h2{font-size:13px;color:#2F4D2A;margin:18px 0 8px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #E3DCC8;padding-bottom:4px}
+  table{width:100%;border-collapse:collapse;margin-bottom:10px}
+  th{background:#EAF0DC;color:#2F4D2A;font-size:11px;text-transform:uppercase;letter-spacing:0.3px;padding:7px 8px;text-align:left;border-bottom:1px solid #C9D8B0}
+  td{padding:6px 8px;border-bottom:1px solid #F0EADB;font-size:12px}
+  .num{text-align:right;white-space:nowrap}
+  .tot{background:#2F4D2A;color:#F5EFE0;font-weight:700}
+  .tot td{border:none;padding:9px 8px;font-size:13px}
+  .box{background:#F7F5EE;border:1px solid #E3DCC8;border-radius:6px;padding:10px 12px;margin-bottom:12px}
+  .grid{display:flex;gap:12px;flex-wrap:wrap}
+  .grid>div{flex:1;min-width:150px}
+  .lbl{font-size:10.5px;color:#5F5E5A;text-transform:uppercase;letter-spacing:0.3px}
+  .val{font-size:13px;font-weight:700;color:#2F4D2A}
+  .pie{margin-top:24px;border-top:1px solid #E3DCC8;padding-top:10px;font-size:10.5px;color:#5F5E5A}
+  .firma{margin-top:34px;display:flex;gap:40px}
+  .firma div{flex:1;border-top:1px solid #8A8A80;padding-top:5px;font-size:10.5px;color:#5F5E5A;text-align:center}
+  .btns{position:sticky;bottom:0;background:#FFF;padding:14px 0 0;display:flex;gap:8px;border-top:1px solid #E3DCC8;margin-top:20px}
+  .btns button{flex:1;padding:12px;font-size:14px;font-weight:600;border:none;border-radius:8px;background:#2F4D2A;color:#F5EFE0}
+  .btns button.sec{background:#F5EFE0;color:#2F4D2A;border:1px solid #C9D8B0}
+  @media print{.btns{display:none}body{padding:0}}
+</style></head><body>
+<div class="hdr">
+  <div>
+    <div class="marca">${empresa.nombre}</div>
+    <div class="sub">Huevos de libre pastoreo</div>
+    ${empresa.direccion?`<div class="sub">${empresa.direccion}</div>`:''}
+    ${empresa.telefono?`<div class="sub">Tel: ${empresa.telefono}</div>`:''}
+    ${empresa.email?`<div class="sub">${empresa.email}</div>`:''}
+    ${empresa.cuit?`<div class="sub">CUIT: ${empresa.cuit}</div>`:''}
+  </div>
+  <div class="doc">
+    <div class="t">${titulo}</div>
+    ${numero?`<div class="n">N° ${String(numero).padStart(6,'0')}</div>`:''}
+    <div class="n">${hoy} · ${hora}</div>
+  </div>
+</div>
+${subtitulo||''}
+${cuerpo}
+<div class="pie">${pie||''}</div>
+<div class="btns">
+  <button onclick="window.print()">🖨️ Guardar como PDF</button>
+  <button class="sec" onclick="window.close()">Cerrar</button>
+</div>
+</body></html>`
+
+  const w = window.open('', '_blank')
+  if(!w){ mostrarAlerta('El navegador bloqueó la ventana. Permitile abrir ventanas emergentes a esta página e intentá de nuevo.'); return }
+  w.document.write(html)
+  w.document.close()
+}
+
+// ---------- Orden de pago a proveedor ----------
+async function documentoOrdenPago(pago){
+  const empresa = await datosEmpresa()
+  const numero = await numeroDocumento('orden_pago')
+  const metodos = { transfer:'Transferencia bancaria', cash:'Efectivo', mp:'Billetera virtual' }
+  const cuerpo = `
+    <div class="box"><div class="grid">
+      <div><div class="lbl">Proveedor</div><div class="val">${pago.supplier_name||'-'}</div></div>
+      <div><div class="lbl">Fecha de pago</div><div class="val">${fechaCorta(pago.paid_at)}</div></div>
+      <div><div class="lbl">Forma de pago</div><div class="val">${metodos[pago.payment_method]||pago.payment_method||'-'}</div></div>
+    </div></div>
+    <h2>Comprobantes cancelados</h2>
+    <table>
+      <tr><th>Pedido</th><th class="num">Importe imputado</th></tr>
+      ${(pago.imputaciones||[]).map(i=>`<tr><td>N° ${i.order_number||'-'}</td><td class="num">${moneda(i.amount)}</td></tr>`).join('')}
+      <tr class="tot"><td>TOTAL PAGADO</td><td class="num">${moneda(pago.total)}</td></tr>
+    </table>
+    <div class="firma"><div>Firma y aclaración — ${empresa.nombre}</div><div>Recibí conforme — ${pago.supplier_name||'Proveedor'}</div></div>`
+  abrirDocumento({
+    titulo: 'Orden de pago', numero, empresa, cuerpo,
+    pie: `Registrado por ${pago.registrado_por||'-'}. Documento generado automáticamente por el sistema de gestión de ${empresa.nombre}.`
+  })
+}
+
+// ---------- Estado de cuenta de proveedor ----------
+async function documentoEstadoCuenta(supplierId){
+  const { data, error } = await supabase.rpc('admin_estado_cuenta_proveedor', { p_supplier_id: supplierId })
+  if(error || !data || data.error){ mostrarAlerta('No se pudo generar: '+(data?.error||error?.message||'')); return }
+  const empresa = await datosEmpresa()
+  const numero = await numeroDocumento('estado_cuenta')
+  let acumulado = 0
+  const filas = (data.movimientos||[]).map(m=>{
+    acumulado += Number(m.debe||0) - Number(m.haber||0)
+    return `<tr>
+      <td>${fechaCorta(m.fecha)}</td><td>${m.detalle||''}</td>
+      <td class="num">${Number(m.debe)>0?moneda(m.debe):''}</td>
+      <td class="num">${Number(m.haber)>0?moneda(m.haber):''}</td>
+      <td class="num">${moneda(acumulado)}</td>
+    </tr>`
+  }).join('')
+  const cuerpo = `
+    <div class="box"><div class="grid">
+      <div><div class="lbl">Proveedor</div><div class="val">${data.supplier?.name||'-'}</div></div>
+      ${data.supplier?.contact_phone?`<div><div class="lbl">Teléfono</div><div class="val">${data.supplier.contact_phone}</div></div>`:''}
+    </div></div>
+    <h2>Movimientos</h2>
+    <table>
+      <tr><th>Fecha</th><th>Detalle</th><th class="num">Debe</th><th class="num">Haber</th><th class="num">Saldo</th></tr>
+      ${filas || '<tr><td colspan="5">Sin movimientos registrados.</td></tr>'}
+      <tr class="tot"><td colspan="4">SALDO ADEUDADO</td><td class="num">${moneda(data.saldo)}</td></tr>
+    </table>
+    ${Number(data.saldo_a_favor)>0?`<div class="box">Saldo a favor pendiente de aplicar: <b>${moneda(data.saldo_a_favor)}</b></div>`:''}
+    <div class="grid" style="margin-top:14px">
+      <div class="box"><div class="lbl">Total comprado</div><div class="val">${moneda(data.total_comprado)}</div></div>
+      <div class="box"><div class="lbl">Total pagado</div><div class="val">${moneda(data.total_pagado)}</div></div>
+    </div>`
+  abrirDocumento({ titulo: 'Estado de cuenta', numero, empresa, cuerpo,
+    pie: 'Ante cualquier diferencia, comunicate con nosotros antes de la fecha de vencimiento.' })
+}
+
+// ---------- Reporte de ventas ----------
+async function documentoReporteVentas(desde, hasta){
+  const { data, error } = await supabase.rpc('finance_dashboard', { p_from: desde || null, p_to: hasta || null })
+  if(error || !data || data.error){ mostrarAlerta('No se pudo generar: '+(data?.error||error?.message||'')); return }
+  const empresa = await datosEmpresa()
+  const numero = await numeroDocumento('reporte_ventas')
+  const pct = (parte)=> Number(data.ventas)>0 ? Math.round(Number(parte)/Number(data.ventas)*100)+'%' : '-'
+  const cuerpo = `
+    <div class="box"><div class="grid">
+      <div><div class="lbl">Período</div><div class="val">${fechaCorta(data.desde)} al ${fechaCorta(data.hasta)}</div></div>
+    </div></div>
+    <h2>Resultado del período</h2>
+    <table>
+      <tr><th>Concepto</th><th class="num">Importe</th></tr>
+      <tr><td>Ventas</td><td class="num">${moneda(data.ventas)}</td></tr>
+      <tr><td>Gastos</td><td class="num">${moneda(data.gastos)}</td></tr>
+      <tr><td>Pérdidas</td><td class="num">${moneda(data.perdidas)}</td></tr>
+      <tr class="tot"><td>GANANCIA</td><td class="num">${moneda(data.beneficio_neto)}</td></tr>
+    </table>
+    <h2>Ventas por canal</h2>
+    <table>
+      <tr><th>Canal</th><th class="num">Importe</th><th class="num">Part.</th></tr>
+      <tr><td>Minoristas</td><td class="num">${moneda(data.ventas_minorista)}</td><td class="num">${pct(data.ventas_minorista)}</td></tr>
+      <tr><td>Mayoristas</td><td class="num">${moneda(data.ventas_mayorista)}</td><td class="num">${pct(data.ventas_mayorista)}</td></tr>
+      <tr><td>Pedidos telefónicos</td><td class="num">${moneda(data.ventas_telefonico)}</td><td class="num">${pct(data.ventas_telefonico)}</td></tr>
+    </table>
+    <h2>Ventas por línea</h2>
+    <table>
+      <tr><th>Línea</th><th class="num">Importe</th><th class="num">Part.</th></tr>
+      <tr><td>Huevos propios</td><td class="num">${moneda(data.ventas_huevos)}</td><td class="num">${pct(data.ventas_huevos)}</td></tr>
+      <tr><td>Almacén de reventa</td><td class="num">${moneda(data.ventas_almacen)}</td><td class="num">${pct(data.ventas_almacen)}</td></tr>
+      <tr><td>Envíos cobrados</td><td class="num">${moneda(data.ventas_envio)}</td><td class="num">${pct(data.ventas_envio)}</td></tr>
+    </table>
+    <h2>Situación financiera</h2>
+    <table>
+      <tr><th>Concepto</th><th class="num">Importe</th></tr>
+      <tr><td>Cobrado en el período</td><td class="num">${moneda(data.cobrado)}</td></tr>
+      <tr><td>Pagado en el período</td><td class="num">${moneda(Number(data.pagado_proveedores||0)+Number(data.pagado_otros||0))}</td></tr>
+      <tr><td>Caja acumulada</td><td class="num">${moneda(data.caja)}</td></tr>
+      <tr><td>Nos deben</td><td class="num">${moneda(data.me_deben)}</td></tr>
+      <tr><td>Debemos a proveedores</td><td class="num">${moneda(data.debo)}</td></tr>
+    </table>`
+  abrirDocumento({ titulo: 'Reporte de ventas', numero, empresa, cuerpo,
+    pie: 'El resultado se calcula por devengado: la mercadería se imputa al gasto el día que ingresa, no el día que se paga.' })
+}
+
+// ---------- Padrón de clientes ----------
+async function documentoPadronClientes(filtroTipo){
+  const { data, error } = await supabase.rpc('admin_padron_clientes', {})
+  if(error || !data || data.error){ mostrarAlerta('No se pudo generar: '+(data?.error||error?.message||'')); return }
+  const lista = filtroTipo ? data.filter(c=>c.tipo===filtroTipo) : data
+  const empresa = await datosEmpresa()
+  const numero = await numeroDocumento('padron_clientes')
+  const totalComprado = lista.reduce((s,c)=>s+Number(c.total_comprado||0),0)
+  const cuerpo = `
+    <div class="box"><div class="grid">
+      <div><div class="lbl">Clientes listados</div><div class="val">${lista.length}</div></div>
+      <div><div class="lbl">Tipo</div><div class="val">${filtroTipo==='mayorista'?'Mayoristas':filtroTipo==='minorista'?'Minoristas':'Todos'}</div></div>
+      <div><div class="lbl">Facturado histórico</div><div class="val">${moneda(totalComprado)}</div></div>
+    </div></div>
+    <table>
+      <tr><th>Cliente</th><th>Contacto</th><th>Dirección</th><th>Plan</th><th class="num">Entregas</th><th class="num">Comprado</th></tr>
+      ${lista.map(c=>`<tr>
+        <td><b>${c.apellido||''}, ${c.nombre||''}</b><br><span style="color:#5F5E5A;font-size:11px">DNI ${c.dni||'-'} · ${c.tipo}</span></td>
+        <td>${c.telefono||'-'}<br><span style="color:#5F5E5A;font-size:11px">${c.email||''}</span></td>
+        <td>${c.direccion||'-'}<br><span style="color:#5F5E5A;font-size:11px">${c.barrio||''} ${c.zona?'· '+c.zona:''}</span></td>
+        <td>${c.plan||'—'}</td>
+        <td class="num">${c.entregas||0}</td>
+        <td class="num">${moneda(c.total_comprado)}</td>
+      </tr>`).join('') || '<tr><td colspan="6">Sin clientes.</td></tr>'}
+    </table>`
+  abrirDocumento({ titulo: 'Padrón de clientes', numero, empresa, cuerpo,
+    pie: 'Documento de uso interno. Contiene datos personales: no compartir fuera de la empresa.' })
+}
+
+// ============ PANTALLA: HISTORIAL DE PAGOS A PROVEEDORES ============
+let histPagosFiltroProveedor = ''
+let histPagosDesde = ''
+let histPagosHasta = ''
+
+async function historialPagosProveedores(){
+  const [{ data: pagosRaw }, { data: suppliersRaw }] = await Promise.all([
+    supabase.rpc('admin_historial_pagos_proveedores', {
+      p_supplier_id: histPagosFiltroProveedor || null,
+      p_from: histPagosDesde || null,
+      p_to: histPagosHasta || null
+    }),
+    supabase.from('suppliers').select('id,name').order('name')
+  ])
+  const pagos = pagosRaw || []
+  const suppliers = suppliersRaw || []
+  const totalPeriodo = pagos.reduce((s,p)=>s+Number(p.total||0),0)
+  const metodos = { transfer:'Transferencia', cash:'Efectivo', mp:'Billetera' }
+
+  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <button class="btn ghost" id="btn_volver_hist_pagos" style="padding:6px 12px">← Volver</button>
+    <h2 style="margin:0">🧾 Historial de pagos</h2>
+  </div>
+  <div class="card">
+    <div class="field"><label>Empresa</label><select id="hist_proveedor">
+      <option value="">Todas</option>
+      ${suppliers.map(s=>`<option value="${s.id}" ${histPagosFiltroProveedor===s.id?'selected':''}>${s.name}</option>`).join('')}
+    </select></div>
+    <div class="grid two">
+      <div class="field"><label>Desde</label><input type="date" id="hist_desde" value="${histPagosDesde}"/></div>
+      <div class="field"><label>Hasta</label><input type="date" id="hist_hasta" value="${histPagosHasta}"/></div>
+    </div>
+    <div class="alert info" style="margin:0"><b>${pagos.length} pago(s) · ${moneda(totalPeriodo)}</b></div>
+  </div>
+  ${pagos.length ? pagos.map(p=>pCard(`
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+      <div style="flex:1">
+        <div style="font-weight:700;color:#2F4D2A">${p.supplier_name||'-'}</div>
+        <div class="muted" style="font-size:12px">${fechaCorta(p.paid_at)} · ${metodos[p.payment_method]||p.payment_method||'-'}</div>
+        <div class="muted" style="font-size:11px;margin-top:2px">Registró: ${p.registrado_por||'-'}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="color:#2F4D2A;font-size:17px;font-weight:700">${moneda(p.total)}</div>
+      </div>
+    </div>
+    <div style="margin-top:8px">
+      ${(p.imputaciones||[]).map(i=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-top:1px solid #F0EADB"><span style="color:#5F5E5A">Pedido N° ${i.order_number||'-'}</span><span style="color:#2F4D2A;font-weight:600">${moneda(i.amount)}</span></div>`).join('')}
+    </div>
+    ${pBtnRow([
+      pBtn('📄','Orden de pago',`data-orden-pago="${p.batch_id}"`,''),
+      ...(p.receipt_url?[`<a href="${p.receipt_url}" target="_blank" class="btn ghost" style="flex:1;text-align:center;text-decoration:none;padding:9px 0;font-size:12px">📎 Comprobante</a>`]:[])
+    ])}
+  `)).join('') : estadoVacio('Todavía no registraste pagos a proveedores.')}`)
+
+  document.querySelector('#btn_volver_hist_pagos').onclick = ()=>{ current='admin'; render() }
+  document.querySelector('#hist_proveedor').onchange = (e)=>{ histPagosFiltroProveedor = e.target.value; render() }
+  document.querySelector('#hist_desde').onchange = (e)=>{ histPagosDesde = e.target.value; render() }
+  document.querySelector('#hist_hasta').onchange = (e)=>{ histPagosHasta = e.target.value; render() }
+  document.querySelectorAll('[data-orden-pago]').forEach(b=>b.onclick=()=>{
+    const pago = pagos.find(p=>String(p.batch_id)===b.dataset.ordenPago)
+    if(pago) documentoOrdenPago(pago)
+  })
+}
+
+// ============ PANTALLA: AUDITORÍA ============
+let audFiltroActor = ''
+let audFiltroEntidad = ''
+let audDesde = ''
+let audHasta = ''
+
+const ENTIDAD_LABEL = {
+  plan_prices:'Precios de planes', catalog_products:'Catálogo', farm_settings:'Configuración',
+  staff_roles:'Personal', payments:'Cobros', finance_entries:'Movimientos de finanzas',
+  supplier_order_payments:'Pagos a proveedores', supplier_orders:'Pedidos a proveedores',
+  customers:'Clientes', supplier_credits:'Notas de crédito', order:'Pedidos', supplier:'Proveedores'
+}
+const ACCION_LABEL = {
+  insert:'creó', update:'modificó', delete:'eliminó',
+  confirm_delivery:'confirmó una entrega', pago_proveedor:'pagó a un proveedor',
+  pedido_telefonico:'cargó un pedido telefónico'
+}
+
+async function auditoria(){
+  const [{ data: logsRaw }, { data: actoresRaw }] = await Promise.all([
+    supabase.rpc('admin_auditoria', {
+      p_from: audDesde || null, p_to: audHasta || null,
+      p_actor: audFiltroActor || null, p_entity: audFiltroEntidad || null, p_limit: 150
+    }),
+    supabase.rpc('admin_auditoria_actores', {})
+  ])
+  const logs = logsRaw || []
+  const actores = actoresRaw || []
+  const entidades = [...new Set(logs.map(l=>l.entity_type))].sort()
+
+  const describir = (l)=>{
+    const accion = ACCION_LABEL[l.action] || l.action
+    const entidad = ENTIDAD_LABEL[l.entity_type] || l.entity_type
+    if(l.action==='update' && l.new_value){
+      const campos = Object.entries(l.new_value).map(([campo,v])=>{
+        const antes = v && typeof v==='object' ? v.antes : ''
+        const despues = v && typeof v==='object' ? v.despues : ''
+        return `<div style="font-size:11.5px;color:#5F5E5A;padding:2px 0">${campo}: <s>${antes===null?'vacío':antes}</s> → <b style="color:#2F4D2A">${despues===null?'vacío':despues}</b></div>`
+      }).join('')
+      return `<div style="font-size:13px;color:#2F4D2A">${accion} ${entidad}</div>${campos}`
+    }
+    return `<div style="font-size:13px;color:#2F4D2A">${accion} ${l.action==='insert'||l.action==='delete'?entidad:''}</div>`
+  }
+
+  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <button class="btn ghost" id="btn_volver_auditoria" style="padding:6px 12px">← Volver</button>
+    <h2 style="margin:0">🔍 Quién hizo qué</h2>
+  </div>
+  <div class="card">
+    <p class="muted" style="margin-bottom:10px">Cada cambio queda registrado con la persona que lo hizo, la fecha y el valor anterior.</p>
+    <div class="field"><label>Persona</label><select id="aud_actor">
+      <option value="">Todas</option>
+      ${actores.filter(a=>a.user_id).map(a=>`<option value="${a.user_id}" ${audFiltroActor===a.user_id?'selected':''}>${a.full_name} (${a.acciones})</option>`).join('')}
+    </select></div>
+    <div class="field"><label>Qué se tocó</label><select id="aud_entidad">
+      <option value="">Todo</option>
+      ${entidades.map(e=>`<option value="${e}" ${audFiltroEntidad===e?'selected':''}>${ENTIDAD_LABEL[e]||e}</option>`).join('')}
+    </select></div>
+    <div class="grid two">
+      <div class="field"><label>Desde</label><input type="date" id="aud_desde" value="${audDesde}"/></div>
+      <div class="field"><label>Hasta</label><input type="date" id="aud_hasta" value="${audHasta}"/></div>
+    </div>
+  </div>
+  ${logs.length ? logs.map(l=>pCard(`
+    <div style="display:flex;gap:10px;align-items:flex-start">
+      ${pAvatar(l.actor,32)}
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;color:#2F4D2A;font-size:13px">${l.actor||'-'}</div>
+        <div class="muted" style="font-size:11px;margin-bottom:4px">${new Date(l.created_at).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}</div>
+        ${describir(l)}
+      </div>
+    </div>
+  `, 'margin-bottom:8px')).join('') : estadoVacio('No hay movimientos registrados con esos filtros.')}`)
+
+  document.querySelector('#btn_volver_auditoria').onclick = ()=>{ current='admin'; render() }
+  document.querySelector('#aud_actor').onchange = (e)=>{ audFiltroActor = e.target.value; render() }
+  document.querySelector('#aud_entidad').onchange = (e)=>{ audFiltroEntidad = e.target.value; render() }
+  document.querySelector('#aud_desde').onchange = (e)=>{ audDesde = e.target.value; render() }
+  document.querySelector('#aud_hasta').onchange = (e)=>{ audHasta = e.target.value; render() }
+}
+
 const ADMIN_DETALLE_TITULOS = {
   clientes: 'Clientes',
   pend_entrega: 'Pedidos pendientes de entrega',
@@ -5515,6 +6029,8 @@ async function render(){
   else if(current==='vehiculo-stats') await vehiculoStats();
   else if(current==='vehiculo-historial') await vehiculoHistorial();
   else if(current==='telefonico') await telefonico();
+  else if(current==='historial-pagos') await historialPagosProveedores();
+  else if(current==='auditoria') await auditoria();
   else if(current==='admin-detalle') await adminDetalle();
   else await admin()
   if(mismaPantalla) requestAnimationFrame(()=>window.scrollTo(0, scrollPrevio))
