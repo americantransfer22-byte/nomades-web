@@ -3,19 +3,46 @@ import { supabase } from './services/supabase.js'
 const app = document.querySelector('#app')
 let current = 'inicio'
 let session = null
-let myRole = null // 'admin' | 'campo' | 'repartidor'
+let myRole = null // rol principal
+let myRoles = [] // todos los roles de la persona
 let cuenta = null // datos del cliente logueado por DNI
 let staffProfile = null // datos del perfil del trabajador logueado
 let adminOpenSection = null // qué sección del acordeón de admin está abierta
 let adminDetalleTipo = null // qué tarjeta de resumen se está viendo en detalle
 
-function navStaffFor(role){
-  if(role==='admin') return [['clientes','Clientes'],['pedidos','Pedidos'],['preparador','Preparar pedidos'],['repartidor','Repartidor'],['campo','Campo'],['vendedor','Vender'],['admin','Administración'],['vehiculo','Mi vehículo'],['perfil','Mi perfil']]
-  if(role==='campo') return [['campo','Campo'],['perfil','Mi perfil']]
-  if(role==='repartidor') return [['repartidor','Repartidor'],['historial','Historial'],['vehiculo','Mi vehículo'],['perfil','Mi perfil']]
-  if(role==='preparador') return [['preparador','Preparar pedidos'],['perfil','Mi perfil']]
-  if(role==='vendedor') return [['vendedor','Vender'],['mis-suscriptores','Mis suscriptores'],['mis-comisiones','Mis comisiones'],['perfil','Mi perfil']]
-  return []
+const MENU_POR_ROL = {
+  admin: [['clientes','Clientes'],['pedidos','Pedidos'],['telefonico','Pedido telefónico'],['preparador','Preparar pedidos'],['repartidor','Repartidor'],['campo','Campo'],['vendedor','Vender'],['admin','Administración'],['vehiculo','Mi vehículo']],
+  campo: [['campo','Campo']],
+  repartidor: [['repartidor','Repartidor'],['historial','Historial'],['vehiculo','Mi vehículo']],
+  preparador: [['preparador','Preparar pedidos']],
+  vendedor: [['vendedor','Vender'],['mis-suscriptores','Mis suscriptores'],['mis-comisiones','Mis comisiones']],
+  telefonico: [['telefonico','Pedido telefónico']]
+}
+
+function rolesActivos(){
+  if(Array.isArray(myRoles) && myRoles.length) return myRoles
+  return myRole ? [myRole] : []
+}
+
+function tengoRol(rol){ return rolesActivos().includes(rol) }
+
+function navStaffFor(){
+  const roles = rolesActivos()
+  if(!roles.length) return []
+  const items = []
+  const vistos = {}
+  roles.forEach(r=>{
+    (MENU_POR_ROL[r]||[]).forEach(([k,l])=>{ if(!vistos[k]){ vistos[k]=1; items.push([k,l]) } })
+  })
+  items.push(['perfil','Mi perfil'])
+  return items
+}
+
+function pantallaInicialSegunRoles(){
+  const orden = ['admin','telefonico','preparador','repartidor','campo','vendedor']
+  const roles = rolesActivos()
+  const primero = orden.find(r=>roles.includes(r))
+  return primero === 'admin' ? 'admin' : (primero || 'perfil')
 }
 
 function logoSVG(size){
@@ -52,10 +79,10 @@ async function geocodificarDireccion(direccion){
 
 function layout(content){
   const esMayorista = current==='mayorista-login' || current==='mayorista-panel' || current==='mayorista-landing' || current==='mayorista-signup'
-  const nav = esMayorista ? [] : session ? (current==='staff-profile-setup' ? [['logout','Salir']] : [...navStaffFor(myRole),['logout','Salir']]) : [['inicio','Inicio'],['cuenta','Mi cuenta']]
+  const nav = esMayorista ? [] : session ? (current==='staff-profile-setup' ? [['logout','Salir']] : [...navStaffFor(),['logout','Salir']]) : [['inicio','Inicio'],['cuenta','Mi cuenta']]
   app.innerHTML = `<div class="shell"><div class="top"><div class="brand" style="display:flex;align-items:center;gap:8px">NÓMADES <span class="muted" style="font-size:12px">${esMayorista?'Portal mayoristas':'Huevos de libre pastoreo'}</span></div><div class="nav">${nav.map(([k,l])=>`<button class="btn ${current===k?'primary':'ghost'}" data-nav="${k}">${l}</button>`).join('')}</div></div>${content}${(!session && !esMayorista)?`<div style="text-align:center;margin-top:24px"><a href="#" id="staff_link" class="muted" style="font-size:12px">Acceso del equipo</a></div>`:''}</div>`
   document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=async ()=>{
-    if(b.dataset.nav==='logout'){ await supabase.auth.signOut(); session=null; myRole=null; current='inicio'; return render() }
+    if(b.dataset.nav==='logout'){ await supabase.auth.signOut(); session=null; myRole=null; myRoles=[]; current='inicio'; return render() }
     if(b.dataset.nav==='admin'){ adminData = null; adminOpenSection = null }
     current=b.dataset.nav; render()
   })
@@ -310,7 +337,7 @@ function cuentaPanel(){
     <div style="color:#F5EFE0;font-size:14px;font-weight:700">¡Esta semana comiste ${cuenta.huevos_semana} huevos de NÓMADES!</div>
     <div style="color:#C9D8B0;font-size:12px;margin-top:4px">Eso son aprox. ${cuenta.huevos_semana*6}g de proteína de calidad para tu cuerpo</div>
   </div>`:''}
-  ${cuenta.historial_entregas && cuenta.historial_entregas.length ? `<div class="card"><h3>📦 Historial de entregas</h3>${cuenta.historial_entregas.map(h=>`<div class="row"><span>${formatearFecha(h.delivery_date)}</span><span>${h.egg_quantity||0} huevos</span></div>`).join('')}</div>`:''}
+  ${cuenta.historial_entregas && cuenta.historial_entregas.length ? `<div class="card"><h3>📦 Historial de entregas</h3>${cuenta.historial_entregas.map(h=>`<div class="row"><span>${formatearFecha(h.delivery_date)}${h.es_telefonico||h.channel==='phone'?`<br>${pPill('📞 Pedido telefónico','#FAEEDA','#854F0B')}${h.taken_by_name?`<small class="muted"> lo cargó ${h.taken_by_name}</small>`:''}`:''}${h.envio_bonificado?`<br><small class="muted">envío bonificado</small>`:(h.envio?`<br><small class="muted">+ $${Number(h.envio).toLocaleString('es-AR')} de envío</small>`:'')}</span><span style="text-align:right">${h.egg_quantity||0} huevos${h.monto?`<br><b>$${Number(h.monto).toLocaleString('es-AR')}</b>`:''}</span></div>`).join('')}</div>`:''}
   <div class="card" id="card_datos"><h3>Tus datos</h3><p>🪪 DNI ${c.dni||'-'}</p><p>🏠 ${tipoVia} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'} (CP ${c.postal_code||'-'})</p><p>📍 Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'}</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
   ${cuenta.catalogo && cuenta.catalogo.length ? `<div class="card" style="padding:0;overflow:hidden">
     <div style="background:#2F4D2A;background-image:repeating-linear-gradient(135deg, rgba(245,239,224,0.05) 0px, rgba(245,239,224,0.05) 12px, transparent 12px, transparent 24px);padding:16px 16px 14px;border-bottom:3px solid #E8833A">
@@ -1292,38 +1319,32 @@ const ROLES_STAFF = [
   { value: 'campo', label: 'Personal de campo' },
   { value: 'repartidor', label: 'Repartidor' },
   { value: 'preparador', label: 'Preparador de pedidos' },
+  { value: 'telefonico', label: 'Personal telefónico' },
   { value: 'vendedor', label: 'Vendedor' }
 ]
+let staffEditandoRoles = null // user_id de la persona cuyos roles se están editando
 
 function staffLogin(){
-  let rolSel = ''
   layout(`<h2>Acceso del equipo</h2><div class="card">
-    <div class="field"><label>¿Cuál es tu rol?</label>
-      <div class="grid three" id="staff_role_group">${ROLES_STAFF.map(r=>`<button type="button" class="btn ghost" data-role="${r.value}">${r.label}</button>`).join('')}</div>
-    </div>
+    <p class="muted" style="margin-bottom:12px">Con tu código entrás a todas las secciones que tengas habilitadas.</p>
     <div class="field"><label>Código de acceso</label><input id="staff_code" autocomplete="off" placeholder="Ej: A3K9T2XZ" style="text-transform:uppercase"/></div>
     <div id="err_staff" class="alert danger" style="display:none"></div>
-    <button class="btn primary" id="btn_staff_login">Ingresar</button>
+    <button class="btn primary" id="btn_staff_login" style="width:100%">Ingresar</button>
   </div>`)
-  document.querySelectorAll('#staff_role_group [data-role]').forEach(b=> b.onclick = ()=>{
-    rolSel = b.dataset.role
-    document.querySelectorAll('#staff_role_group [data-role]').forEach(x=> x.className = 'btn ' + (x.dataset.role===rolSel?'primary':'ghost'))
-  })
   document.querySelector('#btn_staff_login').onclick = async ()=>{
     const code = document.querySelector('#staff_code').value.trim().toUpperCase()
     const box = document.querySelector('#err_staff')
-    if(!rolSel){ box.textContent='Elegí tu rol.'; box.style.display='block'; return }
     if(!code){ box.textContent='Ingresá tu código de acceso.'; box.style.display='block'; return }
     const email = `staff-${code.toLowerCase()}@nomades.internal`
     const { data, error } = await supabase.auth.signInWithPassword({ email, password: code })
     if(error){ box.textContent='Código incorrecto o vencido.'; box.style.display='block'; return }
     const { data: roleRow } = await supabase.from('staff_roles').select('*').eq('user_id', data.user.id).single()
     if(!roleRow){ box.textContent='Este código no tiene un rol asignado.'; box.style.display='block'; await supabase.auth.signOut(); return }
-    if(roleRow.role !== rolSel){ box.textContent='Ese código no corresponde al rol seleccionado.'; box.style.display='block'; await supabase.auth.signOut(); return }
     session = data.session
     myRole = roleRow.role
+    myRoles = (Array.isArray(roleRow.roles) && roleRow.roles.length) ? roleRow.roles : (roleRow.role ? [roleRow.role] : [])
     staffProfile = roleRow
-    current = roleRow.profile_completed ? (myRole==='campo' ? 'campo' : myRole==='repartidor' ? 'repartidor' : myRole==='preparador' ? 'preparador' : myRole==='vendedor' ? 'vendedor' : 'admin') : 'staff-profile-setup'
+    current = roleRow.profile_completed ? pantallaInicialSegunRoles() : 'staff-profile-setup'
     render()
   }
 }
@@ -1450,7 +1471,7 @@ async function miVehiculo(){
   const historial = historialRaw || []
   const { data: serviceHistRaw } = await supabase.from('vehicle_services').select('id,service_date,km,description,parts_used,cost,payment_method,paid_by,payment_status,responsible_id').eq('vehicle_id', vehiculo.id).order('service_date',{ascending:false}).limit(15)
   const serviceHist = serviceHistRaw || []
-  const { data: staffRaw } = await supabase.from('staff_roles').select('user_id,full_name').in('role',['repartidor','admin'])
+  const { data: staffRaw } = await supabase.from('staff_roles').select('user_id,full_name,role,roles').or('role.in.(repartidor,admin),roles.cs.{repartidor}')
   const staffList = staffRaw || []
   const staffMap = Object.fromEntries(staffList.map(s=>[s.user_id,s.full_name]))
 
@@ -1752,7 +1773,7 @@ async function mayoristaPanel(){
       }).join('')}
       ${Object.values(mayoristaCarritoProductosNuevo).some(q=>q>0)?`<button class="btn primary" id="btn_confirmar_productos_mayorista" style="width:100%;margin-top:10px">Agregar al pedido</button>`:''}
     </div>`:''}
-    ${cuenta.historial_entregas && cuenta.historial_entregas.length ? `<div class="card"><h3>📦 Historial de entregas</h3>${cuenta.historial_entregas.map(h=>`<div class="row"><span>${formatearFecha(h.delivery_date)}</span><span>${h.egg_quantity||0} huevos</span></div>`).join('')}</div>`:''}
+    ${cuenta.historial_entregas && cuenta.historial_entregas.length ? `<div class="card"><h3>📦 Historial de entregas</h3>${cuenta.historial_entregas.map(h=>`<div class="row"><span>${formatearFecha(h.delivery_date)}${h.es_telefonico||h.channel==='phone'?`<br>${pPill('📞 Pedido telefónico','#FAEEDA','#854F0B')}${h.taken_by_name?`<small class="muted"> lo cargó ${h.taken_by_name}</small>`:''}`:''}${h.envio_bonificado?`<br><small class="muted">envío bonificado</small>`:(h.envio?`<br><small class="muted">+ $${Number(h.envio).toLocaleString('es-AR')} de envío</small>`:'')}</span><span style="text-align:right">${h.egg_quantity||0} huevos${h.monto?`<br><b>$${Number(h.monto).toLocaleString('es-AR')}</b>`:''}</span></div>`).join('')}</div>`:''}
     <div class="card" id="card_pagos"><h3>💳 Historial de pagos</h3>${skeletonBloque(3)}</div>
     <div class="card" id="card_datos"><h3>Tus datos</h3><p>🪪 DNI ${c.dni||'-'}</p><p>🏠 ${TIPOS_VIA[c.street_type]||'Calle'} ${c.street||''} ${c.street_number||''}</p><p>🏘️ Barrio ${c.neighborhood||'-'}</p><p>📍 ${c.city||'-'}, ${c.province||'-'}, ${c.country||'-'} (CP ${c.postal_code||'-'})</p><p>📞 ${c.phone||'-'}</p><p>✉️ ${c.email||'-'}</p><button class="btn ghost" id="btn_editar_datos" style="margin-top:8px">✏️ Editar mis datos</button></div>
     <button class="btn ghost" id="btn_logout_mayorista">Cerrar sesión</button>`)
@@ -1859,6 +1880,9 @@ async function abrirPreparacion(id){
   <div class="card">
     <h3>${c.last_name||''}, ${c.first_name||''}</h3>
     <p class="muted">${c.neighborhood||''} · Entrega: ${formatearFecha(o.delivery_date)}</p>
+    ${o.channel==='phone'?`<div style="margin:8px 0">${pPill('📞 Pedido telefónico','#FAEEDA','#854F0B')}${o.taken_by_name?`<small class="muted"> lo tomó ${o.taken_by_name}</small>`:''}</div>`:''}
+    ${(o.extra_eggs&&o.extra_eggs.length)?`<div class="alert info">🥚 Huevos sumados por teléfono: ${o.extra_eggs.map(e=>`${e.qty}×${e.size}`).join(' + ')}</div>`:''}
+    ${o.needs_review?`<div class="alert warning">⚠️ Revisar antes de preparar: ${o.review_note||'este pedido quedó marcado para revisión.'}</div>`:''}
     ${o.important_note?`<div class="alert warning">⚠️ ${o.important_note}</div>`:''}
   </div>
   <div class="card">
@@ -2961,7 +2985,7 @@ async function fetchAdminData(){
     q('orders','id,status,delivery_date,egg_quantity,important_note,time_restriction_manual'),
     q('customers','id'),
     q('subscriptions','id,payment_status,created_at,customers(first_name,last_name)'),
-    q('staff_roles','user_id,role,full_name,created_at'),
+    q('staff_roles','user_id,role,roles,full_name,created_at'),
     q('products','id,name,unit_label,category,current_qty,active'),
     supabase.from('stock_movements').select('id,product_id,type,quantity,note,created_by,created_at').order('created_at',{ascending:false}).limit(20),
     supabase.from('waitlist').select('id,customer_id,egg_quantity,frequency,position,created_at,customers(first_name,last_name,phone)').order('position'),
@@ -3041,7 +3065,7 @@ async function admin(){
   const TIPO_CAT_LABEL = { fixed:'Fijo', variable:'Variable', income:'Ingreso' }
   const count=s=>orders.filter(x=>x.status===s).length
   const pendientesDePago = subs.filter(s=>s.payment_status==='pending')
-  const rolLabel = {admin:'Administrador',campo:'Personal de campo',repartidor:'Repartidor',preparador:'Preparador de pedidos',vendedor:'Vendedor'}
+  const rolLabel = {admin:'Administrador',campo:'Personal de campo',repartidor:'Repartidor',preparador:'Preparador de pedidos',vendedor:'Vendedor',telefonico:'Personal telefónico'}
   const AS = (id)=> adminOpenSection===id
   const accHead = (id, icon, titulo, badge)=> `<button type="button" class="acc-header" data-acc="${id}" style="all:unset;box-sizing:border-box;display:flex;align-items:center;width:100%;padding:14px 16px;cursor:pointer;gap:10px;background:${AS(id)?'#F5EFE0':'transparent'}"><span style="width:32px;height:32px;border-radius:9px;background:#EAF0DC;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">${icon}</span><span style="flex:1;font-weight:700;font-size:14.5px;color:#2F4D2A">${titulo}</span>${badge?pPill(badge,'#FBE4CC','#B85C00'):''}<span style="font-size:13px;color:#8A8570">${AS(id)?'▲':'▼'}</span></button><div class="acc-body" style="max-height:${AS(id)?'6000px':'0'};padding:${AS(id)?'4px 16px 16px 16px':'0 16px'}">`
   const statCard = (id,label,value)=> `<div data-stat="${id}" style="cursor:pointer;flex:0 0 auto;min-width:96px;background:#2F4D2A;border-radius:14px;padding:10px 14px;display:flex;flex-direction:column;gap:2px"><span style="color:#C9D8B0;font-size:11px;line-height:1.25">${label}</span><span style="color:#F5EFE0;font-size:20px;font-weight:700;line-height:1.15">${value}</span></div>`
@@ -3082,9 +3106,9 @@ async function admin(){
   </div>
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:14px">
   ${accHead('personal','👥','Gestión de personal')}
-    <div class="grid two">
-      <div class="field"><label>Nombre</label><input id="staff_new_name"/></div>
-      <div class="field"><label>Rol</label><select id="staff_new_role"><option value="campo">Personal de campo</option><option value="repartidor">Repartidor</option><option value="preparador">Preparador de pedidos</option><option value="vendedor">Vendedor</option><option value="admin">Administrador</option></select></div>
+    <div class="field"><label>Nombre y apellido</label><input id="staff_new_name"/></div>
+    <div class="field"><label>Roles — puede tener varios</label>
+      <div id="staff_new_roles">${ROLES_STAFF.map(r=>`<label style="display:flex;align-items:center;gap:10px;border:1px solid #E3DCC8;border-radius:10px;padding:9px 12px;margin-bottom:6px;background:#FFFFFF"><input type="checkbox" data-nuevo-rol="${r.value}" style="width:18px;height:18px"/> <span style="font-size:14px">${r.label}</span></label>`).join('')}</div>
     </div>
     <div class="field"><label>Código de acceso (opcional — si lo dejás vacío, se genera uno automático)</label><input id="staff_new_code" placeholder="Ej: 123 (mín. 3 caracteres, letras o números)"/></div>
     <button class="btn primary" id="btn_crear_staff">➕ Generar código de acceso</button>
@@ -3096,10 +3120,20 @@ async function admin(){
           ${pAvatar(s.full_name)}
           <div style="flex:1">
             <div style="font-weight:700;color:#2F4D2A">${s.full_name||'(sin nombre)'}</div>
-            <div style="display:flex;gap:6px;margin-top:3px">${pPill(rolLabel[s.role]||s.role)}${esVos?pPill('Vos','#2F4D2A','#F5EFE0'):''}</div>
+            <div style="display:flex;gap:6px;margin-top:3px;flex-wrap:wrap">${((Array.isArray(s.roles)&&s.roles.length)?s.roles:[s.role]).map(r=>pPill(rolLabel[r]||r)).join('')}${esVos?pPill('Vos','#2F4D2A','#F5EFE0'):''}</div>
           </div>
         </div>
-        ${esVos?`<p class="muted" style="font-size:12px;margin-top:10px">Para cambiar tu propio código, cerrá sesión y usá "Acceso del equipo" con tu código actual.</p>`:pBtnRow([pBtn('🔄','Nuevo código',`data-reset="${s.user_id}"`,'ghost'), pBtn('❌','Revocar',`data-revoke="${s.user_id}"`,'danger')])}
+        ${staffEditandoRoles===s.user_id?`
+          <div style="margin-top:10px">
+            ${ROLES_STAFF.map(r=>{
+              const tiene = ((Array.isArray(s.roles)&&s.roles.length)?s.roles:[s.role]).includes(r.value)
+              return `<label style="display:flex;align-items:center;gap:10px;border:1px solid #E3DCC8;border-radius:10px;padding:9px 12px;margin-bottom:6px;background:#FFFFFF"><input type="checkbox" data-editar-rol="${r.value}" ${tiene?'checked':''} style="width:18px;height:18px"/> <span style="font-size:14px">${r.label}</span></label>`
+            }).join('')}
+            ${pBtnRow([pBtn('💾','Guardar roles',`data-guardar-roles="${s.user_id}"`,''), pBtn('✖️','Cancelar',`data-cancelar-roles="1"`,'ghost')])}
+          </div>`
+        : (esVos
+          ? pBtnRow([pBtn('👥','Editar roles',`data-editar-roles="${s.user_id}"`,'ghost')]) + `<p class="muted" style="font-size:12px;margin-top:8px">Para cambiar tu propio código, cerrá sesión y usá "Acceso del equipo" con tu código actual.</p>`
+          : pBtnRow([pBtn('👥','Editar roles',`data-editar-roles="${s.user_id}"`,'ghost'), pBtn('🔄','Nuevo código',`data-reset="${s.user_id}"`,'ghost'), pBtn('❌','Revocar',`data-revoke="${s.user_id}"`,'danger')]))}
       `)
     }).join(''):'<p class="muted">Todavía no agregaste personal.</p>'}</div>
   </div></div>
@@ -4183,15 +4217,29 @@ async function admin(){
   })
   document.querySelector('#btn_crear_staff').onclick = async ()=>{
     const full_name = document.querySelector('#staff_new_name').value.trim()
-    const role = document.querySelector('#staff_new_role').value
+    const rolesElegidos = Array.from(document.querySelectorAll('[data-nuevo-rol]')).filter(x=>x.checked).map(x=>x.dataset.nuevoRol)
     const custom_code = document.querySelector('#staff_new_code').value.trim()
     const box = document.querySelector('#codigo_generado')
+    if(!rolesElegidos.length){ box.innerHTML = '<div class="alert danger">Marcá al menos un rol.</div>'; return }
+    const role = rolesElegidos.includes('admin') ? 'admin' : rolesElegidos[0]
     box.innerHTML = '<p class="muted">Generando…</p>'
     const { data, error } = await supabase.functions.invoke('manage-staff', { body: { action:'create', full_name, role, custom_code } })
     if(error){ box.innerHTML = `<div class="alert danger">No se pudo generar: ${error.message}</div>`; return }
+    if(data?.user_id && rolesElegidos.length > 1){
+      await supabase.rpc('admin_set_staff_roles', { p_user_id: data.user_id, p_roles: rolesElegidos })
+    }
     box.innerHTML = `<div class="alert info"><b>✅ Código generado para ${full_name||'este usuario'}:</b><br><span style="font-size:20px;font-weight:bold;letter-spacing:2px">${data.code}</span><br><small>Copialo ahora — no se vuelve a mostrar. Pasáselo a la persona para que entre por "Acceso del equipo".</small></div>`
     adminData = null; render()
   }
+  document.querySelectorAll('[data-editar-roles]').forEach(b=>b.onclick=()=>{ staffEditandoRoles = b.dataset.editarRoles; render() })
+  document.querySelectorAll('[data-cancelar-roles]').forEach(b=>b.onclick=()=>{ staffEditandoRoles = null; render() })
+  document.querySelectorAll('[data-guardar-roles]').forEach(b=>b.onclick=async()=>{
+    const roles = Array.from(document.querySelectorAll('[data-editar-rol]')).filter(x=>x.checked).map(x=>x.dataset.editarRol)
+    if(!roles.length){ mostrarAlerta('Marcá al menos un rol.'); return }
+    const { data, error } = await supabase.rpc('admin_set_staff_roles', { p_user_id: b.dataset.guardarRoles, p_roles: roles })
+    if(error || !data?.ok){ mostrarAlerta('No se pudo guardar: '+(data?.error||error?.message||'')); return }
+    staffEditandoRoles = null; adminData = null; mostrarAlerta('Roles actualizados ✅'); render()
+  })
   document.querySelectorAll('[data-revoke]').forEach(b=>b.onclick=async()=>{
     if(!(await mostrarConfirmacion('¿Revocar el acceso de esta persona? No va a poder entrar más con su código actual.')))return
     const { error } = await supabase.functions.invoke('manage-staff', { body: { action:'revoke', user_id:b.dataset.revoke } })
@@ -4986,6 +5034,390 @@ async function admin(){
   animarContadores()
 }
 
+// ============ PEDIDO TELEFÓNICO ============
+let telState = null
+
+function telReset(){
+  telState = {
+    quienAtiende: null,      // { user_id, full_name }
+    staffLista: [],
+    dni: '',
+    cliente: null,           // respuesta de telefono_buscar_cliente
+    altaForm: null,          // datos del alta rápida cuando el DNI no existe
+    catalogo: [],
+    planes: [],
+    carritoProductos: {},    // product_id -> cantidad
+    preciosManuales: {},     // product_id -> precio escrito a mano
+    carritoHuevos: {},       // egg_quantity -> cantidad
+    entregaElegida: null,    // order_id de una entrega ya programada
+    fechaNueva: '',          // fecha elegida para un pedido suelto
+    fechasZona: [],
+    urgente: false,
+    bonificarEnvio: false,
+    motivoBonificacion: '',
+    preparador: '',
+    categoria: null,
+    resultado: null,
+    cargando: false
+  }
+}
+
+function telTotalProductos(){
+  return Object.entries(telState.carritoProductos).reduce((sum,[id,q])=>{
+    if(!q) return sum
+    const p = telState.catalogo.find(x=>x.id===id)
+    if(!p) return sum
+    const manual = Number(telState.preciosManuales[id])
+    return sum + (manual > 0 ? manual : Number(p.price)) * q
+  }, 0)
+}
+
+function telTotalHuevos(){
+  return Object.entries(telState.carritoHuevos).reduce((sum,[size,q])=>{
+    if(!q) return sum
+    const pl = telState.planes.find(x=>String(x.egg_quantity)===String(size))
+    return sum + (pl ? Number(pl.price) : 0) * q
+  }, 0)
+}
+
+function telCantidadHuevos(){
+  return Object.entries(telState.carritoHuevos).reduce((sum,[size,q])=>sum + Number(size)*(q||0), 0)
+}
+
+function telEsEntregaProgramada(){
+  if(!telState.entregaElegida) return false
+  const e = (telState.cliente?.entregas_programadas||[]).find(x=>x.id===telState.entregaElegida)
+  return !!(e && e.channel !== 'phone')
+}
+
+function telCalcularEnvio(){
+  const subtotal = telTotalProductos() + telTotalHuevos()
+  const minimo = Number(telConfig.free_shipping_min || 80000)
+  const costo = Number(telConfig.shipping_cost || 6000)
+  if(telState.urgente) return { costo, motivo: 'Entrega urgente fuera de la ruta' }
+  if(telEsEntregaProgramada()) return { costo: 0, motivo: 'Se suma a una entrega ya programada' }
+  if(subtotal >= minimo) return { costo: 0, motivo: 'Superó el mínimo de envío gratis' }
+  return { costo, motivo: 'No llega al mínimo', falta: minimo - subtotal }
+}
+
+let telConfig = { shipping_cost: 6000, free_shipping_min: 80000 }
+
+async function telefonico(){
+  if(!telState) telReset()
+
+  if(!telState.staffLista.length){
+    const [{ data: staffRaw }, { data: cfgRaw }] = await Promise.all([
+      supabase.rpc('staff_telefonicos', {}),
+      supabase.from('farm_settings').select('key,value').in('key',['shipping_cost','free_shipping_min'])
+    ])
+    telState.staffLista = staffRaw || []
+    const cfg = Object.fromEntries((cfgRaw||[]).map(x=>[x.key,x.value]))
+    telConfig = { shipping_cost: Number(cfg.shipping_cost||6000), free_shipping_min: Number(cfg.free_shipping_min||80000) }
+  }
+
+  // --- Paso 0: quién atiende ---
+  if(!telState.quienAtiende){
+    layout(`<h2>📞 Pedido telefónico</h2>
+      <div class="card">
+        <h3>¿Quién está atendiendo?</h3>
+        <p class="muted" style="margin-bottom:12px">Queda registrado en el pedido. Solo aparecen las personas habilitadas como personal telefónico.</p>
+        ${telState.staffLista.length
+          ? telState.staffLista.map(s=>`<button class="btn ghost" data-quien="${s.user_id}" data-nombre="${(s.full_name||'').replace(/"/g,'&quot;')}" style="width:100%;text-align:left;margin-bottom:8px;display:flex;align-items:center;gap:10px">${pAvatar(s.full_name,32)}<span>${s.full_name||'(sin nombre)'}</span></button>`).join('')
+          : '<div class="alert warning">Todavía no hay nadie habilitado como personal telefónico. Andá a Administración → Gestión de personal y marcá el rol.</div>'}
+      </div>`)
+    document.querySelectorAll('[data-quien]').forEach(b=>b.onclick=()=>{
+      telState.quienAtiende = { user_id: b.dataset.quien, full_name: b.dataset.nombre }
+      render()
+    })
+    return
+  }
+
+  // --- Resultado final ---
+  if(telState.resultado){
+    const r = telState.resultado
+    layout(`<h2>📞 Pedido telefónico</h2>
+      <div class="card">
+        <h3>✅ Pedido cargado</h3>
+        <div class="row"><span>Entrega</span><span><b>${formatearFecha(r.delivery_date)}</b></span></div>
+        ${r.huevos?`<div class="row"><span>Huevos</span><span>${r.huevos} · $${Number(r.monto_huevos).toLocaleString('es-AR')}</span></div>`:''}
+        ${r.monto_productos?`<div class="row"><span>Productos</span><span>$${Number(r.monto_productos).toLocaleString('es-AR')}</span></div>`:''}
+        <div class="row"><span>Envío</span><span>${r.envio_bonificado?`<s>$${Number(r.envio_calculado).toLocaleString('es-AR')}</s> bonificado`:`$${Number(r.envio).toLocaleString('es-AR')}`}</span></div>
+        <div class="row"><span><b>Total</b></span><span><b>$${Number(r.total).toLocaleString('es-AR')}</b></span></div>
+        <p class="muted" style="margin-top:10px">Tomado por ${telState.quienAtiende.full_name}. ${r.motivo_envio||''}</p>
+        ${(r.avisos||[]).length?`<div class="alert warning" style="margin-top:10px">⚠️ ${r.avisos.join('<br>')}</div>`:''}
+      </div>
+      <button class="btn primary" id="tel_otro" style="width:100%">📞 Cargar otro pedido</button>`)
+    document.querySelector('#tel_otro').onclick = ()=>{ const q = telState.quienAtiende, l = telState.staffLista; telReset(); telState.quienAtiende=q; telState.staffLista=l; render() }
+    return
+  }
+
+  // --- Paso 1: buscar cliente ---
+  if(!telState.cliente){
+    layout(`<h2>📞 Pedido telefónico</h2>
+      <div class="card" style="padding:10px 14px;display:flex;align-items:center;gap:10px">
+        ${pAvatar(telState.quienAtiende.full_name,32)}
+        <span style="flex:1;font-size:13px">Atiende <b>${telState.quienAtiende.full_name}</b></span>
+        <button class="btn ghost" id="tel_cambiar_quien" style="font-size:12px;padding:6px 10px">Cambiar</button>
+      </div>
+      <div class="card">
+        <h3>Buscar cliente</h3>
+        <div class="field"><label>DNI</label><input id="tel_dni" inputmode="numeric" placeholder="Sin puntos" value="${telState.dni}"/></div>
+        <div id="tel_err_dni" class="alert danger" style="display:none"></div>
+        <button class="btn primary" id="tel_buscar" style="width:100%">Buscar</button>
+      </div>
+      ${telState.altaForm ? telAltaFormHtml() : ''}`)
+    document.querySelector('#tel_cambiar_quien').onclick = ()=>{ telState.quienAtiende=null; render() }
+    document.querySelector('#tel_buscar').onclick = async ()=>{
+      const dni = document.querySelector('#tel_dni').value.trim()
+      const box = document.querySelector('#tel_err_dni')
+      if(!/^\d{7,8}$/.test(dni)){ box.textContent='El DNI tiene que tener 7 u 8 números, sin puntos.'; box.style.display='block'; return }
+      telState.dni = dni
+      const { data, error } = await supabase.rpc('telefono_buscar_cliente', { p_dni: dni })
+      if(error || !data?.ok){ box.textContent='No se pudo buscar: '+(data?.error||error?.message||''); box.style.display='block'; return }
+      if(!data.found){
+        telState.altaForm = { first_name:'', last_name:'', phone:'', street:'', street_number:'', neighborhood:'', zone:'', city:'Rosario', province:'Santa Fe' }
+        render(); return
+      }
+      telState.cliente = data
+      await telCargarCatalogo()
+      render()
+    }
+    if(telState.altaForm) telBindAlta()
+    return
+  }
+
+  // --- Paso 2: armar el pedido ---
+  const c = telState.cliente.customer
+  const rank = telState.cliente.ranking || {}
+  const entregas = telState.cliente.entregas_programadas || []
+  const envio = telCalcularEnvio()
+  const subtotal = telTotalProductos() + telTotalHuevos()
+  const total = subtotal + (telState.bonificarEnvio ? 0 : envio.costo)
+  const categorias = CATEGORIAS_CATALOGO.filter(cat=>telState.catalogo.some(p=>p.category===cat))
+  const productosFiltrados = telState.categoria ? telState.catalogo.filter(p=>p.category===telState.categoria) : telState.catalogo
+
+  layout(`<h2>📞 Pedido telefónico</h2>
+    <div class="card" style="padding:10px 14px;display:flex;align-items:center;gap:10px">
+      ${pAvatar(telState.quienAtiende.full_name,32)}
+      <span style="flex:1;font-size:13px">Atiende <b>${telState.quienAtiende.full_name}</b></span>
+      <button class="btn ghost" id="tel_reiniciar" style="font-size:12px;padding:6px 10px">Otro cliente</button>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px">
+        ${pAvatar(c.first_name,40)}
+        <div style="flex:1">
+          <div style="font-weight:700;color:#2F4D2A">${c.first_name||''} ${c.last_name||''}</div>
+          <div class="muted" style="font-size:12px">📞 ${c.phone||'-'} · ${c.street||''} ${c.street_number||''} · ${c.neighborhood||'-'}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+        ${rank.found?pPill(`Puesto ${rank.puesto} de ${rank.total_clientes}`, rank.es_top?'#EAF0DC':'#F5EFE0', '#2F4D2A'):''}
+        ${rank.found?pPill(`$${Number(rank.total_gastado||0).toLocaleString('es-AR')} gastados`):''}
+        ${rank.es_top?pPill('⭐ Cliente top','#2F4D2A','#F5EFE0'):''}
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>¿A qué entrega va?</h3>
+      ${entregas.length?entregas.map(e=>`
+        <button class="btn ${telState.entregaElegida===e.id?'primary':'ghost'}" data-tel-entrega="${e.id}" style="width:100%;text-align:left;margin-bottom:8px">
+          ${formatearFecha(e.delivery_date)}${e.cierra_pronto?' ⏰ cierra pronto':''}${e.channel==='phone'?' · telefónico':''}
+        </button>`).join('')
+      :'<p class="muted">Este cliente no tiene entregas programadas.</p>'}
+      <button class="btn ${telState.entregaElegida===null&&telState.fechaNueva?'primary':'ghost'}" id="tel_nueva_fecha" style="width:100%;text-align:left">📅 Entrega nueva${telState.fechaNueva?': '+formatearFecha(telState.fechaNueva):''}</button>
+      ${telState.entregaElegida===null?`
+        <div style="margin-top:10px">
+          ${telState.fechasZona.length?`<p class="muted" style="font-size:12px;margin-bottom:6px">Días en que el reparto ya pasa por su zona:</p>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${telState.fechasZona.map(f=>`<button class="btn ${telState.fechaNueva===f?'primary':'ghost'}" data-tel-fecha="${f}" style="font-size:12px;padding:6px 10px">${new Date(f+'T00:00:00').toLocaleDateString('es-AR',{weekday:'short',day:'numeric',month:'short'})}</button>`).join('')}</div>`:''}
+          <div class="field"><label>O elegí otra fecha</label><input type="date" id="tel_fecha_manual" value="${telState.fechaNueva||''}"/></div>
+          <label style="display:flex;align-items:center;gap:10px;font-size:14px"><input type="checkbox" id="tel_urgente" ${telState.urgente?'checked':''} style="width:18px;height:18px"/> Es urgente, fuera de la ruta</label>
+        </div>`:''}
+    </div>
+
+    <div class="card">
+      <h3>🥚 Huevos</h3>
+      ${telState.planes.map(pl=>`<div class="row"><span>Maple de ${pl.egg_quantity} huevos<br><small class="muted">$${Number(pl.price).toLocaleString('es-AR')}</small></span>
+        <span style="display:flex;align-items:center;gap:8px">
+          <button data-tel-huevo-menos="${pl.egg_quantity}" style="width:28px;height:28px;border-radius:7px;background:#F5EFE0;color:#2F4D2A;border:none;font-size:15px;font-weight:700">−</button>
+          <b style="min-width:16px;text-align:center">${telState.carritoHuevos[pl.egg_quantity]||0}</b>
+          <button data-tel-huevo-mas="${pl.egg_quantity}" style="width:28px;height:28px;border-radius:7px;background:#2F4D2A;color:#F5EFE0;border:none;font-size:15px;font-weight:700">+</button>
+        </span></div>`).join('')}
+    </div>
+
+    <div class="card">
+      <h3>🛒 Productos</h3>
+      ${categorias.length?`<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;margin-bottom:8px">
+        <button class="btn ${telState.categoria===null?'primary':'ghost'}" data-tel-cat="" style="font-size:12px;padding:6px 12px;white-space:nowrap">Todas</button>
+        ${categorias.map(cat=>`<button class="btn ${telState.categoria===cat?'primary':'ghost'}" data-tel-cat="${cat}" style="font-size:12px;padding:6px 12px;white-space:nowrap">${cat}</button>`).join('')}
+      </div>`:''}
+      ${productosFiltrados.length?productosFiltrados.map(p=>{
+        const q = telState.carritoProductos[p.id]||0
+        const sinStock = p.stock!==null && p.stock!==undefined && p.stock<=0
+        return `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #F0EADB">
+          ${p.photo_url?`<img src="${p.photo_url}" style="width:40px;height:40px;border-radius:8px;object-fit:cover;flex-shrink:0"/>`:`<div style="width:40px;height:40px;border-radius:8px;background:#F5EFE0;display:flex;align-items:center;justify-content:center">🛒</div>`}
+          <div style="flex:1;min-width:0">
+            <div style="font-size:14px;color:#2F4D2A">${p.name}</div>
+            <div class="muted" style="font-size:12px">$${Number(p.price).toLocaleString('es-AR')} · ${p.unit_label||''}${sinStock?' · sin stock':(p.stock!==null&&p.stock!==undefined?` · quedan ${p.stock}`:'')}</div>
+          </div>
+          <span style="display:flex;align-items:center;gap:6px">
+            <button data-tel-menos="${p.id}" style="width:28px;height:28px;border-radius:7px;background:#F5EFE0;color:#2F4D2A;border:none;font-size:15px;font-weight:700">−</button>
+            <b style="min-width:14px;text-align:center">${q}</b>
+            <button data-tel-mas="${p.id}" data-stock="${p.stock===null||p.stock===undefined?'':p.stock}" style="width:28px;height:28px;border-radius:7px;background:${sinStock?'#C9C4B4':'#2F4D2A'};color:#F5EFE0;border:none;font-size:15px;font-weight:700">+</button>
+          </span>
+        </div>
+        ${q>0?`<div class="field" style="margin:6px 0 10px"><label style="font-size:12px">Precio pactado por teléfono (opcional)</label><input type="number" data-tel-precio="${p.id}" value="${telState.preciosManuales[p.id]||''}" placeholder="Dejalo vacío para usar $${Number(p.price).toLocaleString('es-AR')}"/></div>`:''}`
+      }).join(''):'<p class="muted">No hay productos en el catálogo.</p>'}
+    </div>
+
+    <div class="card">
+      <h3>Resumen</h3>
+      ${telCantidadHuevos()?`<div class="row"><span>Huevos (${telCantidadHuevos()})</span><span>$${telTotalHuevos().toLocaleString('es-AR')}</span></div>`:''}
+      ${telTotalProductos()?`<div class="row"><span>Productos</span><span>$${telTotalProductos().toLocaleString('es-AR')}</span></div>`:''}
+      <div class="row"><span>Envío<br><small class="muted">${envio.motivo}</small></span><span>${telState.bonificarEnvio?`<s>$${envio.costo.toLocaleString('es-AR')}</s> $0`:`$${envio.costo.toLocaleString('es-AR')}`}</span></div>
+      ${envio.falta?`<div class="alert warning" style="margin-top:6px">Le faltan $${envio.falta.toLocaleString('es-AR')} para el envío gratis</div>`:''}
+      <div class="row"><span><b>Total</b></span><span><b>$${total.toLocaleString('es-AR')}</b></span></div>
+      ${envio.costo>0?`
+        <label style="display:flex;align-items:center;gap:10px;font-size:14px;margin-top:10px"><input type="checkbox" id="tel_bonificar" ${telState.bonificarEnvio?'checked':''} style="width:18px;height:18px"/> Bonificar el envío</label>
+        ${telState.bonificarEnvio?`<div class="field" style="margin-top:8px"><label>Motivo</label><input id="tel_motivo" value="${telState.motivoBonificacion}" placeholder="${rank.es_top?'Cliente top '+rank.corte_top:'Ej: cliente frecuente'}"/></div>`:''}
+      `:''}
+      <div class="field" style="margin-top:10px"><label>Asignar preparador (opcional)</label>
+        <select id="tel_preparador"><option value="">Elegir después</option>${(telState.preparadores||[]).map(p=>`<option value="${p.user_id}" ${telState.preparador===p.user_id?'selected':''}>${p.full_name||'(sin nombre)'}</option>`).join('')}</select>
+      </div>
+      <div id="tel_err" class="alert danger" style="display:none"></div>
+      <button class="btn primary" id="tel_confirmar" style="width:100%;margin-top:10px" ${telState.cargando?'disabled':''}>${telState.cargando?'Guardando…':'✅ Confirmar y enviar a preparación'}</button>
+    </div>`)
+
+  document.querySelector('#tel_reiniciar').onclick = ()=>{ const q=telState.quienAtiende, l=telState.staffLista; telReset(); telState.quienAtiende=q; telState.staffLista=l; render() }
+  document.querySelectorAll('[data-tel-entrega]').forEach(b=>b.onclick=()=>{ telState.entregaElegida=b.dataset.telEntrega; telState.fechaNueva=''; telState.urgente=false; render() })
+  document.querySelector('#tel_nueva_fecha').onclick = async ()=>{
+    telState.entregaElegida = null
+    if(!telState.fechasZona.length){
+      const { data } = await supabase.rpc('telefono_fechas_zona', { p_customer_id: c.id })
+      telState.fechasZona = data?.fechas || []
+    }
+    render()
+  }
+  document.querySelectorAll('[data-tel-fecha]').forEach(b=>b.onclick=()=>{ telState.fechaNueva=b.dataset.telFecha; render() })
+  const fechaManual = document.querySelector('#tel_fecha_manual')
+  if(fechaManual) fechaManual.onchange = ()=>{ telState.fechaNueva = fechaManual.value; render() }
+  const urgenteChk = document.querySelector('#tel_urgente')
+  if(urgenteChk) urgenteChk.onchange = ()=>{ telState.urgente = urgenteChk.checked; render() }
+  document.querySelectorAll('[data-tel-huevo-mas]').forEach(b=>b.onclick=()=>{ const k=b.dataset.telHuevoMas; telState.carritoHuevos[k]=(telState.carritoHuevos[k]||0)+1; render() })
+  document.querySelectorAll('[data-tel-huevo-menos]').forEach(b=>b.onclick=()=>{ const k=b.dataset.telHuevoMenos; if(telState.carritoHuevos[k]>0) telState.carritoHuevos[k]--; render() })
+  document.querySelectorAll('[data-tel-cat]').forEach(b=>b.onclick=()=>{ telState.categoria = b.dataset.telCat || null; render() })
+  document.querySelectorAll('[data-tel-mas]').forEach(b=>b.onclick=()=>{
+    const id=b.dataset.telMas
+    const max = b.dataset.stock===''?null:Number(b.dataset.stock)
+    const actual = telState.carritoProductos[id]||0
+    if(max!==null && actual>=max){ mostrarAlerta('No queda más stock de este producto.'); return }
+    telState.carritoProductos[id]=actual+1; render()
+  })
+  document.querySelectorAll('[data-tel-menos]').forEach(b=>b.onclick=()=>{ const id=b.dataset.telMenos; if(telState.carritoProductos[id]>0) telState.carritoProductos[id]--; render() })
+  document.querySelectorAll('[data-tel-precio]').forEach(el=>el.onchange=()=>{ telState.preciosManuales[el.dataset.telPrecio] = el.value })
+  const bonif = document.querySelector('#tel_bonificar')
+  if(bonif) bonif.onchange = ()=>{ telState.bonificarEnvio = bonif.checked; render() }
+  const motivo = document.querySelector('#tel_motivo')
+  if(motivo) motivo.oninput = ()=>{ telState.motivoBonificacion = motivo.value }
+  const prep = document.querySelector('#tel_preparador')
+  if(prep) prep.onchange = ()=>{ telState.preparador = prep.value }
+
+  document.querySelector('#tel_confirmar').onclick = async ()=>{
+    const box = document.querySelector('#tel_err')
+    box.style.display='none'
+    if(telCantidadHuevos()<=0 && telTotalProductos()<=0){ box.textContent='El pedido está vacío.'; box.style.display='block'; return }
+    if(!telState.entregaElegida && !telState.fechaNueva){ box.textContent='Elegí a qué entrega va el pedido.'; box.style.display='block'; return }
+    if(telState.bonificarEnvio && !telState.motivoBonificacion.trim()){ box.textContent='Escribí el motivo de la bonificación.'; box.style.display='block'; return }
+
+    const eggs = Object.entries(telState.carritoHuevos).filter(([,q])=>q>0).map(([size,qty])=>({size:Number(size), qty}))
+    const items = Object.entries(telState.carritoProductos).filter(([,q])=>q>0).map(([product_id,qty])=>({
+      product_id, qty, price_override: telState.preciosManuales[product_id] || ''
+    }))
+
+    telState.cargando = true; render()
+    const { data, error } = await supabase.rpc('telefono_tomar_pedido', {
+      p_customer_id: c.id,
+      p_target_order_id: telState.entregaElegida,
+      p_delivery_date: telState.entregaElegida ? null : telState.fechaNueva,
+      p_eggs: eggs,
+      p_items: items,
+      p_taken_by_staff: telState.quienAtiende.user_id,
+      p_taken_by_name: telState.quienAtiende.full_name,
+      p_urgent: telState.urgente,
+      p_waive_shipping: telState.bonificarEnvio,
+      p_waive_reason: telState.motivoBonificacion,
+      p_assigned_preparer: telState.preparador || null
+    })
+    telState.cargando = false
+    if(error || !data?.ok){
+      render()
+      const box2 = document.querySelector('#tel_err')
+      if(box2){ box2.textContent = 'No se pudo cargar: '+(data?.error||error?.message||''); box2.style.display='block' }
+      return
+    }
+    telState.resultado = data
+    render()
+  }
+}
+
+async function telCargarCatalogo(){
+  const [{ data: cat }, { data: preps }] = await Promise.all([
+    supabase.rpc('telefono_catalogo', {}),
+    supabase.from('staff_roles').select('user_id,full_name,role,roles').or('role.eq.preparador,roles.cs.{preparador}')
+  ])
+  telState.catalogo = cat?.catalogo || []
+  telState.planes = cat?.planes || []
+  telState.preparadores = preps || []
+}
+
+function telAltaFormHtml(){
+  const a = telState.altaForm
+  return `<div class="card">
+    <h3>Cliente nuevo</h3>
+    <p class="muted" style="margin-bottom:10px">Ese DNI no está registrado. Cargá los datos y seguimos con el pedido.</p>
+    <div class="grid two">
+      <div class="field"><label>Nombre *</label><input id="ta_first_name" value="${a.first_name}"/></div>
+      <div class="field"><label>Apellido</label><input id="ta_last_name" value="${a.last_name}"/></div>
+    </div>
+    <div class="field"><label>Teléfono *</label><input id="ta_phone" inputmode="tel" value="${a.phone}"/></div>
+    <div class="grid two">
+      <div class="field"><label>Calle *</label><input id="ta_street" value="${a.street}"/></div>
+      <div class="field"><label>Número *</label><input id="ta_street_number" value="${a.street_number}"/></div>
+    </div>
+    <div class="field"><label>Barrio *</label><input id="ta_neighborhood" value="${a.neighborhood}"/></div>
+    <div class="field"><label>Zona *</label>
+      <div class="grid two">${ZONAS.map(z=>`<button type="button" class="btn ${a.zone===z.value?'primary':'ghost'}" data-ta-zone="${z.value}">${z.label}</button>`).join('')}</div>
+    </div>
+    <div class="grid two">
+      <div class="field"><label>Localidad</label><input id="ta_city" value="${a.city}"/></div>
+      <div class="field"><label>Provincia</label><input id="ta_province" value="${a.province}"/></div>
+    </div>
+    <div id="ta_err" class="alert danger" style="display:none"></div>
+    <button class="btn primary" id="ta_guardar" style="width:100%">Registrar y seguir</button>
+  </div>`
+}
+
+function telBindAlta(){
+  const map = { ta_first_name:'first_name', ta_last_name:'last_name', ta_phone:'phone', ta_street:'street', ta_street_number:'street_number', ta_neighborhood:'neighborhood', ta_city:'city', ta_province:'province' }
+  Object.entries(map).forEach(([id,key])=>{
+    const el = document.querySelector('#'+id)
+    if(el) el.oninput = ()=> telState.altaForm[key] = el.value
+  })
+  document.querySelectorAll('[data-ta-zone]').forEach(b=>b.onclick=()=>{ telState.altaForm.zone = b.dataset.taZone; render() })
+  document.querySelector('#ta_guardar').onclick = async ()=>{
+    const a = telState.altaForm
+    const box = document.querySelector('#ta_err')
+    if(!a.first_name.trim() || !a.phone.trim() || !a.street.trim() || !a.street_number.trim() || !a.neighborhood.trim() || !a.zone){
+      box.textContent='Completá nombre, teléfono, dirección, barrio y zona.'; box.style.display='block'; return
+    }
+    const { data, error } = await supabase.rpc('telefono_registrar_cliente', { p_customer: { ...a, dni: telState.dni } })
+    if(error || !data?.ok){ box.textContent='No se pudo registrar: '+(data?.error||error?.message||''); box.style.display='block'; return }
+    const { data: buscado } = await supabase.rpc('telefono_buscar_cliente', { p_dni: telState.dni })
+    if(buscado?.found){ telState.cliente = buscado; telState.altaForm = null; await telCargarCatalogo() }
+    render()
+  }
+}
+
 const ADMIN_DETALLE_TITULOS = {
   clientes: 'Clientes',
   pend_entrega: 'Pedidos pendientes de entrega',
@@ -5082,6 +5514,7 @@ async function render(){
   else if(current==='vehiculo') await miVehiculo();
   else if(current==='vehiculo-stats') await vehiculoStats();
   else if(current==='vehiculo-historial') await vehiculoHistorial();
+  else if(current==='telefonico') await telefonico();
   else if(current==='admin-detalle') await adminDetalle();
   else await admin()
   if(mismaPantalla) requestAnimationFrame(()=>window.scrollTo(0, scrollPrevio))
@@ -5103,10 +5536,11 @@ async function init(){
   if(session){
     const { data: roleRow } = await supabase.from('staff_roles').select('*').eq('user_id', session.user.id).single()
     myRole = roleRow?.role || null
+    myRoles = (roleRow && Array.isArray(roleRow.roles) && roleRow.roles.length) ? roleRow.roles : (myRole ? [myRole] : [])
     staffProfile = roleRow || null
-    if(!myRole){ session=null }
+    if(!myRole){ session=null; myRoles=[] }
     else if(!roleRow.profile_completed){ current = 'staff-profile-setup' }
-    else { current = myRole==='campo' ? 'campo' : myRole==='repartidor' ? 'repartidor' : myRole==='preparador' ? 'preparador' : myRole==='vendedor' ? 'vendedor' : 'admin' }
+    else { current = pantallaInicialSegunRoles() }
   } else if(new URLSearchParams(window.location.search).get('mayorista')){
     current = 'mayorista-landing'
   }
