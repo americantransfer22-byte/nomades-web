@@ -2302,6 +2302,8 @@ async function mayoristaSignupForm(){
 let mayoristaCarrito = {}
 let mayoristaCarritoProductosNuevo = {}
 let mayoristaFrecuencia = null
+let mayoristaVista = 'tienda'
+let mayoristaCategoria = null
 
 
 function saludoHora(){
