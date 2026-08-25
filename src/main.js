@@ -1639,14 +1639,26 @@ function editarDatosForm(c){
   }
 }
 
-const GRADOS_HUEVO = [
-  { value:'extra', label:'Extra grande' },
-  { value:'grande', label:'Grande' },
-  { value:'mediano', label:'Mediano' },
-  { value:'chico', label:'Chico' },
-  { value:'mixto', label:'De campo (mezclado)' }
-]
-const GRADO_LABEL = { extra:'Extra grande', grande:'Grande', mediano:'Mediano', chico:'Chico', mixto:'De campo' }
+let GRADOS_HUEVO = []
+let GRADO_LABEL = {}
+let GRADO_PESO = {}
+let GRADO_ORDEN = {}
+
+async function cargarClasificaciones(soloActivas = true){
+  const { data } = await supabase.rpc('clasificaciones_huevo', { p_solo_activas: soloActivas })
+  const lista = Array.isArray(data) ? data : []
+  GRADOS_HUEVO = lista.map(g=>({ id:g.id, value:g.codigo, label:g.nombre, peso:g.peso, orden:g.orden, active:g.active }))
+  GRADO_LABEL = {}; GRADO_PESO = {}; GRADO_ORDEN = {}
+  lista.forEach(g=>{ GRADO_LABEL[g.codigo]=g.nombre; GRADO_PESO[g.codigo]=g.peso||''; GRADO_ORDEN[g.codigo]=g.orden })
+  return GRADOS_HUEVO
+}
+
+function ordenarPorGrado(planes){
+  return [...(planes||[])].sort((a,b)=>{
+    const ia = GRADO_ORDEN[a.grade] ?? 99, ib = GRADO_ORDEN[b.grade] ?? 99
+    return ia - ib
+  })
+}
 
 const ROLES_STAFF = [
   { value: 'admin', label: 'Administrador' },
@@ -1981,7 +1993,7 @@ async function mayoristaLanding(){
     supabase.from('plan_prices').select('id,egg_quantity,price,grade,unidad').eq('active', true).eq('customer_type','mayorista').order('egg_quantity'),
     supabase.rpc('mayorista_catalogo', {})
   ])
-  const planes = planesRaw || []
+  const planes = ordenarPorGrado(planesRaw)
   const catalogo = catalogoRaw || []
   const iconoCat = (cat)=>{
     const c2 = (cat||'').toLowerCase()
@@ -2307,10 +2319,10 @@ async function cargarRepartidorAsignado(){
   const box = document.querySelector('#card_repartidor')
   if(!box) return
   const next = cuenta?.next_order
-  if(!next){ box.style.display = 'none'; return }
+  if(!next){ box.remove(); return }
 
   const { data } = await supabase.rpc('repartidor_de_mi_pedido', { p_order_id: next.id })
-  if(!data || data.error || !data.nombre){ box.style.display = 'none'; return }
+  if(!data || data.error || !data.nombre){ box.remove(); return }
 
   box.innerHTML = `<h3>Tu repartidor</h3>
     <div style="display:flex;gap:12px;align-items:center">
@@ -2342,7 +2354,7 @@ async function mayoristaPanel(){
   const hayQueRevisar = revisarRaw?.hay ? revisarRaw : null
   const estadoCuenta = cuentaRaw?.ok ? cuentaRaw : null
 
-  const planes = planesRaw || []
+  const planes = ordenarPorGrado(planesRaw)
   const productos = (prodRaw||[]).map(p=>({ ...p, precio: p.wholesale_price || p.price }))
   const ultimo = ultimoRaw?.hay ? ultimoRaw : null
   const subActiva = (cuenta.subscriptions||[]).find(s=>s.status==='active')
@@ -2539,7 +2551,7 @@ async function mayoristaPanel(){
     </div>`:''}
 
     ${next && (next.customer_stage || next.status==='out_for_delivery') ? barraEstadoPedido(next.customer_stage, next.status, next.out_for_delivery_at, next.en_route_at) : ''}
-    <div class="card" id="card_repartidor"><h3>Tu repartidor</h3>${skeletonBloque(2)}</div>
+    ${next?`<div class="card" id="card_repartidor"><h3>Tu repartidor</h3>${skeletonBloque(2)}</div>`:''}
 
     ${estadoCuenta && (Number(estadoCuenta.deuda)>0 || Number(estadoCuenta.a_favor)>0) ? `<div class="card">
       <h3>Tu cuenta</h3>
@@ -4492,6 +4504,7 @@ async function admin(){
     { id:'clientes_area', ic:'estrella', icono:'⭐', titulo:'Clientes', desc:'Ranking, reseñas y sugerencias', secciones:['ranking','resenas','sugerencias'] },
     { id:'deudores', ic:'moneda', icono:'💰', titulo:'Te deben', desc:'Cuenta corriente y cobros', secciones:[], directo:'deudores' },
     { id:'fincanales', ic:'grafico', icono:'📊', titulo:'Los dos negocios', desc:'Minorista y mayorista por separado', secciones:[], directo:'fincanales' },
+    { id:'clasificaciones', ic:'huevo', icono:'🥚', titulo:'Tamaños de huevo', desc:'Jumbo, súper, N° 3 y los que quieras', secciones:[], directo:'clasificaciones' },
     { id:'alta_comercio', ic:'tienda', icono:'🏪', titulo:'Sumar un comercio', desc:'Alta de mayorista en el momento', secciones:[], directo:'alta-comercio' },
     { id:'mayoristas_riesgo', ic:'aviso', icono:'⚠️', titulo:'Comercios que se enfrían', desc:'Los que dejaron de pedir', secciones:[], directo:'mayoristas-riesgo' },
     { id:'riesgo', ic:'personas', icono:'👥', titulo:'Clientes que se van', desc:'Los que dejaron de comprar', secciones:[], directo:'riesgo' },
@@ -4861,9 +4874,9 @@ async function admin(){
     </div>
     <div class="field" id="pp_grade_wrap" style="display:none"><label>Tamaño del huevo</label>
       <div class="grid two">
-        ${GRADOS_HUEVO.map(g=>`<button type="button" class="btn ghost" data-pp-grade="${g.value}">${g.label}</button>`).join('')}
+        ${GRADOS_HUEVO.map(g=>`<button type="button" class="btn ghost" data-pp-grade="${g.value}" style="text-align:left;padding:11px 12px"><span style="font-size:13px;font-weight:500">${g.label}</span>${g.peso?`<br><span style="font-size:10.5px;opacity:0.7">${g.peso}</span>`:''}</button>`).join('')}
       </div>
-      <p class="muted" style="font-size:11.5px;margin:6px 0 0">El de campo va mezclado, sin clasificar por tamaño.</p>
+      <p class="muted" style="font-size:11.5px;margin:6px 0 0">Los tamaños se editan desde Comercial → Tamaños de huevo.</p>
     </div>
     <div class="field" id="pp_unidad_wrap" style="display:none"><label>Cómo se vende</label>
       <div class="grid three">
@@ -7735,7 +7748,7 @@ async function mayoristasEnRiesgo(){
 async function altaComercio(){
   const { data: planesRaw } = await supabase.from('plan_prices')
     .select('id,egg_quantity,price,grade,unidad').eq('active', true).eq('customer_type','mayorista').order('egg_quantity')
-  const planes = planesRaw || []
+  const planes = ordenarPorGrado(planesRaw)
   const { data: prodRaw } = await supabase.from('catalog_products')
     .select('id,name,photo_url,unit_label,price,wholesale_price').eq('active', true).order('name')
   const productos = (prodRaw||[]).map(p=>({ ...p, precio: p.wholesale_price || p.price }))
@@ -7794,7 +7807,7 @@ async function altaComercio(){
         return `<div style="background:${NOM.superficie};border:1px solid ${NOM.borde};${cargado?`border-left:3px solid ${NOM.verde};border-radius:0 14px 14px 0`:'border-radius:14px'};padding:11px 12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:11px">
           <div style="flex:1;min-width:0">
             <div style="font-size:13.5px;font-weight:500;color:${NOM.tinta}">${pl.grade?(GRADO_LABEL[pl.grade]||pl.grade):`${pl.egg_quantity} huevos`}</div>
-            <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">maple de ${pl.egg_quantity} · $${Number(pl.price).toLocaleString('es-AR')}</div>
+            <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">${GRADO_PESO[pl.grade]?GRADO_PESO[pl.grade]+' · ':''}maple de ${pl.egg_quantity} · $${Number(pl.price).toLocaleString('es-AR')}</div>
           </div>
           <span style="display:flex;align-items:center;gap:8px;flex-shrink:0">
             <button type="button" data-ac-menos="${pl.id}" class="btn ghost" style="padding:7px 13px">−</button>
@@ -8147,6 +8160,122 @@ async function formularioCobro(customerId){
       const cant = (res.aplicados||[]).length
       mostrarAlerta(`Cobro registrado.\n\nSe aplicó a ${cant} pedido(s).${Number(res.a_favor)>0?`\nQuedaron $${Number(res.a_favor).toLocaleString('es-AR')} a favor.`:''}`)
       cuentaCorrienteCliente(customerId)
+    }
+  }
+  dibujar()
+}
+
+
+// ============ CLASIFICACIONES DE HUEVO ============
+async function clasificacionesHuevo(){
+  const { data } = await supabase.rpc('clasificaciones_huevo', { p_solo_activas: false })
+  const lista = Array.isArray(data) ? data : []
+  const { data: usoRaw } = await supabase.from('plan_prices').select('grade,active,customer_type')
+  const uso = {}
+  ;(usoRaw||[]).forEach(p=>{ if(p.grade){ uso[p.grade] = (uso[p.grade]||0) + 1 } })
+
+  let editando = null
+
+  const dibujar = ()=>{
+    layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <button class="btn ghost" id="btn_volver_clas" style="padding:6px 12px">← Volver</button>
+      <h2 style="margin:0">Tamaños de huevo</h2>
+    </div>
+
+    <div class="card">
+      <p class="muted" style="margin:0;font-size:12.5px;line-height:1.5">Son las clasificaciones que usás para vender por mayor. Podés cambiar el nombre, el peso, el orden en que aparecen, o agregar una nueva.</p>
+    </div>
+
+    ${lista.map(g=>{
+      const enUso = uso[g.codigo] || 0
+      const editandoEste = editando === g.id
+      if(editandoEste){
+        return pCard(`
+          <div class="field"><label>Nombre</label><input id="ed_nombre_${g.id}" value="${g.nombre}"/></div>
+          <div class="field"><label>Peso por huevo</label><input id="ed_peso_${g.id}" value="${g.peso||''}" placeholder="Ej: 63 a 69 g"/></div>
+          <div class="field"><label>Orden</label><input id="ed_orden_${g.id}" type="number" inputmode="numeric" value="${g.orden}"/></div>
+          ${pBtnRow([
+            pBtn('','Guardar',`data-clas-guardar="${g.id}"`,'primary'),
+            pBtn('','Cancelar','data-clas-cancelar','ghost')
+          ])}
+        `, `border-color:${NOM.verde}`)
+      }
+      return pCard(`
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:500;${!g.active?'opacity:0.55':''}">${g.nombre}${!g.active?' · inactivo':''}</div>
+            <div style="font-size:12px;color:${NOM.tintaSuave};margin-top:2px">${g.peso||'sin peso definido'}</div>
+            ${enUso?`<div style="font-size:11.5px;color:${NOM.verde};margin-top:3px">${enUso} precio(s) cargado(s)</div>`:`<div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:3px">Sin precios todavía</div>`}
+          </div>
+          <span style="font-size:11px;color:${NOM.tintaSuave};flex-shrink:0">orden ${g.orden}</span>
+        </div>
+        ${pBtnRow([
+          pBtn('','Editar',`data-clas-editar="${g.id}"`,'ghost'),
+          pBtn('', g.active?'Desactivar':'Activar', `data-clas-toggle="${g.id}"`,'ghost'),
+          enUso===0 ? pBtn('','Borrar',`data-clas-borrar="${g.id}"`,'ghost') : ''
+        ].filter(Boolean))}
+      `, !g.active?'opacity:0.72':'')
+    }).join('')}
+
+    <div class="card">
+      <h3>Agregar un tamaño</h3>
+      <div class="field"><label>Nombre *</label><input id="nueva_clas_nombre" placeholder="Ej: N° 4"/></div>
+      <div class="field"><label>Peso por huevo</label><input id="nueva_clas_peso" placeholder="Ej: 40 a 44 g"/></div>
+      <div id="err_clas" class="alert danger" style="display:none"></div>
+      <button class="btn primary" id="btn_nueva_clas" style="width:100%">Agregar</button>
+    </div>`)
+
+    document.querySelector('#btn_volver_clas').onclick = ()=>{ current='admin'; adminAreaAbierta=null; render() }
+
+    document.querySelectorAll('[data-clas-editar]').forEach(b=>b.onclick=()=>{ editando = b.dataset.clasEditar; dibujar() })
+    const btnCancelar = document.querySelector('[data-clas-cancelar]')
+    if(btnCancelar) btnCancelar.onclick = ()=>{ editando = null; dibujar() }
+
+    document.querySelectorAll('[data-clas-guardar]').forEach(b=>b.onclick=async()=>{
+      const id = b.dataset.clasGuardar
+      const nombre = document.querySelector('#ed_nombre_'+id).value.trim()
+      const peso = document.querySelector('#ed_peso_'+id).value.trim()
+      const orden = Number(document.querySelector('#ed_orden_'+id).value) || 99
+      if(!nombre){ mostrarAlerta('Ponele un nombre.'); return }
+      const { data: res, error } = await supabase.rpc('admin_guardar_clasificacion', {
+        p_id: id, p_codigo: null, p_nombre: nombre, p_peso: peso || null, p_orden: orden
+      })
+      if(error || !res?.ok){ mostrarAlerta('No se pudo guardar: '+(res?.error||error?.message||'')); return }
+      await cargarClasificaciones()
+      editando = null
+      render()
+    })
+
+    document.querySelectorAll('[data-clas-toggle]').forEach(b=>b.onclick=async()=>{
+      const { data: res, error } = await supabase.rpc('admin_toggle_clasificacion', { p_id: b.dataset.clasToggle })
+      if(error || !res?.ok){ mostrarAlerta('No se pudo cambiar.'); return }
+      if(!res.activa && res.tamanos_activos > 0){
+        mostrarAlerta(`Desactivada.\n\nOjo: hay ${res.tamanos_activos} precio(s) activo(s) con este tamaño. Los comercios van a seguir viéndolos hasta que los desactives.`)
+      }
+      await cargarClasificaciones()
+      render()
+    })
+
+    document.querySelectorAll('[data-clas-borrar]').forEach(b=>b.onclick=async()=>{
+      const ok = await mostrarConfirmacion('¿Borrar esta clasificación?\n\nSolo se puede si no tiene precios cargados.')
+      if(!ok) return
+      const { data: res, error } = await supabase.rpc('admin_borrar_clasificacion', { p_id: b.dataset.clasBorrar })
+      if(error || !res?.ok){ mostrarAlerta(res?.error || 'No se pudo borrar.'); return }
+      await cargarClasificaciones()
+      render()
+    })
+
+    document.querySelector('#btn_nueva_clas').onclick = async ()=>{
+      const box = document.querySelector('#err_clas')
+      const nombre = document.querySelector('#nueva_clas_nombre').value.trim()
+      const peso = document.querySelector('#nueva_clas_peso').value.trim()
+      if(!nombre){ box.textContent='Ponele un nombre al tamaño.'; box.style.display='block'; return }
+      const { data: res, error } = await supabase.rpc('admin_guardar_clasificacion', {
+        p_id: null, p_codigo: null, p_nombre: nombre, p_peso: peso || null, p_orden: null
+      })
+      if(error || !res?.ok){ box.textContent = res?.error || 'No se pudo agregar.'; box.style.display='block'; return }
+      await cargarClasificaciones()
+      render()
     }
   }
   dibujar()
@@ -8752,6 +8881,7 @@ async function render(){
   else if(current==='avisos') await avisosClientes();
   else if(current==='cobrados') await cobradosSinEntregar();
   else if(current==='riesgo') await clientesEnRiesgo();
+  else if(current==='clasificaciones') await clasificacionesHuevo();
   else if(current==='deudores') await deudores();
   else if(current==='fincanales') await finanzasCanales();
   else if(current==='mayoristas-riesgo') await mayoristasEnRiesgo();
@@ -8793,6 +8923,7 @@ function inyectarEstilos(){
 
 async function init(){
   inyectarEstilos()
+  await cargarClasificaciones()
   document.addEventListener('focusin', (e)=>{
     if(e.target.tagName==='INPUT' && e.target.type==='number') e.target.select()
   })
