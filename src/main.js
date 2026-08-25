@@ -67,16 +67,16 @@ const ICONOS_NAV = {
   admin:'panel', pedidos:'paquete', telefonico:'telefono', clientes:'personas', preparador:'canasta',
   repartidor:'camion', campo:'huevo', vendedor:'vendedor', vehiculo:'moto', historial:'historial',
   'mis-suscriptores':'personas', 'mis-comisiones':'moneda', perfil:'engranaje', logout:'salir',
-  merma:'campana', vencimientos:'calendario'
+  merma:'campana', vencimientos:'calendario', avisos:'campana', inicio:'huevo'
 }
 
 const MENU_POR_ROL = {
-  admin: [['admin','Hoy'],['pedidos','Pedidos'],['telefonico','Teléfono'],['clientes','Clientes'],['preparador','Preparar'],['repartidor','Repartidor'],['campo','Campo'],['vendedor','Vender'],['vehiculo','Mi vehículo'],['vencimientos','Vencimientos'],['merma','Registrar pérdida']],
-  campo: [['campo','Campo'],['merma','Registrar pérdida']],
-  repartidor: [['repartidor','Ruta'],['historial','Historial'],['vehiculo','Mi vehículo'],['merma','Registrar pérdida']],
-  preparador: [['preparador','Preparar'],['vencimientos','Vencimientos'],['merma','Registrar pérdida']],
-  vendedor: [['vendedor','Vender'],['mis-suscriptores','Suscriptores'],['mis-comisiones','Comisiones']],
-  telefonico: [['telefonico','Teléfono']]
+  admin: [['admin','Hoy'],['pedidos','Pedidos'],['telefonico','Teléfono'],['clientes','Clientes'],['preparador','Preparar'],['repartidor','Repartidor'],['campo','Campo'],['vendedor','Vender'],['vehiculo','Mi vehículo'],['vencimientos','Vencimientos'],['merma','Registrar pérdida'],['avisos','Avisos'],['inicio','Ver la tienda']],
+  campo: [['campo','Campo'],['merma','Registrar pérdida'],['inicio','Ver la tienda']],
+  repartidor: [['repartidor','Ruta'],['historial','Historial'],['vehiculo','Mi vehículo'],['merma','Registrar pérdida'],['inicio','Ver la tienda']],
+  preparador: [['preparador','Preparar'],['vencimientos','Vencimientos'],['merma','Registrar pérdida'],['inicio','Ver la tienda']],
+  vendedor: [['vendedor','Vender'],['mis-suscriptores','Suscriptores'],['mis-comisiones','Comisiones'],['inicio','Ver la tienda']],
+  telefonico: [['telefonico','Teléfono'],['inicio','Ver la tienda']]
 }
 
 function rolesActivos(){
@@ -177,10 +177,15 @@ function layout(content){
     </div>` : ''
 
   const navPublica = (!session && !esMayorista) ? `<div class="nav">${[['inicio','Inicio'],['cuenta','Mi cuenta']].map(([k,l])=>`<button class="btn ${current===k?'primary':'ghost'}" data-nav="${k}">${l}</button>`).join('')}</div>` : ''
+  const volverPanel = (session && current==='inicio') ? `<div style="background:${NOM.verdeClaro};border-radius:12px;padding:11px 14px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <span style="font-size:13px;color:${NOM.tinta}">Estás viendo la tienda como la ve un cliente</span>
+      <button data-nav="${pantallaInicialSegunRoles()}" style="background:${NOM.verde};color:#F7F4EC;border:none;border-radius:9px;padding:8px 14px;font-size:12.5px;font-weight:500;white-space:nowrap">Volver al panel</button>
+    </div>` : ''
   const navSetup = setupPerfil ? `<div class="nav"><button class="btn ghost" data-nav="logout">Salir</button></div>` : ''
 
   app.innerHTML = `<div class="shell" style="padding-bottom:${barra?'86px':'0'}">
     <div class="top"><div class="brand" style="display:flex;align-items:center;gap:8px">NÓMADES <span class="muted" style="font-size:12px">${esMayorista?'Portal mayoristas':'Huevos de libre pastoreo'}</span></div>${navPublica}${navSetup}</div>
+    ${volverPanel}
     ${content}
     ${(!session && !esMayorista)?`<div style="text-align:center;margin-top:24px"><a href="#" id="staff_link" class="muted" style="font-size:12px">Acceso del equipo</a></div>`:''}
   </div>${barra}${hoja}`
