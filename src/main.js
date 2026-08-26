@@ -5561,21 +5561,15 @@ async function admin(){
     }).join('') : '<p class="muted">No hay entregas programadas para dentro de 3 días.</p>'}
   </div></div>
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
-  ${accHead('agregado_manual','📞','Agregar producto por teléfono')}
-    <p class="muted">Para cuando un cliente llama y quiere sumar algo a último momento (a menos de 24hs, el sistema ya no lo deja hacer solo).</p>
+  ${accHead('agregado_manual','📞','Sumar a un pedido en curso')}
+    <p class="muted" style="margin-bottom:12px">Cuando un cliente llama para agregar algo a último momento. Se usa la misma pantalla que para tomar un pedido nuevo.</p>
     <div class="field"><label>Número de WhatsApp donde te llegan estos pedidos</label>
       <div style="display:flex;gap:6px">
         <input id="whatsapp_urgentes_valor" value="${settingsMap.whatsapp_pedidos_urgentes||''}" placeholder="Ej: 3411234567" style="flex:1"/>
         <button id="btn_guardar_whatsapp_urgentes" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:0 16px;font-size:12px;font-weight:600">Guardar</button>
       </div>
     </div>
-    <div class="field"><label>DNI del cliente</label>
-      <div style="display:flex;gap:6px">
-        <input id="buscar_dni_manual" inputmode="numeric" placeholder="Sin puntos" style="flex:1"/>
-        <button id="btn_buscar_dni_manual" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:0 16px;font-size:12px;font-weight:600">Buscar</button>
-      </div>
-    </div>
-    <div id="resultado_dni_manual"></div>
+    <button class="btn primary" id="btn_ir_telefono" style="width:100%">Tomar un pedido por teléfono</button>
   </div></div>
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('vendedores','🧑‍💼','Vendedores y comisiones')}
@@ -6339,33 +6333,8 @@ async function admin(){
     mostrarAlerta('Número guardado ✅')
     render()
   }
-  const btnBuscarDniManual = document.querySelector('#btn_buscar_dni_manual')
-  if(btnBuscarDniManual) btnBuscarDniManual.onclick = async ()=>{
-    const dni = document.querySelector('#buscar_dni_manual').value.trim()
-    const resultBox = document.querySelector('#resultado_dni_manual')
-    if(!/^(\d{7,8}|\d{11})$/.test(dni)){ resultBox.innerHTML = '<div class="alert danger">Ingresá un DNI (7 u 8 números) o CUIT (11).</div>'; return }
-    const { data, error } = await supabase.rpc('admin_buscar_cliente_por_dni', { p_dni: dni })
-    if(error || !data?.found){ resultBox.innerHTML = '<div class="alert danger">No se encontró ningún cliente con ese DNI.</div>'; return }
-    resultBox.innerHTML = `<div class="alert info" style="margin-top:10px">
-      <b>${data.first_name||''} ${data.last_name||''}</b>
-      <div class="field" style="margin-top:8px"><label>Producto</label><select id="manual_producto">${catalogo.filter(p=>p.active).map(p=>`<option value="${p.id}">${p.name} — $${Number(p.price).toLocaleString('es-AR')}</option>`).join('')}</select></div>
-      <div style="display:flex;gap:6px;margin-top:6px">
-        <input id="manual_cantidad" type="number" min="1" value="1" style="flex:1"/>
-        <button id="btn_agregar_manual" data-customer-id="${data.id}" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:0 16px;font-size:12px;font-weight:600">➕ Agregar</button>
-      </div>
-    </div>`
-    document.querySelector('#btn_agregar_manual').onclick = async ()=>{
-      const customerId = document.querySelector('#btn_agregar_manual').dataset.customerId
-      const productId = document.querySelector('#manual_producto').value
-      const cantidad = Number(document.querySelector('#manual_cantidad').value)||1
-      const { data: res, error: errAdd } = await supabase.rpc('admin_agregar_producto_manual', { p_customer_id: customerId, p_product_id: productId, p_quantity: cantidad })
-      if(errAdd || !res?.ok){ mostrarAlerta('No se pudo agregar: '+(errAdd?.message||res?.error||'')); return }
-      adminData = null
-      mostrarAlerta('Producto agregado ✅')
-      resultBox.innerHTML = ''
-      document.querySelector('#buscar_dni_manual').value = ''
-    }
-  }
+  const btnIrTelefono = document.querySelector('#btn_ir_telefono')
+  if(btnIrTelefono) btnIrTelefono.onclick = ()=>{ current='telefonico'; adminAreaAbierta=null; render() }
   document.querySelectorAll('[data-toggle-activo]').forEach(b=>b.onclick=async()=>{
     const activoAhora = b.dataset.activo === 'true'
     const { error } = await supabase.from('catalog_products').update({ active: !activoAhora }).eq('id', b.dataset.toggleActivo)
@@ -6941,6 +6910,7 @@ function telReset(){
     carritoProductos: {},    // product_id -> cantidad
     preciosManuales: {},     // product_id -> precio escrito a mano
     carritoHuevos: {},       // egg_quantity -> cantidad
+    ultimoPedido: null,      // lo que pidió la vez pasada
     entregaElegida: null,    // order_id de una entrega ya programada
     fechaNueva: '',          // fecha elegida para un pedido suelto
     fechasZona: [],
@@ -7071,6 +7041,8 @@ async function telefonico(){
         render(); return
       }
       telState.cliente = data
+      const { data: ult } = await supabase.rpc('ultimo_pedido_cliente', { p_dni: dni, p_customer_id: data.customer.id })
+      telState.ultimoPedido = ult?.hay ? ult : null
       await telCargarCatalogo()
       render()
     }
@@ -7103,6 +7075,19 @@ async function telefonico(){
           <div class="muted" style="font-size:12px">📞 ${c.phone||'-'} · ${c.street||''} ${c.street_number||''} · ${c.neighborhood||'-'}</div>
         </div>
       </div>
+      ${telState.ultimoPedido ? `<div style="background:${NOM.superficie};border:1px solid ${NOM.borde};border-left:3px solid ${NOM.verde};border-radius:0 12px 12px 0;padding:12px;margin-top:11px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:11px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13.5px;font-weight:500;color:${NOM.tinta}">Lo de siempre</div>
+            <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:3px;line-height:1.4">${[
+              ...((telState.ultimoPedido.plan_breakdown)||[]).map(b=>`${b.qty} ${b.grade?(GRADO_LABEL[b.grade]||b.grade).toLowerCase():`maple de ${b.size}`}`),
+              ...((telState.ultimoPedido.productos)||[]).map(p=>`${p.cantidad} ${p.nombre.toLowerCase()}`)
+            ].join(' · ')}</div>
+          </div>
+          <button class="btn primary" id="tel_lo_de_siempre" style="padding:9px 14px;font-size:12.5px;flex-shrink:0">Cargar</button>
+        </div>
+      </div>`:''}
+
       <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
         ${rank.found?pPill(`Puesto ${rank.puesto} de ${rank.total_clientes}`, rank.es_top?'#EAF0DC':'#F5EFE0', '#2F4D2A'):''}
         ${rank.found?pPill(`$${Number(rank.total_gastado||0).toLocaleString('es-AR')} gastados`):''}
@@ -7180,6 +7165,17 @@ async function telefonico(){
       <button class="btn primary" id="tel_confirmar" style="width:100%;margin-top:10px" ${telState.cargando?'disabled':''}>${telState.cargando?'Guardando…':'✅ Confirmar y enviar a preparación'}</button>
     </div>`)
 
+  const btnTelSiempre = document.querySelector('#tel_lo_de_siempre')
+  if(btnTelSiempre) btnTelSiempre.onclick = ()=>{
+    const u = telState.ultimoPedido
+    if(!u) return
+    telState.carritoProductos = {}
+    telState.carritoHuevos = telState.carritoHuevos || {}
+    ;(u.productos||[]).forEach(p=>{ telState.carritoProductos[p.product_id] = p.cantidad })
+    ;(u.plan_breakdown||[]).forEach(b=>{ if(b.size) telState.carritoHuevos[b.size] = (telState.carritoHuevos[b.size]||0) + b.qty })
+    mostrarAlerta('Cargamos lo mismo del pedido anterior. Revisá y ajustá lo que haga falta.')
+    render()
+  }
   document.querySelector('#tel_reiniciar').onclick = ()=>{ const q=telState.quienAtiende, l=telState.staffLista; telReset(); telState.quienAtiende=q; telState.staffLista=l; render() }
   document.querySelectorAll('[data-tel-entrega]').forEach(b=>b.onclick=()=>{ telState.entregaElegida=b.dataset.telEntrega; telState.fechaNueva=''; telState.urgente=false; render() })
   document.querySelector('#tel_nueva_fecha').onclick = async ()=>{
