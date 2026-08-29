@@ -950,11 +950,20 @@ async function cargarRepartidor(c, esHoy){
 
 let adminMapaInstancia = null
 
-async function initAdminMapa(){
+// vista: 'ajustar' encuadra a todos (primera carga), 'mantener' respeta dónde estabas mirando.
+// foco: coordenadas a las que centrarse, para revisar un pin recién ubicado.
+async function initAdminMapa(opciones){
+  const { vista = 'ajustar', foco = null } = opciones || {}
   const estado = document.querySelector('#admin_mapa_estado')
   const contenedor = document.querySelector('#admin_mapa_contenedor')
   const sinGeoBox = document.querySelector('#admin_mapa_sin_geo')
   if(!contenedor) return
+
+  // Guardamos el encuadre actual ANTES de desmontar, o al corregir un pin
+  // el mapa se alejaba de golpe y había que volver a buscar la calle a mano.
+  const vistaPrevia = adminMapaInstancia
+    ? { centro: adminMapaInstancia.getCenter(), zoom: adminMapaInstancia.getZoom() }
+    : null
 
   try{ await cargarLeaflet() }
   catch(e){ if(estado) estado.textContent = 'No pudimos cargar el mapa. Revisá tu conexión.'; return }
@@ -973,8 +982,11 @@ async function initAdminMapa(){
   // Leaflet se niega a montar dos veces sobre el mismo div: si no lo desmontamos,
   // tira "Map container is already initialized" y se corta el refresco de la lista.
   if(adminMapaInstancia){ try{ adminMapaInstancia.remove() }catch(e){} adminMapaInstancia = null }
-  const map = L.map('admin_mapa_contenedor').setView(centro, conCoords.length ? 12 : 12)
+  const map = L.map('admin_mapa_contenedor')
   adminMapaInstancia = map
+  if(foco) map.setView([foco.lat, foco.lng], 17)
+  else if(vista === 'mantener' && vistaPrevia) map.setView(vistaPrevia.centro, vistaPrevia.zoom)
+  else map.setView(centro, 12)
   L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
@@ -997,11 +1009,11 @@ async function initAdminMapa(){
       const { data, error } = await supabase.rpc('admin_set_customer_location', { p_customer_id: c.id, p_latitude: pos.lat, p_longitude: pos.lng, p_estado: 'confirmado', p_motivo: null })
       if(error || !data?.ok){ mostrarAlerta('No se pudo guardar la nueva ubicación.'); return }
       if(estado) estado.textContent = `✅ ${nombreDe(c)}: ubicación confirmada`
-      await initAdminMapa()
+      await initAdminMapa({ vista:'mantener' })
     })
     grupo.push(marker)
   })
-  if(grupo.length>1){ map.fitBounds(L.featureGroup(grupo).getBounds().pad(0.2)) }
+  if(grupo.length>1 && vista === 'ajustar' && !foco){ map.fitBounds(L.featureGroup(grupo).getBounds().pad(0.2)) }
 
   if(sinGeoBox){
     const apilados = {}
@@ -1037,7 +1049,7 @@ async function initAdminMapa(){
         return veredicto
       }
       await supabase.rpc('admin_set_customer_location', { p_customer_id: cli.id, p_latitude: geo.lat, p_longitude: geo.lon, p_estado: veredicto.estado, p_motivo: veredicto.motivo })
-      return veredicto
+      return { ...veredicto, lat: geo.lat, lon: geo.lon }
     }
 
     sinGeoBox.querySelectorAll('[data-geocodificar]').forEach(b=>b.onclick=async()=>{
@@ -1046,8 +1058,10 @@ async function initAdminMapa(){
       const veredicto = await ubicarUno(cli, b)
       if(veredicto.estado === 'sin_ubicar'){
         mostrarAlerta(`No encontramos la dirección de ${nombreDe(cli)} (${veredicto.motivo.toLowerCase()}).\n\nRevisá que la calle y la localidad estén bien escritas, o ubicalo a mano arrastrando su pin cuando aparezca.`)
+        await initAdminMapa({ vista:'mantener' })
+        return
       }
-      await initAdminMapa()
+      await initAdminMapa({ foco: { lat: veredicto.lat, lng: veredicto.lon } })
     })
 
     const btnTodos = document.querySelector('#btn_ubicar_todos')
@@ -1063,7 +1077,7 @@ async function initAdminMapa(){
         if(i < sinCoords.length-1) await new Promise(r=>setTimeout(r, 1100))
       }
       mostrarAlerta(`Listo.\n\n✅ ${ok} ubicado(s) con precisión\n⚠️ ${revisar} para revisar a mano\n❌ ${fallaron} sin encontrar`)
-      await initAdminMapa()
+      await initAdminMapa({ vista:'ajustar' })
     }
   }
 }
@@ -6434,7 +6448,7 @@ async function admin(){
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('mapa','🗺️','Mapa de clientes')}
     <div id="admin_mapa_estado" class="muted" style="margin-bottom:8px">Cargando mapa…</div>
-    <div id="admin_mapa_contenedor" style="height:340px;border-radius:12px;overflow:hidden;background:#eee"></div>
+    <div id="admin_mapa_contenedor" style="height:440px;border-radius:12px;overflow:hidden;background:#eee"></div>
     <p class="muted" style="font-size:12px;margin-top:8px">🟢 Norte · 🟠 Sur · 🟣 Oeste · 🟡 Este. Si un punto está mal ubicado, mantenelo apretado y arrastralo a la posición correcta — se guarda solo.</p>
     <div id="admin_mapa_sin_geo" style="margin-top:12px"></div>
   </div></div>
