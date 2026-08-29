@@ -948,6 +948,8 @@ async function cargarRepartidor(c, esHoy){
 }
 
 
+let adminMapaInstancia = null
+
 async function initAdminMapa(){
   const estado = document.querySelector('#admin_mapa_estado')
   const contenedor = document.querySelector('#admin_mapa_contenedor')
@@ -968,7 +970,11 @@ async function initAdminMapa(){
   if(estado) estado.textContent = `${conteo.confirmados||0} de ${conteo.total||0} confirmados · ${conteo.dudosos||0} dudoso(s) · ${conteo.sin_ubicar||0} sin ubicar`
 
   const centro = conCoords.length ? [conCoords[0].latitude, conCoords[0].longitude] : [-32.9468, -60.6393]
+  // Leaflet se niega a montar dos veces sobre el mismo div: si no lo desmontamos,
+  // tira "Map container is already initialized" y se corta el refresco de la lista.
+  if(adminMapaInstancia){ try{ adminMapaInstancia.remove() }catch(e){} adminMapaInstancia = null }
   const map = L.map('admin_mapa_contenedor').setView(centro, conCoords.length ? 12 : 12)
+  adminMapaInstancia = map
   L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
@@ -990,8 +996,8 @@ async function initAdminMapa(){
       const pos = marker.getLatLng()
       const { data, error } = await supabase.rpc('admin_set_customer_location', { p_customer_id: c.id, p_latitude: pos.lat, p_longitude: pos.lng, p_estado: 'confirmado', p_motivo: null })
       if(error || !data?.ok){ mostrarAlerta('No se pudo guardar la nueva ubicación.'); return }
-      marker.bindPopup(`<b>${nombreDe(c)}</b><br>✅ Ubicación confirmada`).openPopup()
-      initAdminMapa()
+      if(estado) estado.textContent = `✅ ${nombreDe(c)}: ubicación confirmada`
+      await initAdminMapa()
     })
     grupo.push(marker)
   })
@@ -1041,7 +1047,7 @@ async function initAdminMapa(){
       if(veredicto.estado === 'sin_ubicar'){
         mostrarAlerta(`No encontramos la dirección de ${nombreDe(cli)} (${veredicto.motivo.toLowerCase()}).\n\nRevisá que la calle y la localidad estén bien escritas, o ubicalo a mano arrastrando su pin cuando aparezca.`)
       }
-      initAdminMapa()
+      await initAdminMapa()
     })
 
     const btnTodos = document.querySelector('#btn_ubicar_todos')
@@ -1057,7 +1063,7 @@ async function initAdminMapa(){
         if(i < sinCoords.length-1) await new Promise(r=>setTimeout(r, 1100))
       }
       mostrarAlerta(`Listo.\n\n✅ ${ok} ubicado(s) con precisión\n⚠️ ${revisar} para revisar a mano\n❌ ${fallaron} sin encontrar`)
-      initAdminMapa()
+      await initAdminMapa()
     }
   }
 }
