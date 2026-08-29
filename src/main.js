@@ -5263,6 +5263,7 @@ let pedidoDetalleCache = {}
 let avisoRutaFecha = null
 let asignarDiaFecha = null
 let asignarDetalleAbierto = null
+let repDetalleAbierto = null
 let pedidosFechaFiltro = null // null | 'hoy' | 'manana'
 
 async function pedidos(){
@@ -5447,24 +5448,55 @@ async function repartidor(){
     <button data-abrir-bloqueo="${entregaAbierta.order_id}" style="margin-top:10px;background:${NOM.verde};color:#F7F4EC;border:none;border-radius:9px;padding:9px 15px;font-size:12.5px;font-weight:600">Abrir esa entrega</button>
   </div>` : ''
 
+  const detalleRepartoAbierto = repDetalleAbierto
   const tarjetaCliente = (r)=>{
     const c=r.customers||{}
+    const sb=r.subscriptions||{}
     const telLimpio=(c.phone||'').replace(/\D/g,'')
     const direccionCompleta = `${c.street||''} ${c.street_number||''}, ${c.neighborhood||''}, ${c.city||''}`
-    const estadoLabel = r.customer_stage==='en_route' ? '🛵 En camino (avisado)' : r.customer_stage==='prepared' ? '✅ Preparado, listo para llevar' : r.customer_stage==='preparing' ? '🥚 Preparando' : ''
-    return `<div style="margin-bottom:8px">
-      <div style="font-weight:700;color:#2F4D2A">${c.street_number||''} · Cliente: ${c.first_name||''} ${c.last_name||''}</div>
-      ${telLimpio?`<a href="tel:${telLimpio}" style="font-size:12px;color:#2F4D2A;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-top:4px;background:#F5EFE0;border-radius:8px;padding:5px 10px;font-weight:600">📞 Llamar · ${c.phone}</a>`:`<div style="font-size:12px;color:#8A8570;margin-top:2px">Sin teléfono</div>`}
-      ${estadoLabel?`<div style="font-size:11px;color:#B85C00;margin-top:2px">${estadoLabel}</div>`:''}
-      ${tieneRestriccionHoraria(r)?`<div class="alert warning" style="margin-top:6px">⏰ ${textoRestriccionHoraria(r)}</div>`:''}
-      ${r.important_note && !tieneRestriccionHoraria(r)?`<div class="alert warning" style="margin-top:6px">⚠️ ${r.important_note}</div>`:''}
-      <div style="display:flex;gap:6px;margin-top:8px">
-        ${(hayBloqueo && r.id !== entregaAbierta.order_id)
-          ? `<button disabled style="flex:1;background:#D8D4C6;color:#8A8570;border:none;border-radius:10px;padding:9px 0;font-size:11px;font-weight:600">Abrir</button>`
-          : `<button data-delivery="${r.id}" style="flex:1;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:9px 0;font-size:11px;font-weight:600">Abrir</button>`}
-        <button data-maps="${encodeURIComponent(direccionCompleta)}" style="flex:1;background:#FFFFFF;color:#2F4D2A;border:1px solid #E3DCC8;border-radius:10px;padding:9px 0;font-size:11px;font-weight:600">🧭 Maps</button>
-        ${telLimpio?`<button data-avisar="${r.id}" data-tel="${telLimpio}" data-nombre="${c.first_name||''}" data-driver="${r.assigned_driver||session.user.id}" data-plan="${planDe(r)}" data-monto="${montoDe(r)}" data-comopaga="${comoPagaDe(r)}" style="flex:1;background:#25D366;color:#fff;border:none;border-radius:10px;padding:9px 0;font-size:11px;font-weight:600">🛵 Voy</button>`:''}
+    const enCamino = r.customer_stage==='en_route'
+    const cerrada = r.status==='delivered' || r.status==='incident'
+    // Puede arrancar por donde quiera, pero una sola por vez: el que maneja
+    // conoce la calle mejor que el sistema, lo que no puede es dejar dos abiertas.
+    const trabada = hayBloqueo && r.id !== entregaAbierta.order_id
+    const libre = !hayBloqueo && !cerrada
+    const nProd = (r.productos_pedido||[]).length
+    const resumen = [
+      Number(sb.plan_breakdown?.reduce((s,b)=>s+Number(b.qty||0),0)||0) ? `${sb.plan_breakdown.reduce((s,b)=>s+Number(b.qty||0),0)} maple(s)` : `${sb.egg_quantity||r.egg_quantity||0} huevos`,
+      nProd ? `${nProd} producto(s)` : ''
+    ].filter(Boolean).join(' + ')
+    const filasDet = []
+    ;(sb.plan_breakdown||[]).forEach(b=>filasDet.push(`🥚 ${b.qty} maple${b.qty>1?'s':''} de ${b.size}`))
+    if(!filasDet.length) filasDet.push(`🥚 ${sb.egg_quantity||r.egg_quantity||0} huevos`)
+    ;(r.productos_pedido||[]).forEach(x=>filasDet.push(`🛒 ${x.cantidad}× ${x.nombre}`))
+    const abierto = detalleRepartoAbierto === r.id
+
+    return `<div style="background:#FFFFFF;border:${enCamino?`2px solid ${NOM.verde}`:`1px solid ${NOM.borde}`};${c.customer_type==='mayorista'?`border-left:4px solid ${NOM.ambar};`:''}border-radius:10px;padding:11px 12px;margin-bottom:8px;opacity:${cerrada?0.6:trabada?0.5:1}">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <div style="font-size:14px;font-weight:500">${c.street||''} ${c.street_number||''}</div>
+        ${enCamino?`<span style="font-size:10.5px;background:${NOM.verdeClaro};color:#27500A;padding:3px 9px;border-radius:999px;flex-shrink:0">yendo${r.en_route_at?` · ${Math.max(0,Math.round((Date.now()-new Date(r.en_route_at))/60000))} min`:''}</span>`:''}
+        ${r.status==='delivered'?`<span style="font-size:10.5px;background:${NOM.verdeClaro};color:#27500A;padding:3px 9px;border-radius:999px;flex-shrink:0">✓ entregado</span>`:''}
+        ${r.status==='incident'?`<span style="font-size:10.5px;background:#FBE9E7;color:#791F1F;padding:3px 9px;border-radius:999px;flex-shrink:0">no se entregó</span>`:''}
       </div>
+      <div style="font-size:12.5px;color:${NOM.tintaSuave};margin-top:2px">${c.first_name||''} ${c.last_name||''}${c.customer_type==='mayorista'?` <span style="font-size:10px;background:${NOM.ambarClaro};color:#854F0B;padding:1px 7px;border-radius:999px">mayorista</span>`:''}</div>
+      <div style="font-size:12px;color:${NOM.tintaSuave};margin-top:4px">${resumen}</div>
+      ${tieneRestriccionHoraria(r)?`<div style="font-size:11.5px;color:#854F0B;margin-top:5px">⏰ ${textoRestriccionHoraria(r)}</div>`:''}
+      ${(enCamino||libre)&&r.important_note?`<div style="margin-top:7px;padding:8px 10px;background:${NOM.ambarClaro};border-radius:8px;font-size:11.5px;color:#854F0B">⚠️ ${r.important_note}</div>`:''}
+      <button type="button" data-rep-detalle="${r.id}" style="all:unset;cursor:pointer;font-size:11.5px;color:#534AB7;margin-top:7px;display:inline-block">${abierto?'ocultar ▴':'ver qué lleva ▾'}</button>
+      ${abierto?`<div style="margin-top:7px;padding:10px 12px;background:${NOM.crema};border-radius:8px">
+        <div style="font-size:12.5px;line-height:1.9">${filasDet.join('<br>')}</div>
+        <div style="margin-top:8px;padding-top:8px;border-top:1px solid ${NOM.borde};font-size:12.5px">💵 $${Number(montoDe(r)).toLocaleString('es-AR')} ${comoPagaDe(r)}</div>
+        ${telLimpio?`<a href="tel:${telLimpio}" style="display:inline-block;font-size:12px;color:${NOM.verde};text-decoration:none;margin-top:6px">📞 Llamar · ${c.phone}</a>`:''}
+      </div>`:''}
+      ${libre?`<div style="display:flex;gap:7px;margin-top:10px">
+        ${telLimpio?`<button data-avisar="${r.id}" data-tel="${telLimpio}" data-nombre="${c.first_name||''}" data-driver="${r.assigned_driver||session.user.id}" data-plan="${planDe(r)}" data-monto="${montoDe(r)}" data-comopaga="${comoPagaDe(r)}" style="flex:1;background:${NOM.verde};color:#F5EFE0;border:none;border-radius:10px;padding:10px 0;font-size:12.5px;font-weight:600">🛵 Voy para allá</button>`:''}
+        <button data-maps="${encodeURIComponent(direccionCompleta)}" style="background:#FFFFFF;color:${NOM.verde};border:1px solid ${NOM.borde};border-radius:10px;padding:10px 13px;font-size:12.5px">🧭</button>
+      </div>`:''}
+      ${enCamino?`<div style="display:flex;gap:7px;margin-top:10px">
+        <button data-delivery="${r.id}" style="flex:1;background:${NOM.verde};color:#F5EFE0;border:none;border-radius:10px;padding:10px 0;font-size:12.5px;font-weight:600">Confirmar entrega</button>
+        <button data-maps="${encodeURIComponent(direccionCompleta)}" style="background:#FFFFFF;color:${NOM.verde};border:1px solid ${NOM.borde};border-radius:10px;padding:10px 13px;font-size:12.5px">🧭</button>
+      </div>`:''}
+      ${trabada?`<div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:8px">🔒 Cerrá la de ${(entregaAbierta.nombre||'').split(' ')[0]} para seguir</div>`:''}
     </div>`
   }
 
@@ -5554,9 +5586,12 @@ async function repartidor(){
     <button class="btn ghost" id="btn_ver_mapa_repartidor" style="flex:1">🗺️ Ver mapa</button>
     <button id="btn_sali_a_repartir" style="flex:1;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;font-size:13px;font-weight:600">📦 Salí a repartir</button>
   </div>
-  <div class="alert warning"><b>⚠️ ATENCIÓN</b><br>Las restricciones horarias y observaciones importantes aparecen destacadas.</div>
   ${contenido}`)
 
+  document.querySelectorAll('[data-rep-detalle]').forEach(b=>b.onclick=()=>{
+    repDetalleAbierto = repDetalleAbierto===b.dataset.repDetalle ? null : b.dataset.repDetalle
+    render()
+  })
   const btnBloqueo = document.querySelector('[data-abrir-bloqueo]')
   if(btnBloqueo) btnBloqueo.onclick = ()=>openDelivery(btnBloqueo.dataset.abrirBloqueo)
   document.querySelector('#rep_ruta_fecha').onchange = (e)=>{ repRutaFecha = e.target.value; render() }
@@ -6771,6 +6806,7 @@ async function admin(){
         <div style="font-size:14px;font-weight:500;margin-bottom:3px">💬 Avisar la ruta</div>
         <p class="muted" style="font-size:12px;margin:0 0 10px">Cuando termines de asignar, avisales a los clientes quién les lleva el pedido. Reasignar no manda nada: los mensajes salen solo cuando tocás el botón.</p>
         <div id="avisar_ruta_box"><p class="muted" style="font-size:12px">Cargando…</p></div>
+      <div id="whatsapp_auto_box" style="margin-top:12px"></div>
       </div>
     </div>
   </div></div>
@@ -8131,6 +8167,35 @@ async function admin(){
     await pintarAsignacion()
   })()
 
+  // ── Envío automático de WhatsApp ──────────────────────────
+  ;(async ()=>{
+    const caja = document.querySelector('#whatsapp_auto_box')
+    if(!caja) return
+    const { data: est } = await supabase.rpc('estado_envio_whatsapp')
+    if(!est) return
+    caja.innerHTML = `<div style="border-top:1px solid ${NOM.borde};padding-top:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div style="min-width:0">
+          <div style="font-size:13px;font-weight:500">Envío automático de WhatsApp</div>
+          <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">${est.automatico
+            ? `Los avisos salen solos. ${est.en_cola} en cola.`
+            : est.listo
+              ? 'Ya están cargados los datos de Meta. Podés prenderlo.'
+              : 'Falta el número argentino y la aprobación de Meta. Por ahora los mandás vos.'}</div>
+        </div>
+        <button id="btn_wa_auto" ${est.listo?'':'disabled'} style="flex-shrink:0;font-size:12px;padding:7px 12px;${est.automatico?`background:${NOM.verde};color:#F7F4EC;border:none`:''}${!est.listo?';opacity:0.45':''}">${est.automatico?'Prendido':'Prender'}</button>
+      </div>
+      <div style="font-size:11px;color:${NOM.tintaSuave};margin-top:8px">Cada aviso queda registrado igual, se mande a mano o solo. Llevás ${est.enviados_manual} mandado(s) a mano.</div>
+    </div>`
+    const b = document.querySelector('#btn_wa_auto')
+    if(b && est.listo) b.onclick = async ()=>{
+      const nuevoVal = est.automatico ? 'off' : 'on'
+      await supabase.from('farm_settings').update({ value: nuevoVal }).eq('key','whatsapp_envio_automatico')
+      mostrarAlerta(nuevoVal==='on' ? 'Envío automático prendido. Los avisos salen solos.' : 'Envío automático apagado. Los avisos los mandás vos.')
+      adminData = null; render()
+    }
+  })()
+
   // ── Avisar la ruta ────────────────────────────────────────
   ;(async ()=>{
     const caja = document.querySelector('#avisar_ruta_box')
@@ -8196,6 +8261,8 @@ async function admin(){
       if(inputFecha) inputFecha.onchange = async (ev)=>{ avisoRutaFecha = ev.target.value; await pintarAvisos() }
       caja.querySelectorAll('[data-aviso-enviado]').forEach(a=>a.onclick=async()=>{
         await supabase.rpc('marcar_aviso_repartidor', { p_order_id: a.dataset.avisoEnviado })
+        const ped = lista.find(x=>x.order_id===a.dataset.avisoEnviado)
+        if(ped) await supabase.rpc('registrar_aviso', { p_customer_id: ped.customer_id, p_tipo: 'repartidor_asignado', p_mensaje: mensajeDe(ped), p_referencia_id: ped.order_id })
         setTimeout(pintarAvisos, 800)
       })
       caja.querySelectorAll('[data-aviso-ignorar]').forEach(b=>b.onclick=async()=>{
