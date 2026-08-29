@@ -54,6 +54,29 @@ function ico(nombre, size, color){
   return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${color||'currentColor'}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;vertical-align:middle">${p}</svg>`
 }
 
+// Carto empezó a exigir clave de API y estampaba "API KEY REQUIRED" sobre el mapa.
+// Los mapas de OpenStreetMap son libres y no piden nada.
+const TILES_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+const TILES_ATRIB = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+
+// ============ DISTANCIAS ============
+// Fórmula del haversine: distancia en línea recta sobre la esfera terrestre.
+// NO es la distancia manejando — por calle siempre da más. Se etiqueta como tal.
+function distanciaKm(lat1, lon1, lat2, lon2){
+  if([lat1,lon1,lat2,lon2].some(v=>v==null||isNaN(Number(v)))) return null
+  const R = 6371
+  const rad = g => Number(g) * Math.PI / 180
+  const dLat = rad(lat2) - rad(lat1)
+  const dLon = rad(lon2) - rad(lon1)
+  const a = Math.sin(dLat/2)**2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLon/2)**2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+}
+function formatearKm(km){
+  if(km == null) return ''
+  if(km < 1) return `${Math.round(km*1000)} m`
+  return `${km.toFixed(km<10?1:0)} km`
+}
+
 const EMOJI_ICONO = {
   '🔍':'lupa','👥':'personas','🗺️':'mapa','🚚':'camion','🏍️':'moto','🧺':'canasta',
   '🥚':'huevo','📅':'calendario','💳':'tarjeta','🧾':'recibo','🏆':'trofeo','⭐':'estrella',
@@ -968,6 +991,18 @@ async function initAdminMapa(opciones){
   try{ await cargarLeaflet() }
   catch(e){ if(estado) estado.textContent = 'No pudimos cargar el mapa. Revisá tu conexión.'; return }
 
+  const { data: cfgMapaRaw } = await supabase.from('farm_settings').select('key,value')
+    .in('key',['deposito_latitude','deposito_longitude','deposito_street','deposito_street_number','deposito_city','localidades_habituales'])
+  const cfgMapa = Object.fromEntries((cfgMapaRaw||[]).map(x=>[x.key,x.value]))
+  const depLat = cfgMapa.deposito_latitude ? Number(cfgMapa.deposito_latitude) : null
+  const depLon = cfgMapa.deposito_longitude ? Number(cfgMapa.deposito_longitude) : null
+  const hayDeposito = depLat != null && depLon != null && !isNaN(depLat) && !isNaN(depLon)
+  // Las localidades del circuito habitual se configuran, no van escritas en el código:
+  // el día que repartas fijo en San Lorenzo, dejan de ser un caso especial.
+  const habituales = (cfgMapa.localidades_habituales||'Rosario').split(',').map(x=>x.trim().toLowerCase()).filter(Boolean)
+  const esHabitual = (c)=> habituales.includes((c.city||'').trim().toLowerCase())
+  const kmDe = (c)=> hayDeposito ? distanciaKm(depLat, depLon, c.latitude, c.longitude) : null
+
   const { data: geoData } = await supabase.rpc('admin_clientes_geo')
   const clientes = (geoData?.clientes || []).map(c=>({ ...c, latitude: c.latitude!=null?Number(c.latitude):null, longitude: c.longitude!=null?Number(c.longitude):null }))
   const conteo = geoData?.conteo || {}
@@ -987,21 +1022,37 @@ async function initAdminMapa(opciones){
   if(foco) map.setView([foco.lat, foco.lng], 17)
   else if(vista === 'mantener' && vistaPrevia) map.setView(vistaPrevia.centro, vistaPrevia.zoom)
   else map.setView(centro, 12)
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-    maxZoom: 19,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-  }).addTo(map)
+  L.tileLayer(TILES_URL, { maxZoom: 19, attribution: TILES_ATRIB }).addTo(map)
 
+  // El pin dice tres cosas a la vez sin mezclarlas:
+  //   forma  → dónde está (círculo = circuito habitual, rombo = afuera, cuadrado = comercio)
+  //   color  → zona de reparto (solo tiene sentido dentro del circuito)
+  //   borde  → si la ubicación está confirmada o no
   const grupo = []
+  if(hayDeposito){
+    L.marker([depLat, depLon], {
+      icon: L.divIcon({ className:'', html:`<div style="width:26px;height:26px;border-radius:6px;background:${NOM.tinta};border:3px solid #fff;box-shadow:0 0 4px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px">🏠</div>`, iconSize:[26,26], iconAnchor:[13,13] })
+    }).addTo(map).bindPopup(`<b>Depósito</b><br>${cfgMapa.deposito_street||''} ${cfgMapa.deposito_street_number||''}<br>${cfgMapa.deposito_city||''}`)
+  }
   conCoords.forEach(c=>{
     const esDudoso = c.geo_estado === 'dudoso'
-    const color = esDudoso ? NOM.ambar : (ZONA_COLORES[c.zone]||{text:'#2F4D2A'}).text
-    const borde = esDudoso ? `border:2px dashed ${NOM.ambar};background:${NOM.ambarClaro}` : `border:2px solid white;background:${color}`
+    const esComercio = c.customer_type === 'mayorista'
+    const afuera = !esHabitual(c)
+    const km = kmDe(c)
+    const colorZona = (ZONA_COLORES[c.zone]||{text:'#2F4D2A'}).text
+    const relleno = esDudoso ? NOM.ambarClaro : (afuera ? '#185FA5' : colorZona)
+    const trazo = esDudoso ? `2px dashed ${NOM.ambar}` : '2px solid white'
+    let forma = 'border-radius:50%'
+    if(esComercio) forma = 'border-radius:4px'
+    else if(afuera) forma = 'border-radius:2px;transform:rotate(45deg)'
+    const lado = esComercio ? 18 : 16
     const marker = L.marker([c.latitude, c.longitude], {
       draggable: true,
-      icon: L.divIcon({ className:'', html:`<div style="width:16px;height:16px;border-radius:50%;${borde};box-shadow:0 0 2px rgba(0,0,0,0.5)"></div>`, iconSize:[16,16], iconAnchor:[8,8] })
+      icon: L.divIcon({ className:'', html:`<div style="width:${lado}px;height:${lado}px;${forma};background:${relleno};border:${trazo};box-shadow:0 0 2px rgba(0,0,0,0.5)"></div>`, iconSize:[lado,lado], iconAnchor:[lado/2,lado/2] })
     }).addTo(map)
-    const popup = () => `<b>${nombreDe(c)}</b>${esDudoso?`<br><span style="color:${NOM.ambar}">⚠️ ${c.geo_motivo||'Ubicación sin confirmar'}</span>`:''}<br>${c.street||''} ${c.street_number||''}, ${c.neighborhood||''}<br>📞 ${c.phone||'-'}${esDudoso?'<br><small>Arrastrá el pin al lugar correcto para confirmarlo.</small>':''}`
+    const lineaKm = km!=null ? `<br>📏 <b>${formatearKm(km)}</b> del depósito <small>(en línea recta)</small>` : ''
+    const lineaAfuera = afuera ? `<br><span style="color:#185FA5">📍 ${c.city||'Fuera del circuito'} — fuera del reparto habitual</span>` : ''
+    const popup = () => `<b>${nombreDe(c)}</b>${esComercio?' <small>(comercio)</small>':''}${esDudoso?`<br><span style="color:${NOM.ambar}">⚠️ ${c.geo_motivo||'Ubicación sin confirmar'}</span>`:''}<br>${c.street||''} ${c.street_number||''}, ${c.neighborhood||''}${lineaAfuera}${lineaKm}<br>📞 ${c.phone||'-'}${esDudoso?'<br><small>Arrastrá el pin al lugar correcto para confirmarlo.</small>':''}`
     marker.bindPopup(popup())
     // Arrastrar el pin a mano es la confirmación: lo puso una persona, no el buscador.
     marker.on('dragend', async ()=>{
@@ -1023,17 +1074,38 @@ async function initAdminMapa(opciones){
     })
     const maxApilados = Math.max(0, ...Object.values(apilados))
 
-    const fila = (c, conMotivo) => `<div class="row"><span>${nombreDe(c)}${c.customer_type==='mayorista'?` <span class="badge" style="background:${NOM.ambar}">Comercio</span>`:''}<br><small>${c.street||''} ${c.street_number||''}, ${c.neighborhood||''}${c.city?' · '+c.city:''}</small>${conMotivo&&c.geo_motivo?`<br><span style="display:inline-block;margin-top:4px;font-size:11px;background:${NOM.ambarClaro};color:#854F0B;padding:2px 8px;border-radius:8px">${c.geo_motivo}</span>`:''}</span><button class="btn ghost" data-geocodificar="${c.id}" style="font-size:12px;white-space:nowrap">📍 Ubicar</button></div>`
+    const fila = (c, conMotivo) => `<div class="row"><span>${nombreDe(c)}${c.customer_type==='mayorista'?` <span class="badge" style="background:${NOM.ambar}">Comercio</span>`:''}${!esHabitual(c)?` <span class="badge" style="background:#185FA5">Fuera</span>`:''}<br><small>${c.street||''} ${c.street_number||''}, ${c.neighborhood||''}${c.city?' · '+c.city:''}${kmDe(c)!=null?' · 📏 '+formatearKm(kmDe(c)):''}</small>${conMotivo&&c.geo_motivo?`<br><span style="display:inline-block;margin-top:4px;font-size:11px;background:${NOM.ambarClaro};color:#854F0B;padding:2px 8px;border-radius:8px">${c.geo_motivo}</span>`:''}</span><button class="btn ghost" data-geocodificar="${c.id}" style="font-size:12px;white-space:nowrap">📍 Ubicar</button></div>`
 
     const alertaApilados = maxApilados > 1
       ? `<div class="alert warning" style="margin-bottom:12px"><b>⚠️ ${maxApilados} clientes apilados en el mismo punto</b><br>Cayeron todos en el mismo lugar porque no se encontró la dirección. El repartidor los ve como si estuvieran bien.</div>`
       : ''
 
+    const fueraCircuito = conCoords.filter(c=>!esHabitual(c))
+      .map(c=>({ ...c, km: kmDe(c) }))
+      .sort((a,b)=>(b.km||0)-(a.km||0))
+    const porLocalidad = {}
+    fueraCircuito.forEach(c=>{
+      const l = (c.city||'Sin localidad').trim()
+      porLocalidad[l] ??= { clientes:0, comercios:0, km:c.km }
+      if(c.customer_type==='mayorista') porLocalidad[l].comercios++; else porLocalidad[l].clientes++
+      if(c.km!=null && (porLocalidad[l].km==null || c.km>porLocalidad[l].km)) porLocalidad[l].km = c.km
+    })
+    const bloqueFuera = fueraCircuito.length ? `<div style="background:#E6F1FB;border-radius:10px;padding:11px 13px;margin-bottom:12px">
+      <div style="font-size:13px;font-weight:500;color:#0C447C;margin-bottom:6px">📍 Fuera del circuito habitual (${fueraCircuito.length})</div>
+      ${Object.entries(porLocalidad).sort((a,b)=>(b[1].km||0)-(a[1].km||0)).map(([loc,d])=>{
+        const partes = []
+        if(d.clientes) partes.push(`${d.clientes} cliente${d.clientes>1?'s':''}`)
+        if(d.comercios) partes.push(`${d.comercios} comercio${d.comercios>1?'s':''}`)
+        return `<div style="font-size:12px;color:#185FA5">${loc} — ${partes.join(' y ')}${d.km!=null?`, a ${formatearKm(d.km)}`:''}</div>`
+      }).join('')}
+      ${hayDeposito?`<div style="font-size:11px;color:#378ADD;margin-top:5px">Distancias en línea recta desde el depósito. Por calle siempre es más.</div>`:`<div style="font-size:11px;color:#378ADD;margin-top:5px">Cargá la ubicación del depósito para ver las distancias.</div>`}
+    </div>` : ''
+
     const bloqueMayoristas = (conteo.mayoristas_sin_ubicar||0) > 0
       ? `<div class="alert danger" style="margin-bottom:12px"><b>🏪 ${conteo.mayoristas_sin_ubicar} comercio(s) sin ubicación confirmada</b><br>Un comercio sin ubicar no entra en ninguna ruta de reparto.</div>`
       : ''
 
-    sinGeoBox.innerHTML = `${bloqueMayoristas}${alertaApilados}
+    sinGeoBox.innerHTML = `${bloqueFuera}${bloqueMayoristas}${alertaApilados}
       ${dudosos.length ? `<h3 style="font-size:15px">Ubicación dudosa (${dudosos.length})</h3><p class="muted" style="font-size:12px;margin:0 0 6px">Tienen un punto en el mapa, pero lo puso el buscador y nadie lo confirmó.</p>${dudosos.map(c=>fila(c,true)).join('')}` : ''}
       ${sinCoords.length ? `<h3 style="font-size:15px;margin-top:${dudosos.length?'18px':'0'}">Sin ubicar todavía (${sinCoords.length})</h3>${sinCoords.map(c=>fila(c,true)).join('')}
         <button class="btn ghost" id="btn_ubicar_todos" style="width:100%;margin-top:10px">🔄 Ubicar los ${sinCoords.length} automáticamente</button>
@@ -1115,10 +1187,7 @@ async function mapaSuscriptores(){
 
   const centro = (c.latitude && c.longitude) ? [c.latitude, c.longitude] : [-32.9468, -60.6393]
   const map = L.map('mapa_contenedor').setView(centro, c.latitude ? 14 : 12)
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-    maxZoom: 19,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-  }).addTo(map)
+  L.tileLayer(TILES_URL, { maxZoom: 19, attribution: TILES_ATRIB }).addTo(map)
 
   lista.forEach(p=>{
     if(p.latitude==null || p.longitude==null) return
@@ -5658,10 +5727,7 @@ async function mapaRepartidor(){
   const puntos = [...pendientes, ...entregados].map(o=>o.customers).filter(Boolean)
   const centro = puntos.length ? [puntos[0].latitude, puntos[0].longitude] : [-32.9468, -60.6393]
   const map = L.map('rep_mapa_contenedor').setView(centro, 12)
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-    maxZoom: 19,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-  }).addTo(map)
+  L.tileLayer(TILES_URL, { maxZoom: 19, attribution: TILES_ATRIB }).addTo(map)
 
   const marcador = (c, color, radio, popupExtra, dashArray)=> L.circleMarker([c.latitude, c.longitude], { radius: radio, color, fillColor: color, fillOpacity: dashArray?0.15:0.9, weight: 2, dashArray })
     .bindPopup(`<b>${c.first_name||''} ${c.last_name||''}</b><br>${c.street||''} ${c.street_number||''}<br>📞 ${c.phone||'-'}${popupExtra||''}`)
@@ -6247,7 +6313,7 @@ async function fetchAdminData(){
     q('products','id,name,unit_label,category,current_qty,active'),
     supabase.from('stock_movements').select('id,product_id,type,quantity,note,created_by,created_at').order('created_at',{ascending:false}).limit(20),
     supabase.from('waitlist').select('id,customer_id,egg_quantity,frequency,position,created_at,customers(first_name,last_name,phone)').order('position'),
-    supabase.from('farm_settings').select('key,value').in('key',['default_daily_capacity_maples','transfer_cbu','transfer_alias','transfer_bank_name','transfer_holder_name','transfer_holder_doc','mp_alias','mp_wallet_name','mp_cbu','mp_holder_name','mp_holder_doc','assignment_mode','wallet_discount_type','wallet_discount_value','company_legal_name','company_cuit','company_address','company_phone','company_email','whatsapp_pedidos_urgentes','shipping_cost','free_shipping_min','top_clients_count','empresa_nombre','empresa_direccion','empresa_telefono','empresa_email','empresa_cuit']),
+    supabase.from('farm_settings').select('key,value').in('key',['default_daily_capacity_maples','transfer_cbu','transfer_alias','transfer_bank_name','transfer_holder_name','transfer_holder_doc','mp_alias','mp_wallet_name','mp_cbu','mp_holder_name','mp_holder_doc','assignment_mode','wallet_discount_type','wallet_discount_value','company_legal_name','company_cuit','company_address','company_phone','company_email','whatsapp_pedidos_urgentes','shipping_cost','free_shipping_min','top_clients_count','empresa_nombre','empresa_direccion','empresa_telefono','empresa_email','empresa_cuit','deposito_street','deposito_street_number','deposito_neighborhood','deposito_city','deposito_province','deposito_latitude','deposito_longitude','localidades_habituales']),
     supabase.from('zone_drivers').select('zone,driver_user_id'),
     supabase.from('neighborhood_drivers').select('neighborhood,driver_user_id'),
     supabase.from('customers').select('neighborhood,zone').not('neighborhood','is',null),
@@ -6478,8 +6544,28 @@ async function admin(){
   ${accHead('mapa','🗺️','Mapa de clientes')}
     <div id="admin_mapa_estado" class="muted" style="margin-bottom:8px">Cargando mapa…</div>
     <div id="admin_mapa_contenedor" style="height:440px;border-radius:12px;overflow:hidden;background:#eee"></div>
-    <p class="muted" style="font-size:12px;margin-top:8px">🟢 Norte · 🟠 Sur · 🟣 Oeste · 🟡 Este. Si un punto está mal ubicado, mantenelo apretado y arrastralo a la posición correcta — se guarda solo.</p>
+    <div style="font-size:12px;color:${NOM.tintaSuave};margin-top:8px;line-height:1.9">
+      <div><b style="color:${NOM.tinta}">Forma:</b> <span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:${NOM.verde};vertical-align:-1px"></span> en el circuito · <span style="display:inline-block;width:10px;height:10px;background:#185FA5;transform:rotate(45deg);vertical-align:-1px;margin:0 3px"></span> fuera · <span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:${NOM.ambar};vertical-align:-1px"></span> comercio · <span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:${NOM.ambarClaro};border:2px dashed ${NOM.ambar};vertical-align:-1px"></span> sin confirmar</div>
+      <div><b style="color:${NOM.tinta}">Color de zona:</b> 🟢 Norte · 🟠 Sur · 🟣 Oeste · 🟡 Este</div>
+      <div>Tocá un punto para ver a qué distancia está del depósito. Si está mal ubicado, mantenelo apretado y arrastralo — se guarda solo.</div>
+    </div>
     <div id="admin_mapa_sin_geo" style="margin-top:12px"></div>
+    <div style="border-top:1px solid ${NOM.borde};margin-top:14px;padding-top:14px">
+      <div style="font-size:14px;font-weight:500;margin-bottom:3px">🏠 Depósito</div>
+      <p class="muted" style="font-size:12px;margin:0 0 10px">Desde acá se miden las distancias a cada cliente.</p>
+      <div class="grid two">
+        <div class="field"><label>Calle</label><input id="dep_street" value="${settingsMap.deposito_street||''}"/></div>
+        <div class="field"><label>Número</label><input id="dep_street_number" value="${settingsMap.deposito_street_number||''}"/></div>
+      </div>
+      <div class="grid two">
+        <div class="field"><label>Barrio</label><input id="dep_neighborhood" value="${settingsMap.deposito_neighborhood||''}"/></div>
+        <div class="field"><label>Localidad</label><input id="dep_city" value="${settingsMap.deposito_city||''}"/></div>
+      </div>
+      <div class="field"><label>Localidades del circuito habitual <small class="muted">(separadas por coma)</small></label><input id="dep_habituales" value="${settingsMap.localidades_habituales||'Rosario'}" placeholder="Ej: Rosario, Funes"/></div>
+      <p class="muted" style="font-size:11.5px;margin:-4px 0 10px">Los clientes de estas localidades salen como círculo. El resto, como rombo azul.</p>
+      <div id="dep_estado" class="muted" style="font-size:12px;margin-bottom:8px">${settingsMap.deposito_latitude?`📍 Ubicado en ${Number(settingsMap.deposito_latitude).toFixed(4)}, ${Number(settingsMap.deposito_longitude).toFixed(4)}`:'⚠️ Sin ubicar — las distancias no se pueden calcular'}</div>
+      <button class="btn primary" id="btn_guardar_deposito" style="width:100%">Guardar depósito y ubicarlo</button>
+    </div>
   </div></div>
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
   ${accHead('asignacion','🚚','Asignación de repartidores')}
@@ -7886,6 +7972,42 @@ async function admin(){
     })
     if(error){ box.textContent='No se pudo guardar: '+error.message; box.style.display='block'; return }
     adminData = null; render()
+  }
+  const btnDeposito = document.querySelector('#btn_guardar_deposito')
+  if(btnDeposito) btnDeposito.onclick = async ()=>{
+    const est = document.querySelector('#dep_estado')
+    const datos = {
+      deposito_street: document.querySelector('#dep_street').value.trim(),
+      deposito_street_number: document.querySelector('#dep_street_number').value.trim(),
+      deposito_neighborhood: document.querySelector('#dep_neighborhood').value.trim(),
+      deposito_city: document.querySelector('#dep_city').value.trim() || 'Rosario',
+      localidades_habituales: document.querySelector('#dep_habituales').value.trim() || 'Rosario'
+    }
+    if(!datos.deposito_street || !datos.deposito_street_number){
+      if(est){ est.textContent = '⚠️ Completá calle y número.'; est.style.color = NOM.rojo }
+      return
+    }
+    btnDeposito.disabled = true; btnDeposito.textContent = 'Buscando la dirección…'
+    const geo = await geocodificarDireccion(direccionParaBuscar({ street:datos.deposito_street, street_number:datos.deposito_street_number, city:datos.deposito_city, province:'Santa Fe' }))
+    const veredicto = evaluarGeo(geo, { city: datos.deposito_city })
+    if(geo){
+      datos.deposito_latitude = String(geo.lat)
+      datos.deposito_longitude = String(geo.lon)
+    }
+    for(const [key, value] of Object.entries(datos)){
+      const { error } = await supabase.from('farm_settings').update({ value }).eq('key', key)
+      if(error) await supabase.from('farm_settings').insert({ key, value })
+    }
+    btnDeposito.disabled = false; btnDeposito.textContent = 'Guardar depósito y ubicarlo'
+    if(!geo){
+      mostrarAlerta('Guardamos los datos, pero no encontramos esa dirección en el mapa. Revisá que la calle y la localidad estén bien escritas — sin la ubicación no se pueden calcular las distancias.')
+    } else if(veredicto.estado !== 'confirmado'){
+      mostrarAlerta(`Depósito guardado y ubicado, pero con poca precisión (${veredicto.motivo.toLowerCase()}). Las distancias van a ser aproximadas.`)
+    } else {
+      mostrarAlerta('Depósito guardado y ubicado ✅ Ya se calculan las distancias a cada cliente.')
+    }
+    adminData = null
+    render()
   }
   document.querySelector('#btn_guardar_pago_config').onclick = async ()=>{
     const valores = {
