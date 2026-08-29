@@ -23,6 +23,9 @@ const IC = {
   reloj:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>',
   check:'<path d="M4 12.5l5.5 5.5L20 7"/>',
   cerrar:'<path d="M6 6l12 12M18 6L6 18"/>',
+  flechaIzq:'<path d="M19 12H5M11 6l-6 6 6 6"/>',
+  camara:'<path d="M3 8h3l2-3h8l2 3h3v12H3z"/><circle cx="12" cy="13" r="4"/>',
+  grafico:'<path d="M4 20V10M10 20V4M16 20v-7M22 20V8"/>',
   botella:'<path d="M10 2h4v3.5l2 3V21a1 1 0 01-1 1H9a1 1 0 01-1-1V8.5l2-3z"/><path d="M8 13h8"/>',
   mapa:'<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/>',
   moto:'<circle cx="5" cy="17" r="3"/><circle cx="19" cy="17" r="3"/><path d="M8 17h8l-4-7H8M14 10h4l2 4"/>',
@@ -71,15 +74,15 @@ let adminDetalleTipo = null // qué tarjeta de resumen se está viendo en detall
 
 const ICONOS_NAV = {
   admin:'panel', pedidos:'paquete', telefonico:'telefono', clientes:'personas', preparador:'canasta',
-  repartidor:'camion', campo:'huevo', vendedor:'vendedor', 'alta-comercio':'tienda', 'mayoristas-riesgo':'aviso', deudores:'moneda', fincanales:'grafico', vehiculo:'moto', historial:'historial',
+  repartidor:'camion', campo:'huevo', vendedor:'vendedor', gasto:'moneda', 'alta-comercio':'tienda', 'mayoristas-riesgo':'aviso', deudores:'moneda', fincanales:'grafico', vehiculo:'moto', historial:'historial',
   'mis-suscriptores':'personas', 'mis-comisiones':'moneda', perfil:'engranaje', logout:'salir',
   merma:'campana', vencimientos:'calendario', avisos:'campana', inicio:'huevo'
 }
 
 const MENU_POR_ROL = {
-  admin: [['admin','Hoy'],['pedidos','Pedidos'],['telefonico','Teléfono'],['clientes','Clientes'],['preparador','Preparar'],['repartidor','Repartidor'],['campo','Campo'],['vendedor','Vender'],['vehiculo','Mi vehículo'],['vencimientos','Vencimientos'],['merma','Registrar pérdida'],['avisos','Avisos'],['inicio','Ver la tienda']],
+  admin: [['admin','Hoy'],['pedidos','Pedidos'],['telefonico','Teléfono'],['clientes','Clientes'],['preparador','Preparar'],['repartidor','Repartidor'],['campo','Campo'],['vendedor','Vender'],['vehiculo','Mi vehículo'],['gasto','Cargar gasto'],['vencimientos','Vencimientos'],['merma','Registrar pérdida'],['avisos','Avisos'],['inicio','Ver la tienda']],
   campo: [['campo','Campo'],['merma','Registrar pérdida'],['inicio','Ver la tienda']],
-  repartidor: [['repartidor','Ruta'],['historial','Historial'],['vehiculo','Mi vehículo'],['merma','Registrar pérdida'],['inicio','Ver la tienda']],
+  repartidor: [['repartidor','Ruta'],['historial','Historial'],['vehiculo','Mi vehículo'],['gasto','Cargar gasto'],['merma','Registrar pérdida'],['inicio','Ver la tienda']],
   preparador: [['preparador','Preparar'],['vencimientos','Vencimientos'],['merma','Registrar pérdida'],['inicio','Ver la tienda']],
   vendedor: [['vendedor','Vender'],['alta-comercio','Comercio'],['mis-suscriptores','Suscriptores'],['mis-comisiones','Comisiones'],['inicio','Ver la tienda']],
   telefonico: [['telefonico','Teléfono'],['inicio','Ver la tienda']]
@@ -3027,7 +3030,1614 @@ let campoGranjeroVerHistorial = null
 let campoRecibiendoEncargo = null
 let campoEncargoModo = 'entrega'
 
+
+
+// ---- Cabecera común de las pantallas del campo ----
+function campoHeader(titulo){
+  return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <button class="btn ghost" id="btn_campo_volver" style="padding:8px 11px">${ico('flechaIzq',16,NOM.verde)}</button>
+    <h2 style="margin:0;font-size:19px">${titulo}</h2>
+  </div>`
+}
+function campoEngancharVolver(){
+  const b = document.querySelector('#btn_campo_volver')
+  if(b) b.onclick = ()=>{ current='campo'; render() }
+}
+
+// ---- CARGAR EL DÍA ----
+async function campoDia(){
+  const { data: res } = await supabase.rpc('campo_resumen', {})
+  const L = (res?.lotes||[]).find(l=>l.id===campoLoteSel) || (res?.lotes||[])[0]
+  if(!L){ current='campo'; return render() }
+  const enProduccion = L.etapa?.codigo === 'produccion'
+
+  let huevos = 0, rotos = 0, muertas = 0, lluvia = null, enviando = false
+
+  const dibujar = ()=>{
+    const buenos = Math.max(0, huevos - rotos)
+    const post = L.aves > 0 ? Math.round((buenos / L.aves) * 1000)/10 : 0
+    const esp = L.postura_esperada
+    layout(`${campoHeader('El día de hoy')}
+    <div class="card">
+      <p class="muted" style="margin:0 0 13px;font-size:12px">${formatearFecha(new Date().toISOString().slice(0,10))} · ${L.nombre} · ${L.aves} aves</p>
+
+      ${enProduccion?`
+      ${campoContador('huevos','Huevos recolectados', huevos, 10)}
+      ${campoContador('rotos','Rotos o sucios', rotos, 1)}`:`
+      <div style="background:${NOM.fondo};border-radius:11px;padding:12px;margin-bottom:9px">
+        <p style="margin:0;font-size:12px;color:${NOM.tintaSuave};line-height:1.5">Todavía no ponen. Cuando aparezca el primer huevo, cargalo acá y el sistema pasa el lote a producción.</p>
+      </div>
+      ${campoContador('huevos','Huevos (si ya empezaron)', huevos, 1)}`}
+      ${campoContador('muertas','Gallinas muertas', muertas, 1)}
+
+      <div class="field" style="margin-top:12px"><label>¿Llovió?</label>
+        <div class="grid three">
+          ${[['nada','No'],['poca','Un poco'],['mucha','Bastante']].map(([v,l])=>
+            `<button type="button" class="btn ${lluvia===v?'primary':'ghost'}" data-lluvia="${v}" style="font-size:12.5px">${l}</button>`).join('')}
+        </div>
+      </div>
+
+      <div class="field"><label>Alguna observación</label><input id="campo_dia_nota" placeholder="Opcional"/></div>
+
+      ${huevos>0?`<div style="background:${NOM.verdeClaro};border-radius:11px;padding:12px;margin-bottom:11px">
+        <div style="font-size:12.5px;color:#5F5E5A;line-height:1.55">Quedan <b>${buenos}</b> huevos buenos · postura ${post}%${esp?` · lo esperado para la edad es ${esp}%`:''}</div>
+      </div>`:''}
+
+      <div id="err_campo_dia" class="alert danger" style="display:none"></div>
+      <button class="btn primary" id="btn_campo_dia" style="width:100%" ${enviando?'disabled':''}>${enviando?'Guardando…':'Guardar el día'}</button>
+    </div>`)
+
+    campoEngancharVolver()
+    campoEngancharContadores({huevos,rotos,muertas}, (k,v)=>{
+      if(k==='huevos') huevos=v; else if(k==='rotos') rotos=v; else muertas=v
+      dibujar()
+    })
+    document.querySelectorAll('[data-lluvia]').forEach(b=>b.onclick=()=>{ lluvia = lluvia===b.dataset.lluvia?null:b.dataset.lluvia; dibujar() })
+
+    document.querySelector('#btn_campo_dia').onclick = async ()=>{
+      const box = document.querySelector('#err_campo_dia')
+      if(huevos<=0 && muertas<=0){ box.textContent='Cargá al menos los huevos o las muertas.'; box.style.display='block'; return }
+      if(rotos > huevos){ box.textContent='Los rotos no pueden ser más que los huevos recolectados.'; box.style.display='block'; return }
+      enviando = true; dibujar()
+      const { data, error } = await supabase.rpc('campo_cargar_dia', {
+        p_lote_id: L.id, p_huevos: huevos, p_rotos: rotos, p_muertas: muertas,
+        p_fecha: new Date().toISOString().slice(0,10),
+        p_nota: document.querySelector('#campo_dia_nota')?.value.trim() || null
+      })
+      enviando = false
+      if(error || !data?.ok){ dibujar(); const b2=document.querySelector('#err_campo_dia'); if(b2){ b2.textContent = data?.error || 'No se pudo guardar.'; b2.style.display='block' } return }
+      if(lluvia){
+        await supabase.from('production').update({ lluvia })
+          .eq('lote_id', L.id).eq('production_date', new Date().toISOString().slice(0,10))
+      }
+      const dif = data.diferencia
+      mostrarAlerta(`Guardado.\n\n${data.buenos} huevos buenos · postura ${data.postura}%` +
+        (data.esperada ? `\nLo esperado era ${data.esperada}%${dif!=null?` (${dif>0?'+':''}${dif})`:''}` : ''))
+      current='campo'; render()
+    }
+  }
+  dibujar()
+}
+
+function campoContador(id, label, val, paso){
+  return `<div style="border:1px solid ${NOM.borde};border-radius:11px;padding:11px 12px;margin-bottom:7px;display:flex;justify-content:space-between;align-items:center;gap:10px">
+    <span style="font-size:12.5px;color:${NOM.tinta};flex:1;min-width:0">${label}</span>
+    <span style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+      <button type="button" data-cmenos="${id}" data-paso="${paso}" style="width:34px;height:34px;border-radius:9px;background:${NOM.fondo};color:${NOM.verde};border:none;font-size:19px;font-weight:600">−</button>
+      <input type="number" inputmode="numeric" id="cnt_${id}" value="${val}" style="width:64px;text-align:center;font-size:17px;font-weight:500;padding:6px 2px;border:1px solid ${NOM.borde};border-radius:8px"/>
+      <button type="button" data-cmas="${id}" data-paso="${paso}" style="width:34px;height:34px;border-radius:9px;background:${NOM.verde};color:#F5EFE0;border:none;font-size:19px;font-weight:600">+</button>
+    </span>
+  </div>`
+}
+
+function campoEngancharContadores(vals, onChange){
+  document.querySelectorAll('[data-cmas]').forEach(b=>b.onclick=()=>{
+    const k=b.dataset.cmas, p=Number(b.dataset.paso)||1
+    onChange(k, (Number(document.querySelector('#cnt_'+k)?.value)||0) + p)
+  })
+  document.querySelectorAll('[data-cmenos]').forEach(b=>b.onclick=()=>{
+    const k=b.dataset.cmenos, p=Number(b.dataset.paso)||1
+    onChange(k, Math.max(0, (Number(document.querySelector('#cnt_'+k)?.value)||0) - p))
+  })
+  Object.keys(vals).forEach(k=>{
+    const el = document.querySelector('#cnt_'+k)
+    if(el) el.onchange = ()=> onChange(k, Math.max(0, Number(el.value)||0))
+  })
+}
+
+
+// ---- MOVER EL CARRO ----
+async function campoCarro(){
+  const { data } = await supabase.rpc('campo_parcelas', {})
+  const parcelas = data?.parcelas || []
+  const { data: rec } = await supabase.rpc('descanso_recomendado', {})
+  const actual = parcelas.find(p=>p.ocupada) || null
+  const destinos = parcelas.filter(p=>!p.ocupada)
+
+  let destino = null, fotoSal = null, fotoEnt = null, enviando = false
+  const recDias = rec?.dias || 21
+
+  const dibujar = ()=>{
+    layout(`${campoHeader('Mover el carro')}
+
+    <div style="background:${NOM.verdeClaro};border-radius:12px;padding:12px;margin-bottom:9px">
+      <div style="font-size:12.5px;color:#5F5E5A;line-height:1.55">En ${rec?.mes||'este mes'} el pasto crece <b>${rec?.crecimiento||''}</b>. Conviene dar al menos <b>${recDias} días</b> de descanso.${rec?.motivo_ajuste?`<br><span style="font-size:11.5px">Ajustado porque ${rec.motivo_ajuste}.</span>`:''}</div>
+    </div>
+
+    ${actual?`<div class="card">
+      <h3 style="font-size:14px;margin:0 0 9px">1 · Sacar de ${actual.nombre}</h3>
+      <p class="muted" style="margin:0 0 11px;font-size:11.5px">Estuvieron ${actual.dias_ocupada||0} día(s) ahí</p>
+      <div id="foto_salida_box">
+        ${fotoSal?`<div style="border:2px solid ${NOM.verde};border-radius:11px;padding:11px;display:flex;gap:10px;align-items:center">
+          ${ico('check',18,NOM.verde)}<span style="font-size:12px;color:${NOM.tinta}">Foto lista</span>
+          <button class="btn ghost" id="btn_borrar_fsal" style="margin-left:auto;padding:5px 10px;font-size:11px">Cambiar</button>
+        </div>`:`<label style="display:block;height:88px;background:${NOM.verdeClaro};border:1px dashed ${NOM.verdePastel};border-radius:11px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;cursor:pointer">
+          ${ico('camara',22,NOM.verdePastel)}
+          <span style="font-size:11.5px;color:${NOM.tintaSuave}">Foto de cómo quedó el pasto</span>
+          <input type="file" accept="image/*" capture="environment" id="foto_salida" style="display:none"/>
+        </label>`}
+      </div>
+    </div>`:`<div style="background:${NOM.fondo};border-radius:12px;padding:12px;margin-bottom:9px">
+      <div style="font-size:12px;color:${NOM.tintaSuave}">El carro no está en ninguna parcela. Elegí a cuál lo llevás.</div>
+    </div>`}
+
+    <div class="card">
+      <h3 style="font-size:14px;margin:0 0 11px">${actual?'2 · ':''}¿A cuál la llevás?</h3>
+      ${destinos.length ? destinos.map(p=>{
+        const sel = destino === p.id
+        const desc = p.nunca_usada ? null : Number(p.descanso_dias||0)
+        const poco = desc !== null && desc < recDias
+        return `<div data-destino="${p.id}" style="border:${sel?`2px solid ${NOM.verde}`:`1px solid ${NOM.borde}`};background:${sel?NOM.fondo:NOM.superficie};border-radius:11px;padding:12px;margin-bottom:7px;cursor:pointer;${poco&&!sel?'opacity:.62':''}">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+            <div>
+              <div style="font-size:13px;font-weight:${sel?'500':'400'};color:${NOM.tinta}">${p.nombre}</div>
+              ${p.superficie?`<div style="font-size:11px;color:${NOM.tintaSuave};margin-top:2px">${Number(p.superficie).toLocaleString('es-AR')} m²${p.m2_por_ave?` · ${p.m2_por_ave} m² por ave`:''}</div>`:''}
+            </div>
+            <div style="text-align:right;flex-shrink:0">
+              ${p.nunca_usada
+                ? `<span style="font-size:11px;color:${NOM.verde}">sin usar</span>`
+                : `<span style="font-size:11.5px;color:${poco?NOM.ambar:NOM.verde}">${desc} días</span>
+                   <div style="font-size:10px;color:${poco?NOM.ambar:NOM.tintaSuave};margin-top:1px">${poco?'poco descanso':'de descanso'}</div>`}
+            </div>
+          </div>
+        </div>`
+      }).join('') : estadoVacio('No hay otras parcelas cargadas. Pedile a Gastón que las cree.')}
+
+      ${destino?`<div style="margin-top:11px" id="foto_entrada_box">
+        ${fotoEnt?`<div style="border:2px solid ${NOM.verde};border-radius:11px;padding:11px;display:flex;gap:10px;align-items:center">
+          ${ico('check',18,NOM.verde)}<span style="font-size:12px;color:${NOM.tinta}">Foto lista</span>
+          <button class="btn ghost" id="btn_borrar_fent" style="margin-left:auto;padding:5px 10px;font-size:11px">Cambiar</button>
+        </div>`:`<label style="display:block;height:88px;background:${NOM.verdeClaro};border:1px dashed ${NOM.verdePastel};border-radius:11px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;cursor:pointer">
+          ${ico('camara',22,NOM.verdePastel)}
+          <span style="font-size:11.5px;color:${NOM.tintaSuave}">Foto del pasto antes de entrar</span>
+          <input type="file" accept="image/*" capture="environment" id="foto_entrada" style="display:none"/>
+        </label>`}
+      </div>`:''}
+
+      <div id="err_carro" class="alert danger" style="display:none;margin-top:10px"></div>
+      ${destino?`<button class="btn primary" id="btn_mover_carro" style="width:100%;margin-top:11px" ${enviando?'disabled':''}>${enviando?'Guardando…':'Confirmar el movimiento'}</button>`:''}
+    </div>`)
+
+    campoEngancharVolver()
+    document.querySelectorAll('[data-destino]').forEach(el=>el.onclick=()=>{ destino = el.dataset.destino; dibujar() })
+    const fs = document.querySelector('#foto_salida')
+    if(fs) fs.onchange = (e)=>{ fotoSal = e.target.files[0]||null; dibujar() }
+    const fe = document.querySelector('#foto_entrada')
+    if(fe) fe.onchange = (e)=>{ fotoEnt = e.target.files[0]||null; dibujar() }
+    const bs = document.querySelector('#btn_borrar_fsal')
+    if(bs) bs.onclick = ()=>{ fotoSal=null; dibujar() }
+    const be = document.querySelector('#btn_borrar_fent')
+    if(be) be.onclick = ()=>{ fotoEnt=null; dibujar() }
+
+    const btn = document.querySelector('#btn_mover_carro')
+    if(btn) btn.onclick = async ()=>{
+      const box = document.querySelector('#err_carro')
+      if(!destino){ box.textContent='Elegí a qué parcela lo llevás.'; box.style.display='block'; return }
+      enviando = true; dibujar()
+
+      const subir = async (f, tag)=>{
+        if(!f) return null
+        const path = `parcelas/${Date.now()}_${tag}.${(f.name.split('.').pop()||'jpg')}`
+        const { error } = await supabase.storage.from('finance-attachments').upload(path, f)
+        if(error) return null
+        const { data: pub } = supabase.storage.from('finance-attachments').getPublicUrl(path)
+        return pub.publicUrl
+      }
+      const [uSal, uEnt] = await Promise.all([subir(fotoSal,'sal'), subir(fotoEnt,'ent')])
+
+      const { data: r, error } = await supabase.rpc('campo_mover_carro', {
+        p_parcela_destino: destino, p_lote_id: campoLoteSel,
+        p_foto_salida: uSal, p_foto_entrada: uEnt, p_nota: null
+      })
+      enviando = false
+      if(error || !r?.ok){ dibujar(); const b2=document.querySelector('#err_carro'); if(b2){ b2.textContent = r?.error || 'No se pudo guardar.'; b2.style.display='block' } return }
+      mostrarAlerta(`Carro movido a ${r.hacia}.` +
+        (r.desde?`\n\n${r.desde} estuvo ${r.dias_estuvo} días y empieza a descansar hoy.`:'') +
+        (r.poco_descanso?`\n\nOjo: ${r.hacia} descansó menos de lo recomendado.`:''))
+      current='campo'; render()
+    }
+  }
+  dibujar()
+}
+
+// ---- ABRIR UN INSUMO ----
+async function campoInsumo(){
+  const cat = await campoCargarCatalogos()
+  const insumos = (cat.insumos||[]).filter(i=>Number(i.stock) > 0 || i.es_alimento)
+  let sel = null, enviando = false
+
+  const dibujar = ()=>{
+    layout(`${campoHeader('Abrir un insumo')}
+    <div class="card">
+      <p class="muted" style="margin:0 0 12px;font-size:12px">Tocá cuando empezás una bolsa, un frasco o una botella nueva. Queda la hora y el sistema calcula cuánto duró la anterior.</p>
+      ${insumos.length ? insumos.map(i=>{
+        const s = sel === i.id
+        return `<div data-insumo="${i.id}" style="border:${s?`2px solid ${NOM.verde}`:`1px solid ${NOM.borde}`};background:${s?NOM.fondo:NOM.superficie};border-radius:11px;padding:12px;margin-bottom:7px;cursor:pointer">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:${s?'500':'400'};color:${NOM.tinta}">${i.nombre}</div>
+              <div style="font-size:11px;color:${NOM.tintaSuave};margin-top:2px">${i.unit_label}${i.contenido?` · ${i.contenido} ${i.unidad}`:''}${i.dosis?` · ${i.dosis} dosis`:''}</div>
+            </div>
+            <span style="font-size:11.5px;color:${Number(i.stock)>0?NOM.verde:NOM.ambar};flex-shrink:0">${Number(i.stock)||0} en stock</span>
+          </div>
+        </div>`
+      }).join('') : estadoVacio('No hay insumos cargados. Pedile a Gastón que los cargue.')}
+      <div id="err_insumo" class="alert danger" style="display:none;margin-top:10px"></div>
+      ${sel?`<button class="btn primary" id="btn_abrir_insumo" style="width:100%;margin-top:11px" ${enviando?'disabled':''}>${enviando?'Guardando…':'Abrí este envase'}</button>`:''}
+    </div>`)
+
+    campoEngancharVolver()
+    document.querySelectorAll('[data-insumo]').forEach(el=>el.onclick=()=>{ sel = el.dataset.insumo; dibujar() })
+    const btn = document.querySelector('#btn_abrir_insumo')
+    if(btn) btn.onclick = async ()=>{
+      enviando = true; dibujar()
+      const { data: r, error } = await supabase.rpc('campo_abrir_insumo', {
+        p_product_id: sel, p_lote_id: campoLoteSel, p_nota: null
+      })
+      enviando = false
+      if(error || !r?.ok){ dibujar(); const b=document.querySelector('#err_insumo'); if(b){ b.textContent = r?.error||'No se pudo guardar.'; b.style.display='block' } return }
+      let msg = 'Anotado.'
+      if(r.duro_dias) msg += `\n\nEl anterior duró ${r.duro_dias} día(s).`
+      if(r.consumo_por_ave_dia) msg += `\nCada ave consumió ${r.consumo_por_ave_dia} ${r.unidad_consumo} por día.`
+      if(r.quedan != null) msg += `\n\nQuedan ${r.quedan} en stock.`
+      mostrarAlerta(msg)
+      campoCat = null
+      current='campo'; render()
+    }
+  }
+  dibujar()
+}
+
+// ---- PESO DE LA SEMANA ----
+async function campoPeso(){
+  let pesoAve = '', pesoHuevo = '', enviando = false
+  const dibujar = ()=>{
+    layout(`${campoHeader('Peso de la semana')}
+    <div class="card">
+      <p class="muted" style="margin:0 0 13px;font-size:12px">Pesá 10 gallinas al azar y 10 huevos, y poné el promedio.</p>
+      <div class="field"><label>Peso promedio de la gallina (gramos)</label><input id="p_ave" type="number" inputmode="numeric" value="${pesoAve}" placeholder="Ej: 1850"/></div>
+      <div class="field"><label>Peso promedio del huevo (gramos)</label><input id="p_huevo" type="number" inputmode="numeric" value="${pesoHuevo}" placeholder="Ej: 64"/></div>
+      <div class="field"><label>Observación</label><input id="p_nota" placeholder="Opcional"/></div>
+      <div id="err_peso" class="alert danger" style="display:none"></div>
+      <button class="btn primary" id="btn_peso" style="width:100%" ${enviando?'disabled':''}>${enviando?'Guardando…':'Guardar'}</button>
+    </div>`)
+    campoEngancharVolver()
+    document.querySelector('#btn_peso').onclick = async ()=>{
+      const box = document.querySelector('#err_peso')
+      const pa = Number(document.querySelector('#p_ave').value) || null
+      const ph = Number(document.querySelector('#p_huevo').value) || null
+      if(!pa && !ph){ box.textContent='Poné al menos uno de los dos pesos.'; box.style.display='block'; return }
+      pesoAve = pa||''; pesoHuevo = ph||''
+      enviando = true; dibujar()
+      const { data: r, error } = await supabase.rpc('campo_registrar_peso', {
+        p_lote_id: campoLoteSel, p_peso_ave: pa, p_peso_huevo: ph,
+        p_aves_pesadas: 10, p_nota: document.querySelector('#p_nota')?.value.trim() || null
+      })
+      enviando = false
+      if(error || !r?.ok){ dibujar(); const b=document.querySelector('#err_peso'); if(b){ b.textContent=r?.error||'No se pudo guardar.'; b.style.display='block' } return }
+      let msg = 'Guardado.'
+      if(pa && r.peso_esperado) msg += `\n\nA las ${r.semanas} semanas lo esperado son ${r.peso_esperado} g. Estás ${r.diferencia_pct>0?'+':''}${r.diferencia_pct}%.`
+      if(ph && r.tamano_huevo) msg += `\n\nCon ${ph} g el huevo clasifica como ${GRADO_LABEL[r.tamano_huevo]||r.tamano_huevo}.`
+      mostrarAlerta(msg)
+      current='campo'; render()
+    }
+  }
+  dibujar()
+}
+
+// ---- SANIDAD ----
+async function campoSanidad(){
+  const [cat, { data: tar }, { data: det }] = await Promise.all([
+    campoCargarCatalogos(),
+    supabase.rpc('campo_tareas', { p_lote_id: campoLoteSel }),
+    supabase.rpc('campo_lote_detalle', { p_lote_id: campoLoteSel })
+  ])
+  const pendientes = (tar?.tareas||[]).filter(t=>t.tipo==='sanidad')
+  const hechas = det?.sanidad || []
+  let form = null, enviando = false
+
+  const dibujar = ()=>{
+    layout(`${campoHeader('Sanidad')}
+
+    ${form ? `<div class="card">
+      <h3 style="font-size:14px;margin:0 0 11px">Anotar aplicación</h3>
+      <div class="field"><label>¿Qué se aplicó? *</label><input id="san_nombre" value="${form.nombre||''}"/></div>
+      <div class="field"><label>Producto usado</label>
+        <select id="san_producto">
+          <option value="">No corresponde</option>
+          ${(cat.insumos||[]).filter(i=>i.categoria==='sanidad').map(i=>`<option value="${i.id}" ${form.producto_id===i.id?'selected':''}>${i.nombre}</option>`).join('')}
+        </select>
+      </div>
+      <div class="grid two">
+        <div class="field"><label>Cantidad usada</label><input id="san_cant" type="number" inputmode="decimal" placeholder="Ej: 25"/></div>
+        <div class="field"><label>Aves tratadas</label><input id="san_aves" type="number" inputmode="numeric" value="${form.aves||''}"/></div>
+      </div>
+      <div class="field"><label>Observación</label><input id="san_nota"/></div>
+      <div id="err_san" class="alert danger" style="display:none"></div>
+      ${pBtnRow([
+        pBtn('','Guardar','id="btn_san_guardar"','primary'),
+        pBtn('','Cancelar','id="btn_san_cancelar"','ghost')
+      ])}
+    </div>` : `
+    ${pendientes.length?`<div class="card">
+      <h3 style="font-size:14px;margin:0 0 11px">Lo que viene</h3>
+      ${pendientes.map(t=>{
+        const d = Number(t.dias)
+        return `<div style="background:${d<=2?'#FBE9D4':NOM.fondo};border-radius:11px;padding:12px;margin-bottom:7px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+            <div>
+              <div style="font-size:13px;font-weight:500;color:${d<=2?NOM.ambar:NOM.tinta}">${t.titulo}</div>
+              <div style="font-size:11px;color:#5F5E5A;margin-top:2px">${t.detalle} · ${d<=0?'toca hoy':'en '+d+' día(s)'}</div>
+            </div>
+            <button class="btn ${d<=2?'primary':'ghost'}" data-aplicar='${JSON.stringify({nombre:t.titulo, plan_id:t.plan_id})}' style="padding:8px 12px;font-size:12px;flex-shrink:0">Anotar</button>
+          </div>
+        </div>`
+      }).join('')}
+    </div>`:''}
+
+    <div class="card">
+      <h3 style="font-size:14px;margin:0 0 11px">Ya aplicado</h3>
+      ${hechas.length ? hechas.map(h=>`<div class="row"><span style="font-size:12.5px">${h.nombre}<br><small class="muted">${formatearFecha(h.fecha)}${h.aves?` · ${h.aves} aves`:''}</small></span></div>`).join('')
+        : estadoVacio('Todavía no se aplicó nada a este lote.')}
+      <button class="btn ghost" id="btn_san_otro" style="width:100%;margin-top:11px">Anotar otra cosa</button>
+    </div>`}`)
+
+    campoEngancharVolver()
+    document.querySelectorAll('[data-aplicar]').forEach(b=>b.onclick=()=>{
+      try { form = JSON.parse(b.dataset.aplicar) } catch(e){ form = { nombre:'' } }
+      dibujar()
+    })
+    const bo = document.querySelector('#btn_san_otro')
+    if(bo) bo.onclick = ()=>{ form = { nombre:'' }; dibujar() }
+    const bc = document.querySelector('#btn_san_cancelar')
+    if(bc) bc.onclick = ()=>{ form = null; dibujar() }
+    const bg = document.querySelector('#btn_san_guardar')
+    if(bg) bg.onclick = async ()=>{
+      const box = document.querySelector('#err_san')
+      const nombre = document.querySelector('#san_nombre').value.trim()
+      if(!nombre){ box.textContent='Poné qué se aplicó.'; box.style.display='block'; return }
+      enviando = true
+      const { data: r, error } = await supabase.rpc('campo_aplicar_sanidad', {
+        p_lote_id: campoLoteSel, p_nombre: nombre, p_plan_id: form.plan_id || null,
+        p_producto_id: document.querySelector('#san_producto').value || null,
+        p_cantidad: Number(document.querySelector('#san_cant').value) || null,
+        p_aves: Number(document.querySelector('#san_aves').value) || null,
+        p_nota: document.querySelector('#san_nota').value.trim() || null
+      })
+      enviando = false
+      if(error || !r?.ok){ box.textContent = r?.error||'No se pudo guardar.'; box.style.display='block'; return }
+      mostrarAlerta(`Anotado. Quedó registrado para ${r.aves} aves.`)
+      form = null; campoCat = null
+      render()
+    }
+  }
+  dibujar()
+}
+
+// ---- ENTRAN O SALEN AVES ----
+async function campoAves(){
+  const cat = await campoCargarCatalogos()
+  const { data: det } = await supabase.rpc('campo_lote_detalle', { p_lote_id: campoLoteSel })
+  let tipo = null, enviando = false
+  const TIPOS = [
+    ['muerte','Muertas','Se murieron','#B8641E'],
+    ['descarte','Descarte','Salen del lote','#8A8570'],
+    ['venta','Venta','Se vendieron','#5C7A99'],
+    ['ingreso','Entran aves','Refuerzo del lote','#2F4D2A']
+  ]
+
+  const dibujar = ()=>{
+    layout(`${campoHeader('Entran o salen aves')}
+    <div class="card">
+      <p class="muted" style="margin:0 0 12px;font-size:12px">${det?.lote?.nombre||''} · hoy hay <b>${det?.aves||0}</b> aves</p>
+      ${TIPOS.map(([v,l,d,c])=>{
+        const s = tipo === v
+        return `<div data-tipo-mov="${v}" style="border:${s?`2px solid ${c}`:`1px solid ${NOM.borde}`};background:${s?NOM.fondo:NOM.superficie};border-radius:11px;padding:12px;margin-bottom:7px;cursor:pointer">
+          <div style="display:flex;gap:11px;align-items:center">
+            <span style="width:30px;height:30px;border-radius:9px;background:${c}1a;display:flex;align-items:center;justify-content:center;flex-shrink:0">${ico(v==='ingreso'?'mas':'cerrar',15,c)}</span>
+            <div><div style="font-size:13px;font-weight:${s?'500':'400'};color:${NOM.tinta}">${l}</div>
+            <div style="font-size:11px;color:${NOM.tintaSuave};margin-top:1px">${d}</div></div>
+          </div>
+        </div>`
+      }).join('')}
+
+      ${tipo?`<div style="margin-top:12px">
+        <div class="field"><label>¿Cuántas?</label><input id="mov_cant" type="number" inputmode="numeric" placeholder="0"/></div>
+        ${tipo==='muerte'?`<div class="field"><label>¿Sabés por qué?</label>
+          <select id="mov_motivo">
+            <option value="">No sé</option>
+            <option value="enfermedad">Enfermedad</option>
+            <option value="predador">Predador</option>
+            <option value="calor">Golpe de calor</option>
+            <option value="frio">Frío</option>
+            <option value="accidente">Accidente</option>
+            <option value="otro">Otro</option>
+          </select></div>`:''}
+        ${tipo==='ingreso'&&(cat.razas||[]).length?`<div class="field"><label>¿De qué raza?</label>
+          <select id="mov_raza"><option value="">No especificar</option>
+          ${cat.razas.filter(r=>r.activa).map(r=>`<option value="${r.id}">${r.nombre}</option>`).join('')}</select></div>`:''}
+        <div class="field"><label>Observación</label><input id="mov_nota"/></div>
+        <div id="err_mov" class="alert danger" style="display:none"></div>
+        <button class="btn primary" id="btn_mov" style="width:100%" ${enviando?'disabled':''}>${enviando?'Guardando…':'Guardar'}</button>
+      </div>`:''}
+    </div>`)
+
+    campoEngancharVolver()
+    document.querySelectorAll('[data-tipo-mov]').forEach(el=>el.onclick=()=>{ tipo = el.dataset.tipoMov; dibujar() })
+    const btn = document.querySelector('#btn_mov')
+    if(btn) btn.onclick = async ()=>{
+      const box = document.querySelector('#err_mov')
+      const cant = Number(document.querySelector('#mov_cant').value)
+      if(!cant || cant<=0){ box.textContent='Poné cuántas aves.'; box.style.display='block'; return }
+      enviando = true; dibujar()
+      const { data: r, error } = await supabase.rpc('campo_movimiento_aves', {
+        p_lote_id: campoLoteSel, p_tipo: tipo, p_cantidad: cant,
+        p_motivo: document.querySelector('#mov_motivo')?.value || null,
+        p_raza_id: document.querySelector('#mov_raza')?.value || null,
+        p_nota: document.querySelector('#mov_nota')?.value.trim() || null
+      })
+      enviando = false
+      if(error || !r?.ok){ dibujar(); const b=document.querySelector('#err_mov'); if(b){ b.textContent=r?.error||'No se pudo guardar.'; b.style.display='block' } return }
+      mostrarAlerta(`Listo. El lote pasó de ${r.antes} a ${r.ahora} aves.`)
+      current='campo'; render()
+    }
+  }
+  dibujar()
+}
+
+// ---- GUÍA DE LA ETAPA ----
+async function campoGuia(){
+  const { data: det } = await supabase.rpc('campo_lote_detalle', { p_lote_id: campoLoteSel })
+  const etapa = det?.etapa || {}
+  const guia = Array.isArray(etapa.guia) ? etapa.guia : []
+  layout(`${campoHeader('Guía de la etapa')}
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:13px">
+      <div>
+        <div style="font-size:15px;font-weight:500;color:${NOM.tinta}">${etapa.nombre||''}</div>
+        <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">${det?.edad?.texto||''}</div>
+      </div>
+      <span style="background:${NOM.verdeClaro};color:${NOM.verde};font-size:11px;padding:5px 11px;border-radius:8px;white-space:nowrap">semana ${det?.edad?.semanas||0}</span>
+    </div>
+    ${guia.length ? guia.map((g,i)=>`<div style="display:flex;gap:11px;padding:9px 0${i<guia.length-1?`;border-bottom:1px solid ${NOM.borde}`:''}">
+      ${ico('check',15,NOM.verde)}
+      <div><div style="font-size:12.5px;color:${NOM.tinta}">${g.t||''}</div>
+      <div style="font-size:11px;color:${NOM.tintaSuave};margin-top:2px;line-height:1.45">${g.d||''}</div></div>
+    </div>`).join('') : estadoVacio('Todavía no hay guía cargada para esta etapa.')}
+  </div>`)
+  campoEngancharVolver()
+}
+
+// ---- CÓMO VA EL LOTE ----
+async function campoFicha(){
+  const { data: det } = await supabase.rpc('campo_lote_detalle', { p_lote_id: campoLoteSel })
+  if(!det?.ok){ current='campo'; return render() }
+  const prod = (det.produccion||[]).slice(0,14).reverse()
+  const pesos = (det.pesos||[]).slice(0,12).reverse()
+  const ultima = (det.produccion||[])[0]
+
+  layout(`${campoHeader('Cómo va el lote')}
+
+  <div style="background:${NOM.verde};border-radius:16px;padding:15px;margin-bottom:9px">
+    <div style="display:flex;gap:18px;flex-wrap:wrap">
+      <div><div style="font-size:21px;font-weight:500;color:#F5EFE0;font-variant-numeric:tabular-nums">${det.aves}</div>
+      <div style="font-size:10px;color:${NOM.verdePastel};margin-top:2px">aves vivas</div></div>
+      <div><div style="font-size:21px;font-weight:500;color:#F5EFE0">${det.edad?.semanas||0}<span style="font-size:13px">+${det.edad?.resto_dias||0}</span></div>
+      <div style="font-size:10px;color:${NOM.verdePastel};margin-top:2px">sem y días</div></div>
+      <div><div style="font-size:21px;font-weight:500;color:#F5EFE0;font-variant-numeric:tabular-nums">${det.mortalidad_pct||0}%</div>
+      <div style="font-size:10px;color:${NOM.verdePastel};margin-top:2px">mortalidad</div></div>
+      ${ultima?.postura!=null?`<div><div style="font-size:21px;font-weight:500;color:#F5EFE0;font-variant-numeric:tabular-nums">${ultima.postura}%</div>
+      <div style="font-size:10px;color:${NOM.verdePastel};margin-top:2px">postura</div></div>`:''}
+    </div>
+  </div>
+
+  ${prod.length>1?`<div class="card">
+    <h3 style="font-size:14px;margin:0 0 11px">Postura de los últimos días</h3>
+    ${campoGrafico(prod.map(p=>Number(p.postura)||0), det.postura_esperada)}
+    <p class="muted" style="margin:9px 0 0;font-size:11.5px">${det.postura_esperada?`La línea clara es lo esperado para la edad (${det.postura_esperada}%)`:'Todavía no hay referencia para esta edad'}</p>
+  </div>`:''}
+
+  ${pesos.length?`<div class="card">
+    <h3 style="font-size:14px;margin:0 0 11px">Peso de las aves</h3>
+    ${campoGrafico(pesos.map(p=>Number(p.peso_ave)||0), null)}
+    <p class="muted" style="margin:9px 0 0;font-size:11.5px">Último: ${pesos[pesos.length-1]?.peso_ave||'-'} g</p>
+  </div>`:''}
+
+  ${det.razas?.length?`<div class="card">
+    <h3 style="font-size:14px;margin:0 0 11px">De qué razas es</h3>
+    ${det.razas.map(r=>`<div class="row"><span style="display:flex;gap:9px;align-items:center">
+      <span style="width:13px;height:13px;border-radius:50%;background:${r.color};flex-shrink:0"></span>
+      <span style="font-size:12.5px">${r.nombre}<br><small class="muted">huevo ${(r.color_huevo||'').toLowerCase()}</small></span></span>
+      <b>${r.cantidad}</b></div>`).join('')}
+  </div>`:''}
+
+  ${(det.movimientos||[]).length?`<div class="card">
+    <h3 style="font-size:14px;margin:0 0 11px">Movimientos de aves</h3>
+    ${det.movimientos.slice(0,10).map(m=>`<div class="row"><span style="font-size:12.5px">${
+      {muerte:'Muertas',descarte:'Descarte',venta:'Venta',ingreso:'Entraron'}[m.tipo]||m.tipo
+    }<br><small class="muted">${formatearFecha(m.fecha)}${m.motivo?' · '+m.motivo:''}</small></span>
+    <b style="color:${m.tipo==='ingreso'?NOM.verde:NOM.ambar}">${m.tipo==='ingreso'?'+':'−'}${m.cantidad}</b></div>`).join('')}
+  </div>`:''}`)
+  campoEngancharVolver()
+}
+
+function campoGrafico(valores, referencia){
+  if(!valores || valores.length < 2) return ''
+  const max = Math.max(...valores, referencia||0, 1) * 1.15
+  const pts = valores.map((v,i)=>{
+    const x = (i/(valores.length-1))*100
+    const y = 100 - (v/max)*100
+    return x.toFixed(1)+','+y.toFixed(1)
+  }).join(' ')
+  const refY = referencia ? (100 - (referencia/max)*100).toFixed(1) : null
+  return `<div style="height:90px">
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:100%;display:block">
+      ${refY!==null?`<line x1="0" y1="${refY}" x2="100" y2="${refY}" stroke="${NOM.verdePastel}" stroke-width="1.4" stroke-dasharray="3 2" vector-effect="non-scaling-stroke"/>`:''}
+      <polyline points="${pts}" fill="none" stroke="${NOM.verde}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+    </svg>
+  </div>`
+}
+
+
+
+// ============================================================
+//  CUÁNTO TE CUESTA Y CUÁNTO TE DEJA
+// ============================================================
+let costeoDesde = null
+let costeoHasta = null
+
+function costeoPeriodo(){
+  const hoy = new Date()
+  if(!costeoDesde) costeoDesde = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().slice(0,10)
+  if(!costeoHasta) costeoHasta = hoy.toISOString().slice(0,10)
+  return { desde: costeoDesde, hasta: costeoHasta }
+}
+
+async function costoHuevo(){
+  const p = costeoPeriodo()
+  layout(`<div class="card">${skeletonBloque(4)}</div>`)
+  const [{ data: c }, { data: m }] = await Promise.all([
+    supabase.rpc('costo_por_huevo', { p_desde: p.desde, p_hasta: p.hasta }),
+    supabase.rpc('margen_por_producto', { p_desde: p.desde, p_hasta: p.hasta })
+  ])
+
+  const items = (m?.items || []).map(x=>{
+    const ingreso = Number(x.ingreso)||0
+    const directo = Number(x.costo_directo)||0
+    const bruto = ingreso - directo
+    const partes = (m?.ventas_total||0) > 0 ? ingreso / m.ventas_total : 0
+    const indirecto = ((Number(m?.gastos_reparto)||0) + (Number(m?.gastos_estructura)||0)) * partes
+    const neto = bruto - indirecto
+    return { ...x, ingreso, directo, bruto, indirecto, neto,
+             pct: bruto > 0 ? Math.max(0, Math.min(100, Math.round((neto/bruto)*100))) : 0 }
+  }).sort((a,b)=>b.neto - a.neto)
+
+  const totIngreso = items.reduce((s,x)=>s+x.ingreso,0)
+  const totBruto = items.reduce((s,x)=>s+x.bruto,0)
+  const totNeto = items.reduce((s,x)=>s+x.neto,0)
+
+  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <button class="btn ghost" id="btn_volver_costeo" style="padding:8px 11px">${ico('flechaIzq',16,NOM.verde)}</button>
+    <h2 style="margin:0">Cuánto te cuesta</h2>
+  </div>
+
+  <div class="card">
+    <div class="grid two">
+      <div class="field" style="margin:0"><label>Desde</label><input id="cost_desde" type="date" value="${p.desde}"/></div>
+      <div class="field" style="margin:0"><label>Hasta</label><input id="cost_hasta" type="date" value="${p.hasta}"/></div>
+    </div>
+    <button class="btn ghost" id="btn_cost_periodo" style="width:100%;margin-top:10px">Ver este período</button>
+  </div>
+
+  ${!c?.hay_datos ? `<div class="card" style="text-align:center;padding:26px 16px">
+    ${ico('grafico',30,NOM.verdePastel)}
+    <p style="margin:12px 0 0;font-size:14px;font-weight:500;color:${NOM.tinta}">Todavía no hay datos suficientes</p>
+    <p style="margin:8px 0 0;font-size:12.5px;color:${NOM.tintaSuave};line-height:1.55">Para calcular el costo del huevo hacen falta dos cosas: producción cargada por Federico y gastos de producción en finanzas.</p>
+    <div style="background:${NOM.fondo};border-radius:11px;padding:12px;margin-top:14px;text-align:left">
+      <div class="row" style="border:0;padding:4px 0"><span style="font-size:12px;color:${NOM.tintaSuave}">Huevos buenos del período</span><span style="font-size:12.5px">${c?.buenos||0}</span></div>
+      <div class="row" style="border:0;padding:4px 0"><span style="font-size:12px;color:${NOM.tintaSuave}">Gastos de producción</span><span style="font-size:12.5px">$${Number(c?.gastos_produccion||0).toLocaleString('es-AR')}</span></div>
+    </div>
+  </div>`
+  : `
+  <div style="background:${NOM.verde};border-radius:16px;padding:17px;margin-bottom:9px">
+    <div style="font-size:11px;color:${NOM.verdePastel};letter-spacing:1px">PRODUCIR UN HUEVO TE CUESTA</div>
+    <div style="font-size:30px;font-weight:500;color:#F5EFE0;font-variant-numeric:tabular-nums;line-height:1;margin-top:6px">$${Number(c.costo_producir).toLocaleString('es-AR')}</div>
+    <div style="font-size:12px;color:${NOM.verdePastel};margin-top:8px;line-height:1.5">Solo lo del campo. Te sirve para decidir si conviene producir o comprarle a un granjero.</div>
+  </div>
+
+  <div class="card" style="border:2px solid ${NOM.verde}">
+    <div style="font-size:11px;color:${NOM.tintaSuave};letter-spacing:1px">PONERLO EN LA PUERTA DEL CLIENTE</div>
+    <div style="font-size:30px;font-weight:500;color:${NOM.verde};font-variant-numeric:tabular-nums;line-height:1;margin-top:6px">$${Number(c.costo_completo).toLocaleString('es-AR')}</div>
+    <div style="font-size:12px;color:${NOM.tintaSuave};margin-top:8px;line-height:1.5">Todo incluido. Este es el número contra el que hay que mirar tus precios.</div>
+  </div>
+
+  <div class="card">
+    <h3 style="font-size:14px;margin:0 0 11px">Cómo se llega a ese número</h3>
+    <div class="row"><span class="muted" style="font-size:12px">Huevos recolectados</span><span>${Number(c.recolectados).toLocaleString('es-AR')}</span></div>
+    <div class="row"><span class="muted" style="font-size:12px">Rotos y mermas</span><span style="color:${NOM.ambar}">−${Number(c.rotos).toLocaleString('es-AR')}</span></div>
+    <div class="row"><span style="font-size:12.5px;font-weight:500">Huevos buenos</span><span style="font-weight:500">${Number(c.buenos).toLocaleString('es-AR')}</span></div>
+    <div style="height:9px"></div>
+    <div class="row"><span class="muted" style="font-size:12px">Gastos de producción</span><span>$${Number(c.gastos_produccion).toLocaleString('es-AR')}</span></div>
+    <div class="row"><span class="muted" style="font-size:12px">Gastos de reparto</span><span>$${Number(c.gastos_reparto).toLocaleString('es-AR')}</span></div>
+    <div class="row"><span class="muted" style="font-size:12px">Gastos de estructura</span><span>$${Number(c.gastos_estructura).toLocaleString('es-AR')}</span></div>
+    ${c.entregas>0?`<div class="row"><span style="font-size:12.5px">Cada entrega cuesta</span><span style="font-weight:500">$${Number(c.costo_por_entrega).toLocaleString('es-AR')}</span></div>`:''}
+  </div>
+
+  ${c.comprados>0?`<div class="card">
+    <h3 style="font-size:14px;margin:0 0 11px">Huevo comprado a otros</h3>
+    <div class="row"><span class="muted" style="font-size:12px">Cantidad</span><span>${Number(c.comprados).toLocaleString('es-AR')}</span></div>
+    <div class="row"><span class="muted" style="font-size:12px">Te costó</span><span>$${Number(c.costo_comprados).toLocaleString('es-AR')}</span></div>
+    <div class="row"><span style="font-size:12.5px;font-weight:500">Cada huevo</span><span style="font-weight:500">$${Number(c.costo_huevo_comprado).toLocaleString('es-AR')}</span></div>
+    ${c.costo_producir && c.costo_huevo_comprado ? `<div style="background:${Number(c.costo_huevo_comprado) < Number(c.costo_producir) ? '#FBE9D4' : NOM.verdeClaro};border-radius:10px;padding:11px;margin-top:10px">
+      <div style="font-size:11.5px;color:${Number(c.costo_huevo_comprado) < Number(c.costo_producir) ? NOM.ambar : '#5F5E5A'};line-height:1.5">${
+        Number(c.costo_huevo_comprado) < Number(c.costo_producir)
+        ? 'Comprar te sale más barato que producir. Conviene revisar el lote.'
+        : 'Producir te sale más barato que comprar. Vas bien.'}</div>
+    </div>`:''}
+  </div>`:''}
+
+  ${items.length?`
+  <div style="background:${NOM.verde};border-radius:16px;padding:16px;margin-bottom:9px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;padding-bottom:10px;border-bottom:1px solid rgba(247,244,236,0.2)">
+      <span style="font-size:11px;color:${NOM.verdePastel}">GANANCIA BRUTA</span>
+      <span style="font-size:21px;font-weight:500;color:#F5EFE0;font-variant-numeric:tabular-nums">$${Math.round(totBruto).toLocaleString('es-AR')}</span>
+    </div>
+    <div style="padding:10px 0;border-bottom:1px solid rgba(247,244,236,0.2)">
+      <div style="display:flex;justify-content:space-between;padding:2px 0"><span style="font-size:11.5px;color:${NOM.verdePastel}">Reparto</span><span style="font-size:12px;color:#F5EFE0">−$${Number(m.gastos_reparto||0).toLocaleString('es-AR')}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:2px 0"><span style="font-size:11.5px;color:${NOM.verdePastel}">Estructura</span><span style="font-size:12px;color:#F5EFE0">−$${Number(m.gastos_estructura||0).toLocaleString('es-AR')}</span></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:10px">
+      <span style="font-size:11px;color:${NOM.verdePastel}">TE QUEDÓ</span>
+      <span style="font-size:26px;font-weight:500;color:#F5EFE0;font-variant-numeric:tabular-nums">$${Math.round(totNeto).toLocaleString('es-AR')}</span>
+    </div>
+    ${totIngreso>0?`<div style="background:rgba(247,244,236,0.12);border-radius:10px;padding:11px;margin-top:11px">
+      <div style="font-size:11.5px;color:#F5EFE0">De cada $100 que vendés, te quedan <b>$${Math.round((totNeto/totIngreso)*100)}</b>.</div>
+    </div>`:''}
+  </div>
+
+  <div class="card">
+    <h3 style="font-size:14px;margin:0 0 11px">Qué te deja cada producto</h3>
+    ${items.map((x,i)=>{
+      const col = x.pct >= 40 ? NOM.verde : NOM.ambar
+      const claro = x.pct >= 40 ? NOM.verdePastel : '#F0D9BC'
+      return `<div style="padding:10px 0${i<items.length-1?`;border-bottom:1px solid ${NOM.borde}`:''}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:500;color:${NOM.tinta}">${x.nombre}</div>
+            <div style="font-size:11px;color:${NOM.tintaSuave};margin-top:2px">${x.unidades} maple(s) · ${x.canal}</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:13.5px;font-weight:500;color:${col};font-variant-numeric:tabular-nums">$${Math.round(x.neto).toLocaleString('es-AR')}</div>
+            <div style="font-size:10.5px;color:${NOM.tintaSuave};margin-top:1px">de $${Math.round(x.bruto).toLocaleString('es-AR')} bruto</div>
+          </div>
+        </div>
+        <div style="height:6px;background:#F1EFE8;border-radius:3px;margin-top:7px;overflow:hidden;display:flex">
+          <span style="width:${x.pct}%;background:${col}"></span>
+          <span style="width:${100-x.pct}%;background:${claro}"></span>
+        </div>
+        ${x.pct < 25 ? `<div style="font-size:11px;color:${NOM.ambar};margin-top:6px">Vendés pero te queda poco: los gastos se llevan casi todo.</div>`:''}
+      </div>`
+    }).join('')}
+    <div style="background:${NOM.fondo};border-radius:10px;padding:11px;margin-top:11px">
+      <div style="font-size:11.5px;color:${NOM.tintaSuave};line-height:1.5">La parte oscura de la barra es lo que te queda limpio. La clara es lo que se comen los gastos.</div>
+    </div>
+  </div>`:''}`}`)
+
+  document.querySelector('#btn_volver_costeo').onclick = ()=>{ current='admin'; adminAreaAbierta=null; render() }
+  document.querySelector('#btn_cost_periodo').onclick = ()=>{
+    costeoDesde = document.querySelector('#cost_desde').value
+    costeoHasta = document.querySelector('#cost_hasta').value
+    render()
+  }
+}
+
+// ============================================================
+//  ZONAS DE REPARTO
+// ============================================================
+const DIAS_REPARTO = [[1,'Lunes'],[2,'Martes'],[3,'Miércoles'],[4,'Jueves'],[5,'Viernes'],[6,'Sábado']]
+const COLORES_ZONA = ['#2F4D2A','#B8641E','#5C7A99','#7A5C99','#4A7C59','#A3564A']
+
+async function zonasReparto(){
+  const { data } = await supabase.rpc('admin_zonas', {})
+  const zonas = data?.zonas || []
+  const sinZona = data?.sin_zona || []
+  const diaFijo = data?.dia_fijo || false
+  let form = null
+
+  const dibujar = ()=>{
+    layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <button class="btn ghost" id="btn_volver_zonas" style="padding:8px 11px">${ico('flechaIzq',16,NOM.verde)}</button>
+      <h2 style="margin:0">Zonas de reparto</h2>
+    </div>
+
+    ${form ? `<div class="card">
+      <h3 style="font-size:15px;margin:0 0 12px">${form.id?'Editar zona':'Nueva zona'}</h3>
+      <div class="field"><label>Nombre *</label><input id="zn_nombre" value="${form.nombre||''}" placeholder="Ej: Norte"/></div>
+      <div class="field"><label>Día de reparto</label>
+        <div class="grid three">
+          <button type="button" class="btn ${form.dia==null?'primary':'ghost'}" data-zdia="" style="font-size:12px">Sin día</button>
+          ${DIAS_REPARTO.map(([v,l])=>`<button type="button" class="btn ${form.dia===v?'primary':'ghost'}" data-zdia="${v}" style="font-size:12px">${l}</button>`).join('')}
+        </div>
+      </div>
+      <div class="field"><label>Color</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${COLORES_ZONA.map(c=>`<button type="button" data-zcolor="${c}" style="width:38px;height:38px;border-radius:11px;background:${c};border:${form.color===c?'3px solid '+NOM.tinta:'1px solid rgba(0,0,0,.1)'};cursor:pointer"></button>`).join('')}
+        </div>
+      </div>
+      <div class="field"><label>Barrios de esta zona *</label>
+        <textarea id="zn_barrios" rows="4" placeholder="Uno por línea:&#10;Alberdi&#10;Belgrano&#10;Arroyito">${(form.barrios||[]).join('\n')}</textarea>
+        <p class="muted" style="margin:6px 0 0;font-size:11.5px">Escribí un barrio por línea. No importan las mayúsculas ni los acentos.</p>
+      </div>
+      <div id="err_zona" class="alert danger" style="display:none"></div>
+      ${pBtnRow([pBtn('','Guardar','id="btn_zona_guardar"','primary'), pBtn('','Cancelar','id="btn_zona_cancelar"','ghost')])}
+    </div>`
+    : `
+    ${sinZona.length?`<div style="background:#FBE9D4;border-radius:14px;padding:14px;margin-bottom:9px">
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        ${ico('aviso',17,NOM.ambar)}
+        <div style="flex:1">
+          <div style="font-size:12.5px;color:${NOM.ambar};font-weight:500">Barrios sin zona</div>
+          <div style="font-size:11.5px;color:#5F5E5A;margin-top:5px;line-height:1.5">${sinZona.map(x=>`${x.barrio} (${x.clientes})`).join(' · ')}</div>
+        </div>
+      </div>
+    </div>`:''}
+
+    ${zonas.length ? zonas.map(z=>`<div class="card" style="border-left:3px solid ${z.color};border-radius:0 16px 16px 0">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:10px">
+        <div>
+          <div style="font-size:15px;font-weight:500;color:${NOM.tinta}">${z.nombre}</div>
+          <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:3px">${z.clientes} cliente(s)</div>
+        </div>
+        <span style="background:${z.color}1a;color:${z.color};font-size:11.5px;font-weight:500;padding:5px 12px;border-radius:8px;white-space:nowrap">${z.dia?(DIAS_REPARTO.find(d=>d[0]===z.dia)||[])[1]:'sin día'}</span>
+      </div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">
+        ${(z.barrios||[]).map(b=>`<span style="background:${NOM.fondo};color:${NOM.tinta};font-size:11.5px;padding:5px 10px;border-radius:8px">${b}</span>`).join('')}
+      </div>
+      ${pBtnRow([pBtn('','Editar',`data-editar-zona="${z.id}"`,'ghost'), pBtn('','Borrar',`data-borrar-zona="${z.id}"`,'ghost')])}
+    </div>`).join('') : estadoVacio('Todavía no creaste zonas.')}
+
+    <button class="btn primary" id="btn_zona_nueva" style="width:100%;margin-bottom:12px">Crear una zona</button>
+
+    <div class="card">
+      <h3 style="font-size:14px;margin:0 0 9px">Agendar por día de zona</h3>
+      <p class="muted" style="margin:0 0 12px;font-size:12px;line-height:1.55">${diaFijo
+        ? 'Está activo: los pedidos toman la fecha del día que le toca a la zona del cliente.'
+        : 'Está apagado: la fecha se calcula por capacidad de huevos, como hasta ahora. Conviene activarlo cuando tengas volumen.'}</p>
+      <button class="btn ${diaFijo?'ghost':'primary'}" id="btn_dia_fijo" style="width:100%">${diaFijo?'Volver a agendar por capacidad':'Activar el día fijo por zona'}</button>
+    </div>`}`)
+
+    document.querySelector('#btn_volver_zonas').onclick = ()=>{ current='admin'; adminAreaAbierta=null; render() }
+    const bn = document.querySelector('#btn_zona_nueva')
+    if(bn) bn.onclick = ()=>{ form = { color: COLORES_ZONA[zonas.length % COLORES_ZONA.length], barrios:[] }; dibujar() }
+
+    document.querySelectorAll('[data-editar-zona]').forEach(b=>b.onclick=()=>{
+      const z = zonas.find(x=>x.id===b.dataset.editarZona)
+      form = { id:z.id, nombre:z.nombre, dia:z.dia, color:z.color, barrios:z.barrios||[] }
+      dibujar()
+    })
+    document.querySelectorAll('[data-borrar-zona]').forEach(b=>b.onclick=async()=>{
+      const ok = await mostrarConfirmacion('¿Borrar esta zona? Los barrios quedan sin asignar.')
+      if(!ok) return
+      await supabase.rpc('admin_borrar_zona', { p_id: b.dataset.borrarZona })
+      render()
+    })
+    document.querySelectorAll('[data-zdia]').forEach(b=>b.onclick=()=>{
+      form.nombre = document.querySelector('#zn_nombre').value
+      form.barrios = document.querySelector('#zn_barrios').value.split('\n').map(x=>x.trim()).filter(Boolean)
+      form.dia = b.dataset.zdia ? Number(b.dataset.zdia) : null
+      dibujar()
+    })
+    document.querySelectorAll('[data-zcolor]').forEach(b=>b.onclick=()=>{
+      form.nombre = document.querySelector('#zn_nombre').value
+      form.barrios = document.querySelector('#zn_barrios').value.split('\n').map(x=>x.trim()).filter(Boolean)
+      form.color = b.dataset.zcolor
+      dibujar()
+    })
+    const bc = document.querySelector('#btn_zona_cancelar')
+    if(bc) bc.onclick = ()=>{ form = null; dibujar() }
+    const bg = document.querySelector('#btn_zona_guardar')
+    if(bg) bg.onclick = async ()=>{
+      const box = document.querySelector('#err_zona')
+      const nombre = document.querySelector('#zn_nombre').value.trim()
+      const barrios = document.querySelector('#zn_barrios').value.split('\n').map(x=>x.trim()).filter(Boolean)
+      if(!nombre){ box.textContent='Ponele un nombre a la zona.'; box.style.display='block'; return }
+      if(!barrios.length){ box.textContent='Poné al menos un barrio.'; box.style.display='block'; return }
+      const { data: r, error } = await supabase.rpc('admin_guardar_zona', {
+        p_id: form.id || null, p_nombre: nombre, p_dia: form.dia ?? null,
+        p_color: form.color, p_canal: 'ambos', p_barrios: barrios
+      })
+      if(error || !r?.ok){ box.textContent = r?.error || 'No se pudo guardar.'; box.style.display='block'; return }
+      form = null
+      render()
+    }
+    const bf = document.querySelector('#btn_dia_fijo')
+    if(bf) bf.onclick = async ()=>{
+      const { data: r } = await supabase.rpc('admin_toggle_dia_fijo', { p_activo: !diaFijo })
+      if(!r?.ok){ mostrarAlerta(r?.error || 'No se pudo cambiar.'); return }
+      mostrarAlerta(r.activo ? 'Listo. Los pedidos ahora se agendan por el día de cada zona.' : 'Volvió a agendarse por capacidad.')
+      render()
+    }
+  }
+  dibujar()
+}
+
+// ---- Clasificar categorías de gasto ----
+async function categoriasCosto(){
+  const { data } = await supabase.rpc('admin_categorias_costo', {})
+  const cats = data?.categorias || []
+  const GRUPOS_COSTO = [
+    ['produccion','Producción','Lo del campo: alimento, sanidad, empaque'],
+    ['reparto','Reparto','Llevar el pedido: nafta, peajes, vehículo'],
+    ['estructura','Estructura','Fijos del negocio: contador, impuestos'],
+    ['reventa','Reventa','Mercadería que comprás para revender'],
+    ['ninguno','No entra','No cuenta para el costo']
+  ]
+
+  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <button class="btn ghost" id="btn_volver_cats" style="padding:8px 11px">${ico('flechaIzq',16,NOM.verde)}</button>
+    <h2 style="margin:0">Qué es cada gasto</h2>
+  </div>
+  <div class="card"><p class="muted" style="margin:0;font-size:12.5px;line-height:1.55">Esto define cómo se calcula el costo del huevo y el margen de cada producto. Se hace una vez y después es automático.</p></div>
+
+  ${GRUPOS_COSTO.map(([g,titulo,desc])=>{
+    const propias = cats.filter(c=>c.grupo===g)
+    return `<div class="card">
+      <div style="margin-bottom:11px">
+        <div style="font-size:14px;font-weight:500;color:${NOM.tinta}">${titulo}</div>
+        <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">${desc}</div>
+      </div>
+      ${propias.length ? propias.map(c=>`<div class="row">
+        <span style="font-size:12.5px">${c.nombre}${c.movimientos?`<br><small class="muted">${c.movimientos} movimiento(s)</small>`:''}</span>
+        <select data-cat-grupo="${c.id}" style="width:auto;font-size:12px;padding:6px 8px">
+          ${GRUPOS_COSTO.map(([v,l])=>`<option value="${v}" ${c.grupo===v?'selected':''}>${l}</option>`).join('')}
+        </select>
+      </div>`).join('') : `<p class="muted" style="margin:0;font-size:12px">Ninguna categoría acá.</p>`}
+    </div>`
+  }).join('')}`)
+
+  document.querySelector('#btn_volver_cats').onclick = ()=>{ current='admin'; adminAreaAbierta=null; render() }
+  document.querySelectorAll('[data-cat-grupo]').forEach(sel=>sel.onchange=async()=>{
+    const { data: r } = await supabase.rpc('admin_clasificar_categoria', {
+      p_id: sel.dataset.catGrupo, p_grupo: sel.value
+    })
+    if(!r?.ok){ mostrarAlerta(r?.error || 'No se pudo guardar.'); return }
+    render()
+  })
+}
+
+// ============================================================
+//  CAMPO — LO QUE CONFIGURA GASTÓN
+// ============================================================
+
+async function adminCampo(){
+  const secciones = [
+    ['lotes','huevo','Lotes','Dar de alta un lote con sus razas'],
+    ['parcelas','mapa','Parcelas','Nombre, medidas y descanso mínimo'],
+    ['razas','estrella','Razas','Color del huevo y cuánto ponen'],
+    ['insumos','canasta','Insumos','Alimento, sanidad y sus proveedores'],
+    ['sanitario','planilla','Plan sanitario','Qué vacuna a qué semana'],
+    ['descanso','calendario','Descanso por mes','Cuánto descansa el pasto según la época']
+  ]
+  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <button class="btn ghost" id="btn_volver_admcampo" style="padding:8px 11px">${ico('flechaIzq',16,NOM.verde)}</button>
+    <h2 style="margin:0">El campo</h2>
+  </div>
+  <div class="card"><p class="muted" style="margin:0;font-size:12.5px;line-height:1.55">Todo lo que Federico usa desde el teléfono se configura acá. Es editable en cualquier momento.</p></div>
+  ${secciones.map(x=>`<div class="card" style="margin-bottom:7px;cursor:pointer" data-adm-campo="${x[0]}">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:11px">
+      <div style="display:flex;gap:11px;align-items:center;flex:1;min-width:0">
+        <span style="width:32px;height:32px;border-radius:10px;background:${NOM.verdeClaro};display:flex;align-items:center;justify-content:center;flex-shrink:0">${ico(x[1],16,NOM.verde)}</span>
+        <div style="min-width:0"><div style="font-size:13px;font-weight:500;color:${NOM.tinta}">${x[2]}</div>
+        <div style="font-size:11px;color:${NOM.tintaSuave};margin-top:1px">${x[3]}</div></div>
+      </div>${ico('flecha',15,'#C9C4B4')}
+    </div>
+  </div>`).join('')}`)
+
+  document.querySelector('#btn_volver_admcampo').onclick = ()=>{ current='admin'; adminAreaAbierta=null; render() }
+  document.querySelectorAll('[data-adm-campo]').forEach(b=>b.onclick=()=>{ current='adm-campo-'+b.dataset.admCampo; render() })
+}
+
+function admCampoHeader(titulo){
+  return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <button class="btn ghost" id="btn_admcampo_volver" style="padding:8px 11px">${ico('flechaIzq',16,NOM.verde)}</button>
+    <h2 style="margin:0;font-size:19px">${titulo}</h2>
+  </div>`
+}
+function admCampoVolver(){
+  const b = document.querySelector('#btn_admcampo_volver')
+  if(b) b.onclick = ()=>{ current='adm-campo'; render() }
+}
+
+// ---- LOTES ----
+async function admCampoLotes(){
+  const [{ data: res }, cat] = await Promise.all([
+    supabase.rpc('campo_resumen', {}),
+    campoCargarCatalogos()
+  ])
+  const lotes = res?.lotes || []
+  const razas = (cat.razas||[]).filter(r=>r.activa)
+  let form = null
+
+  const dibujar = ()=>{
+    layout(`${admCampoHeader('Lotes')}
+    ${form ? `<div class="card">
+      <h3 style="font-size:15px;margin:0 0 12px">${form.id?'Editar lote':'Nuevo lote'}</h3>
+      <div class="field"><label>Nombre *</label><input id="lt_nombre" value="${form.nombre||''}" placeholder="Ej: Lote 1"/></div>
+      <div class="grid two">
+        <div class="field"><label>Fecha que entraron *</label><input id="lt_fecha" type="date" value="${form.fecha||new Date().toISOString().slice(0,10)}"/></div>
+        <div class="field"><label>Edad al entrar (días)</label><input id="lt_edad" type="number" inputmode="numeric" value="${form.edad??1}"/></div>
+      </div>
+      <p class="muted" style="margin:-4px 0 12px;font-size:11.5px">Si entran como pollitas BB poné 1. Si comprás pollonas de 16 semanas, poné 112.</p>
+
+      <div class="field"><label>¿Cuántas de cada raza? *</label>
+        ${razas.map(r=>`<div class="row"><span style="display:flex;gap:9px;align-items:center">
+          <span style="width:13px;height:13px;border-radius:50%;background:${r.color_hex};flex-shrink:0"></span>
+          <span style="font-size:12.5px">${r.nombre}<br><small class="muted">huevo ${(r.color_huevo||'').toLowerCase()}${r.huevos_por_ano?` · ${r.huevos_por_ano}/año`:''}</small></span></span>
+          <input type="number" inputmode="numeric" id="lt_raza_${r.id}" value="${form.razas?.[r.id]||''}" placeholder="0" style="width:78px;text-align:center"/>
+        </div>`).join('')}
+      </div>
+      <div class="field"><label>Notas</label><input id="lt_notas" value="${form.notas||''}"/></div>
+      <div id="err_lote" class="alert danger" style="display:none"></div>
+      ${pBtnRow([pBtn('','Guardar','id="btn_lote_guardar"','primary'), pBtn('','Cancelar','id="btn_lote_cancelar"','ghost')])}
+    </div>`
+    : `${lotes.length ? lotes.map(l=>`<div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+          <div>
+            <div style="font-size:15px;font-weight:500;color:${NOM.tinta}">${l.nombre}</div>
+            <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:3px">${l.edad?.texto||''} · ${l.aves} de ${l.aves_iniciales} aves</div>
+            <div style="font-size:11.5px;color:${NOM.verde};margin-top:2px">${l.etapa?.nombre||''}${l.postura_esperada?` · esperan ${l.postura_esperada}% de postura`:''}</div>
+          </div>
+          <span style="background:${NOM.verdeClaro};color:${NOM.verde};font-size:10.5px;padding:4px 9px;border-radius:6px;white-space:nowrap">${l.mortalidad_pct||0}% mort.</span>
+        </div>
+        ${l.razas?.length?`<div style="display:flex;gap:5px;margin-top:10px;flex-wrap:wrap">
+          ${l.razas.map(r=>`<span style="display:flex;align-items:center;gap:5px;background:${NOM.fondo};border-radius:7px;padding:4px 9px">
+            <span style="width:9px;height:9px;border-radius:50%;background:${r.color}"></span>
+            <span style="font-size:11px;color:${NOM.tinta}">${r.nombre} ${r.cantidad}</span></span>`).join('')}
+        </div>`:''}
+        <button class="btn ghost" data-editar-lote="${l.id}" style="width:100%;margin-top:11px">Editar</button>
+      </div>`).join('') : estadoVacio('Todavía no cargaste ningún lote.')}
+      ${razas.length?`<button class="btn primary" id="btn_lote_nuevo" style="width:100%">Dar de alta un lote</button>`
+        :`<div class="card"><p class="muted" style="margin:0;font-size:12.5px">Primero cargá al menos una raza.</p></div>`}`}`)
+
+    admCampoVolver()
+    const bn = document.querySelector('#btn_lote_nuevo')
+    if(bn) bn.onclick = ()=>{ form = { razas:{} }; dibujar() }
+    document.querySelectorAll('[data-editar-lote]').forEach(b=>b.onclick=()=>{
+      const l = lotes.find(x=>x.id===b.dataset.editarLote)
+      const rz = {}
+      ;(l.razas||[]).forEach(r=>{ const m = razas.find(x=>x.nombre===r.nombre); if(m) rz[m.id] = r.cantidad })
+      form = { id:l.id, nombre:l.nombre, fecha:l.fecha_ingreso, edad:1, razas:rz }
+      dibujar()
+    })
+    const bc = document.querySelector('#btn_lote_cancelar')
+    if(bc) bc.onclick = ()=>{ form = null; dibujar() }
+    const bg = document.querySelector('#btn_lote_guardar')
+    if(bg) bg.onclick = async ()=>{
+      const box = document.querySelector('#err_lote')
+      const nombre = document.querySelector('#lt_nombre').value.trim()
+      const fecha = document.querySelector('#lt_fecha').value
+      if(!nombre){ box.textContent='Ponele un nombre al lote.'; box.style.display='block'; return }
+      if(!fecha){ box.textContent='Poné la fecha en que entraron.'; box.style.display='block'; return }
+      const arr = razas.map(r=>({ raza_id:r.id, cantidad: Number(document.querySelector('#lt_raza_'+r.id).value)||0 })).filter(x=>x.cantidad>0)
+      if(!arr.length){ box.textContent='Poné cuántas aves de al menos una raza.'; box.style.display='block'; return }
+      const { data, error } = await supabase.rpc('admin_guardar_lote', {
+        p_id: form.id || null, p_nombre: nombre, p_fecha_ingreso: fecha,
+        p_edad_ingreso_dias: Number(document.querySelector('#lt_edad').value) || 1,
+        p_razas: arr, p_notas: document.querySelector('#lt_notas').value.trim() || null
+      })
+      if(error || !data?.ok){ box.textContent = data?.error || 'No se pudo guardar.'; box.style.display='block'; return }
+      mostrarAlerta(`Lote guardado con ${data.aves} aves.`)
+      form = null; campoCat = null
+      render()
+    }
+  }
+  dibujar()
+}
+
+// ---- PARCELAS ----
+async function admCampoParcelas(){
+  const { data } = await supabase.rpc('campo_parcelas', {})
+  const parcelas = data?.parcelas || []
+  let form = null
+
+  const dibujar = ()=>{
+    const sup = form && Number(form.largo) > 0 && Number(form.ancho) > 0 ? Math.round(form.largo * form.ancho * 10)/10 : null
+    layout(`${admCampoHeader('Parcelas')}
+    ${form ? `<div class="card">
+      <h3 style="font-size:15px;margin:0 0 12px">${form.id?'Editar parcela':'Nueva parcela'}</h3>
+      <div class="field"><label>Nombre *</label><input id="pc_nombre" value="${form.nombre||''}" placeholder="Ej: Parcela norte"/></div>
+      <div class="grid two">
+        <div class="field"><label>Largo (metros)</label><input id="pc_largo" type="number" inputmode="decimal" value="${form.largo||''}"/></div>
+        <div class="field"><label>Ancho (metros)</label><input id="pc_ancho" type="number" inputmode="decimal" value="${form.ancho||''}"/></div>
+      </div>
+      ${sup?`<div style="background:${NOM.verdeClaro};border-radius:11px;padding:12px;margin-bottom:12px">
+        <div style="font-size:12.5px;color:#5F5E5A">Son <b>${sup.toLocaleString('es-AR')} m²</b>${data?.aves_totales?` · con ${data.aves_totales} aves te dan ${(sup/data.aves_totales).toFixed(2)} m² por ave` : ''}</div>
+        ${data?.aves_totales && (sup/data.aves_totales) < 4 ? `<div style="font-size:11.5px;color:${NOM.ambar};margin-top:6px">En pastoreo se recomiendan al menos 4 m² por ave para que el pasto se sostenga.</div>`:''}
+      </div>`:''}
+      <div class="field"><label>Días mínimos de descanso</label><input id="pc_descanso" type="number" inputmode="numeric" value="${form.descanso??21}"/></div>
+      <div class="field"><label>Tipo de pastura</label><input id="pc_pastura" value="${form.pastura||''}" placeholder="Ej: alfalfa, pasto natural"/></div>
+      <div class="field"><label>Notas</label><input id="pc_notas" value="${form.notas||''}" placeholder="Ej: la tranquera se traba"/></div>
+      <div id="err_parcela" class="alert danger" style="display:none"></div>
+      ${pBtnRow([pBtn('','Guardar','id="btn_parcela_guardar"','primary'), pBtn('','Cancelar','id="btn_parcela_cancelar"','ghost')])}
+    </div>`
+    : `${data?.superficie_total?`<div class="card">
+        <div class="grid two">
+          <div><div style="font-size:11px;color:${NOM.tintaSuave}">Superficie total</div>
+          <div style="font-size:19px;font-weight:500;font-variant-numeric:tabular-nums">${Number(data.superficie_total).toLocaleString('es-AR')} m²</div></div>
+          <div><div style="font-size:11px;color:${NOM.tintaSuave}">Movimientos este mes</div>
+          <div style="font-size:19px;font-weight:500;font-variant-numeric:tabular-nums">${data.movimientos_mes||0}</div></div>
+        </div>
+      </div>`:''}
+      ${parcelas.length ? parcelas.map(p=>`<div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+          <div>
+            <div style="font-size:14px;font-weight:500;color:${NOM.tinta}">${p.nombre}</div>
+            <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:3px">${p.largo&&p.ancho?`${p.largo} × ${p.ancho} m · `:''}${p.superficie?Number(p.superficie).toLocaleString('es-AR')+' m²':'sin medidas'}${p.m2_por_ave?` · ${p.m2_por_ave} m²/ave`:''}</div>
+            <div style="font-size:11px;color:${NOM.tintaSuave};margin-top:2px">Descanso mínimo ${p.descanso_minimo} días${p.veces_usada?` · usada ${p.veces_usada} vez(ces)`:''}</div>
+          </div>
+          <span style="background:${p.ocupada?NOM.verdeClaro:NOM.fondo};color:${p.ocupada?NOM.verde:NOM.tintaSuave};font-size:10.5px;padding:4px 9px;border-radius:6px;white-space:nowrap">${p.ocupada?'con el carro':(p.nunca_usada?'sin usar':p.descanso_dias+' días')}</span>
+        </div>
+        ${pBtnRow([pBtn('','Editar',`data-editar-parcela="${p.id}"`,'ghost'), pBtn('','Borrar',`data-borrar-parcela="${p.id}"`,'ghost')])}
+      </div>`).join('') : estadoVacio('Todavía no cargaste parcelas.')}
+      <button class="btn primary" id="btn_parcela_nueva" style="width:100%">Crear una parcela</button>`}`)
+
+    admCampoVolver()
+    const bn = document.querySelector('#btn_parcela_nueva')
+    if(bn) bn.onclick = ()=>{ form = {}; dibujar() }
+    document.querySelectorAll('[data-editar-parcela]').forEach(b=>b.onclick=()=>{
+      const p = parcelas.find(x=>x.id===b.dataset.editarParcela)
+      form = { id:p.id, nombre:p.nombre, largo:p.largo, ancho:p.ancho, descanso:p.descanso_minimo, pastura:p.pastura }
+      dibujar()
+    })
+    document.querySelectorAll('[data-borrar-parcela]').forEach(b=>b.onclick=async()=>{
+      const ok = await mostrarConfirmacion('¿Borrar esta parcela?')
+      if(!ok) return
+      const { data: r } = await supabase.rpc('admin_borrar_parcela', { p_id: b.dataset.borrarParcela })
+      if(r?.mensaje) mostrarAlerta(r.mensaje)
+      render()
+    })
+    const bc = document.querySelector('#btn_parcela_cancelar')
+    if(bc) bc.onclick = ()=>{ form = null; dibujar() }
+    ;['pc_largo','pc_ancho'].forEach(id=>{
+      const el = document.querySelector('#'+id)
+      if(el) el.oninput = ()=>{
+        form.largo = Number(document.querySelector('#pc_largo').value) || null
+        form.ancho = Number(document.querySelector('#pc_ancho').value) || null
+        form.nombre = document.querySelector('#pc_nombre').value
+        dibujar()
+      }
+    })
+    const bg = document.querySelector('#btn_parcela_guardar')
+    if(bg) bg.onclick = async ()=>{
+      const box = document.querySelector('#err_parcela')
+      const nombre = document.querySelector('#pc_nombre').value.trim()
+      if(!nombre){ box.textContent='Ponele un nombre.'; box.style.display='block'; return }
+      const { data: r, error } = await supabase.rpc('admin_guardar_parcela', {
+        p_id: form.id || null, p_nombre: nombre,
+        p_largo: Number(document.querySelector('#pc_largo').value) || null,
+        p_ancho: Number(document.querySelector('#pc_ancho').value) || null,
+        p_superficie: null,
+        p_descanso: Number(document.querySelector('#pc_descanso').value) || 21,
+        p_pastura: document.querySelector('#pc_pastura').value.trim() || null,
+        p_notas: document.querySelector('#pc_notas').value.trim() || null
+      })
+      if(error || !r?.ok){ box.textContent = r?.error || 'No se pudo guardar.'; box.style.display='block'; return }
+      form = null; campoCat = null
+      render()
+    }
+  }
+  dibujar()
+}
+
+
+// ---- RAZAS ----
+async function admCampoRazas(){
+  const cat = await campoCargarCatalogos()
+  const razas = cat.razas || []
+  let form = null
+  const COLORES = [
+    ['Marrón','#B5763F'],['Marrón oscuro','#9C5F33'],['Blanco','#EFEADC'],
+    ['Azul verdoso','#8FB3B0'],['Chocolate','#6B4226'],['Crema','#E8D9BC'],['Rosado','#DCBCA8']
+  ]
+
+  const dibujar = ()=>{
+    layout(`${admCampoHeader('Razas')}
+    ${form ? `<div class="card">
+      <h3 style="font-size:15px;margin:0 0 12px">${form.id?'Editar raza':'Nueva raza'}</h3>
+      <div class="field"><label>Nombre *</label><input id="rz_nombre" value="${form.nombre||''}"/></div>
+      <div class="field"><label>Color del huevo</label>
+        <div class="grid two">
+          ${COLORES.map(([l,h])=>`<button type="button" class="btn ${form.color_hex===h?'primary':'ghost'}" data-color="${h}" data-label="${l}" style="text-align:left;padding:11px 12px">
+            <span style="display:flex;gap:9px;align-items:center">
+              <span style="width:15px;height:15px;border-radius:50%;background:${h};border:1px solid rgba(0,0,0,.12);flex-shrink:0"></span>
+              <span style="font-size:12.5px">${l}</span></span></button>`).join('')}
+        </div>
+      </div>
+      <div class="field"><label>Huevos por año (aproximado)</label><input id="rz_huevos" type="number" inputmode="numeric" value="${form.huevos||''}" placeholder="Ej: 320"/>
+        <p class="muted" style="margin:6px 0 0;font-size:11.5px">Sirve para estimar la postura esperada. Lo dice el criadero.</p>
+      </div>
+      <div id="err_raza" class="alert danger" style="display:none"></div>
+      ${pBtnRow([pBtn('','Guardar','id="btn_raza_guardar"','primary'), pBtn('','Cancelar','id="btn_raza_cancelar"','ghost')])}
+    </div>`
+    : `${razas.length ? razas.map(r=>`<div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:11px">
+          <div style="display:flex;gap:11px;align-items:center;flex:1;min-width:0">
+            <span style="width:26px;height:26px;border-radius:50%;background:${r.color_hex};border:1px solid rgba(0,0,0,.1);flex-shrink:0"></span>
+            <div style="min-width:0">
+              <div style="font-size:13.5px;font-weight:500;color:${NOM.tinta}${r.activa?'':';opacity:.55'}">${r.nombre}${r.activa?'':' · inactiva'}</div>
+              <div style="font-size:11px;color:${NOM.tintaSuave};margin-top:2px">Huevo ${(r.color_huevo||'').toLowerCase()}${r.huevos_por_ano?` · ${r.huevos_por_ano} al año`:''}</div>
+            </div>
+          </div>
+          <button class="btn ghost" data-editar-raza="${r.id}" style="padding:7px 12px;font-size:12px;flex-shrink:0">Editar</button>
+        </div>
+      </div>`).join('') : estadoVacio('No hay razas cargadas.')}
+      <button class="btn primary" id="btn_raza_nueva" style="width:100%">Agregar una raza</button>`}`)
+
+    admCampoVolver()
+    const bn = document.querySelector('#btn_raza_nueva')
+    if(bn) bn.onclick = ()=>{ form = { color_hex:'#B5763F', color_huevo:'Marrón' }; dibujar() }
+    document.querySelectorAll('[data-editar-raza]').forEach(b=>b.onclick=()=>{
+      const r = razas.find(x=>x.id===b.dataset.editarRaza)
+      form = { id:r.id, nombre:r.nombre, color_hex:r.color_hex, color_huevo:r.color_huevo, huevos:r.huevos_por_ano }
+      dibujar()
+    })
+    document.querySelectorAll('[data-color]').forEach(b=>b.onclick=()=>{
+      form.nombre = document.querySelector('#rz_nombre').value
+      form.huevos = document.querySelector('#rz_huevos').value
+      form.color_hex = b.dataset.color; form.color_huevo = b.dataset.label
+      dibujar()
+    })
+    const bc = document.querySelector('#btn_raza_cancelar')
+    if(bc) bc.onclick = ()=>{ form = null; dibujar() }
+    const bg = document.querySelector('#btn_raza_guardar')
+    if(bg) bg.onclick = async ()=>{
+      const box = document.querySelector('#err_raza')
+      const nombre = document.querySelector('#rz_nombre').value.trim()
+      if(!nombre){ box.textContent='Ponele un nombre.'; box.style.display='block'; return }
+      const { data: r, error } = await supabase.rpc('admin_guardar_raza', {
+        p_id: form.id || null, p_nombre: nombre,
+        p_color_huevo: form.color_huevo, p_color_hex: form.color_hex,
+        p_huevos_ano: Number(document.querySelector('#rz_huevos').value) || null,
+        p_curva: null
+      })
+      if(error || !r?.ok){ box.textContent = r?.error || 'No se pudo guardar.'; box.style.display='block'; return }
+      form = null; campoCat = null
+      render()
+    }
+  }
+  dibujar()
+}
+
+// ---- INSUMOS ----
+const UNIDADES = [['kg','Kilos'],['g','Gramos'],['l','Litros'],['ml','Mililitros'],['dosis','Dosis'],['unidad','Unidades']]
+const CATEG_INSUMO = [['alimento','Alimento'],['sanidad','Sanidad'],['limpieza','Limpieza'],['otro','Otro']]
+
+async function admCampoInsumos(){
+  const [cat, { data: provRaw }] = await Promise.all([
+    campoCargarCatalogos(),
+    supabase.from('producto_proveedores').select('*').eq('activo', true)
+  ])
+  const insumos = cat.insumos || []
+  const provs = provRaw || []
+  let form = null, formProv = null
+
+  const dibujar = ()=>{
+    layout(`${admCampoHeader('Insumos del campo')}
+
+    ${form ? `<div class="card">
+      <h3 style="font-size:15px;margin:0 0 12px">${form.id?'Editar insumo':'Nuevo insumo'}</h3>
+      <div class="field"><label>Nombre *</label><input id="in_nombre" value="${form.nombre||''}" placeholder="Ej: Alimento ponedora"/></div>
+      <div class="field"><label>¿Qué es?</label>
+        <div class="grid two">${CATEG_INSUMO.map(([v,l])=>`<button type="button" class="btn ${form.categoria===v?'primary':'ghost'}" data-cat-insumo="${v}">${l}</button>`).join('')}</div>
+      </div>
+      <div class="field"><label>¿Cómo viene? *</label><input id="in_envase" value="${form.unit_label||''}" placeholder="Ej: bolsa, frasco, botella"/></div>
+      <div class="field"><label>Unidad de medida *</label>
+        <div class="grid three">${UNIDADES.map(([v,l])=>`<button type="button" class="btn ${form.unidad===v?'primary':'ghost'}" data-unidad="${v}" style="font-size:12px">${l}</button>`).join('')}</div>
+      </div>
+      <div class="grid two">
+        <div class="field"><label>Contenido por envase</label><input id="in_contenido" type="number" inputmode="decimal" value="${form.contenido||''}" placeholder="Ej: 40"/></div>
+        ${form.categoria==='sanidad'?`<div class="field"><label>Dosis que rinde</label><input id="in_dosis" type="number" inputmode="numeric" value="${form.dosis||''}" placeholder="Ej: 1000"/></div>`:`<div class="field"><label>Proteína (%)</label><input id="in_proteina" type="number" inputmode="decimal" value="${form.proteina||''}" placeholder="Opcional"/></div>`}
+      </div>
+      ${form.categoria==='alimento'?`<div class="field"><label>¿De qué etapa es?</label>
+        <select id="in_etapa"><option value="">Cualquiera</option>
+        ${(cat.etapas||[]).map(e=>`<option value="${e.codigo}" ${form.etapa===e.codigo?'selected':''}>${e.nombre}</option>`).join('')}</select>
+      </div>`:''}
+      <div id="err_insumo_adm" class="alert danger" style="display:none"></div>
+      ${pBtnRow([pBtn('','Guardar','id="btn_insumo_guardar"','primary'), pBtn('','Cancelar','id="btn_insumo_cancelar"','ghost')])}
+    </div>`
+    : formProv ? `<div class="card">
+      <h3 style="font-size:15px;margin:0 0 12px">Proveedor de ${formProv.nombre_insumo}</h3>
+      <div class="field"><label>Nombre del proveedor *</label><input id="pv_nombre" value="${formProv.nombre||''}"/></div>
+      <div class="field"><label>Precio del envase</label><input id="pv_precio" type="number" inputmode="numeric" value="${formProv.precio||''}"/></div>
+      <div class="field"><label>¿Cómo llega?</label>
+        <div class="grid three">
+          ${[['trae','Te lo trae'],['retiro_deposito','Retirás vos'],['retiro_transporte','Por transporte']].map(([v,l])=>
+            `<button type="button" class="btn ${formProv.modo===v?'primary':'ghost'}" data-modo="${v}" style="font-size:11.5px">${l}</button>`).join('')}
+        </div>
+      </div>
+      ${formProv.modo && formProv.modo!=='trae'?`
+      <div class="field"><label>Dirección de retiro</label><input id="pv_dir" value="${formProv.direccion||''}"/></div>
+      <div class="field"><label>Distancia ida y vuelta (km)</label><input id="pv_km" type="number" inputmode="decimal" value="${formProv.km||''}" placeholder="Ej: 36"/>
+        <p class="muted" style="margin:6px 0 0;font-size:11.5px">Sacá los kilómetros de Google Maps y multiplicá por dos.</p>
+      </div>`:''}
+      <div id="err_prov" class="alert danger" style="display:none"></div>
+      ${pBtnRow([pBtn('','Guardar','id="btn_prov_guardar"','primary'), pBtn('','Cancelar','id="btn_prov_cancelar"','ghost')])}
+    </div>`
+    : `${insumos.length ? insumos.map(i=>{
+        const ps = provs.filter(p=>p.product_id===i.id)
+        return `<div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13.5px;font-weight:500;color:${NOM.tinta}">${i.nombre}</div>
+              <div style="font-size:11px;color:${NOM.tintaSuave};margin-top:2px">${i.unit_label}${i.contenido?` de ${i.contenido} ${i.unidad}`:''}${i.dosis?` · ${i.dosis} dosis`:''}</div>
+              <div style="font-size:11px;color:${NOM.tintaSuave};margin-top:2px">${(CATEG_INSUMO.find(c=>c[0]===i.categoria)||[])[1]||i.categoria}${i.etapa?` · ${((cat.etapas||[]).find(e=>e.codigo===i.etapa)||{}).nombre||''}`:''}</div>
+            </div>
+            <span style="background:${Number(i.stock)>0?NOM.verdeClaro:'#FBE9D4'};color:${Number(i.stock)>0?NOM.verde:NOM.ambar};font-size:10.5px;padding:4px 9px;border-radius:6px;white-space:nowrap">${Number(i.stock)||0} en stock</span>
+          </div>
+          ${ps.length?`<div style="margin-top:10px;padding-top:10px;border-top:1px solid ${NOM.borde}">
+            ${ps.map(p=>`<div style="display:flex;justify-content:space-between;padding:4px 0">
+              <span style="font-size:11.5px;color:${NOM.tintaSuave}">${p.nombre_proveedor}${p.modo_entrega!=='trae'?` · ${p.km_ida||'?'} km`:' · te lo trae'}</span>
+              <span style="font-size:11.5px;color:${NOM.tinta}">${p.precio?'$'+Number(p.precio).toLocaleString('es-AR'):'sin precio'}</span>
+            </div>`).join('')}
+          </div>`:''}
+          ${pBtnRow([
+            pBtn('','Editar',`data-editar-insumo="${i.id}"`,'ghost'),
+            pBtn('','Proveedor',`data-prov-insumo="${i.id}"`,'ghost')
+          ])}
+        </div>`
+      }).join('') : estadoVacio('Todavía no cargaste insumos.')}
+      <button class="btn primary" id="btn_insumo_nuevo" style="width:100%">Agregar un insumo</button>`}`)
+
+    admCampoVolver()
+    const bn = document.querySelector('#btn_insumo_nuevo')
+    if(bn) bn.onclick = ()=>{ form = { categoria:'alimento', unidad:'kg' }; dibujar() }
+
+    const guardarCampos = ()=>{
+      form.nombre = document.querySelector('#in_nombre')?.value || form.nombre
+      form.unit_label = document.querySelector('#in_envase')?.value || form.unit_label
+      form.contenido = document.querySelector('#in_contenido')?.value || form.contenido
+      form.dosis = document.querySelector('#in_dosis')?.value || form.dosis
+      form.proteina = document.querySelector('#in_proteina')?.value || form.proteina
+    }
+    document.querySelectorAll('[data-cat-insumo]').forEach(b=>b.onclick=()=>{ guardarCampos(); form.categoria=b.dataset.catInsumo; dibujar() })
+    document.querySelectorAll('[data-unidad]').forEach(b=>b.onclick=()=>{ guardarCampos(); form.unidad=b.dataset.unidad; dibujar() })
+
+    document.querySelectorAll('[data-editar-insumo]').forEach(b=>b.onclick=()=>{
+      const i = insumos.find(x=>x.id===b.dataset.editarInsumo)
+      form = { id:i.id, nombre:i.nombre, unit_label:i.unit_label, categoria:i.categoria,
+               unidad:i.unidad, contenido:i.contenido, dosis:i.dosis, etapa:i.etapa }
+      dibujar()
+    })
+    document.querySelectorAll('[data-prov-insumo]').forEach(b=>b.onclick=()=>{
+      const i = insumos.find(x=>x.id===b.dataset.provInsumo)
+      formProv = { product_id:i.id, nombre_insumo:i.nombre, modo:'trae' }
+      dibujar()
+    })
+    document.querySelectorAll('[data-modo]').forEach(b=>b.onclick=()=>{
+      formProv.nombre = document.querySelector('#pv_nombre')?.value || formProv.nombre
+      formProv.precio = document.querySelector('#pv_precio')?.value || formProv.precio
+      formProv.modo = b.dataset.modo
+      dibujar()
+    })
+
+    const bc = document.querySelector('#btn_insumo_cancelar')
+    if(bc) bc.onclick = ()=>{ form = null; dibujar() }
+    const bpc = document.querySelector('#btn_prov_cancelar')
+    if(bpc) bpc.onclick = ()=>{ formProv = null; dibujar() }
+
+    const bg = document.querySelector('#btn_insumo_guardar')
+    if(bg) bg.onclick = async ()=>{
+      const box = document.querySelector('#err_insumo_adm')
+      const nombre = document.querySelector('#in_nombre').value.trim()
+      const envase = document.querySelector('#in_envase').value.trim()
+      if(!nombre){ box.textContent='Ponele un nombre.'; box.style.display='block'; return }
+      if(!envase){ box.textContent='Poné cómo viene: bolsa, frasco, botella.'; box.style.display='block'; return }
+      const { data: r, error } = await supabase.rpc('admin_guardar_insumo', {
+        p_id: form.id || null, p_nombre: nombre, p_unit_label: envase,
+        p_categoria: form.categoria, p_unidad_medida: form.unidad,
+        p_contenido: Number(document.querySelector('#in_contenido')?.value) || null,
+        p_dosis: Number(document.querySelector('#in_dosis')?.value) || null,
+        p_etapa: document.querySelector('#in_etapa')?.value || null,
+        p_es_alimento: form.categoria === 'alimento',
+        p_proteina: Number(document.querySelector('#in_proteina')?.value) || null
+      })
+      if(error || !r?.ok){ box.textContent = r?.error || 'No se pudo guardar.'; box.style.display='block'; return }
+      form = null; campoCat = null
+      render()
+    }
+
+    const bpg = document.querySelector('#btn_prov_guardar')
+    if(bpg) bpg.onclick = async ()=>{
+      const box = document.querySelector('#err_prov')
+      const nombre = document.querySelector('#pv_nombre').value.trim()
+      if(!nombre){ box.textContent='Poné el nombre del proveedor.'; box.style.display='block'; return }
+      const { data: r, error } = await supabase.rpc('admin_guardar_prov_insumo', {
+        p_id: null, p_product_id: formProv.product_id, p_nombre: nombre,
+        p_supplier_id: null,
+        p_precio: Number(document.querySelector('#pv_precio').value) || null,
+        p_modo: formProv.modo,
+        p_km: Number(document.querySelector('#pv_km')?.value) || null,
+        p_direccion: document.querySelector('#pv_dir')?.value.trim() || null
+      })
+      if(error || !r?.ok){ box.textContent = r?.error || 'No se pudo guardar.'; box.style.display='block'; return }
+      formProv = null
+      render()
+    }
+  }
+  dibujar()
+}
+
+// ---- PLAN SANITARIO ----
+async function admCampoSanitario(){
+  const cat = await campoCargarCatalogos()
+  const plan = cat.plan_sanitario || []
+  const sanidad = (cat.insumos||[]).filter(i=>i.categoria==='sanidad')
+  let form = null
+
+  const dibujar = ()=>{
+    layout(`${admCampoHeader('Plan sanitario')}
+    <div class="card"><p class="muted" style="margin:0;font-size:12.5px;line-height:1.55">Cargá lo que te indique el veterinario o el criadero. Federico va a recibir el aviso cuando el lote llegue a esa semana.</p></div>
+
+    ${form ? `<div class="card">
+      <h3 style="font-size:15px;margin:0 0 12px">${form.id?'Editar':'Nueva aplicación'}</h3>
+      <div class="field"><label>Nombre *</label><input id="ps_nombre" value="${form.nombre||''}" placeholder="Ej: Newcastle"/></div>
+      <div class="field"><label>¿A qué semana de vida? *</label><input id="ps_semana" type="number" inputmode="numeric" value="${form.semana??''}" placeholder="Ej: 8"/></div>
+      <div class="field"><label>Cómo se aplica</label>
+        <div class="grid three">${[['agua','En el agua'],['ocular','Ocular'],['inyectable','Inyectable'],['spray','Spray'],['alimento','En el alimento'],['otra','Otra']].map(([v,l])=>
+          `<button type="button" class="btn ${form.via===v?'primary':'ghost'}" data-via="${v}" style="font-size:11.5px">${l}</button>`).join('')}</div>
+      </div>
+      ${sanidad.length?`<div class="field"><label>Producto que se usa</label>
+        <select id="ps_producto"><option value="">Ninguno cargado</option>
+        ${sanidad.map(i=>`<option value="${i.id}" ${form.producto_id===i.id?'selected':''}>${i.nombre}</option>`).join('')}</select>
+      </div>`:''}
+      <div class="field"><label>Notas</label><input id="ps_notas" value="${form.notas||''}"/></div>
+      <div id="err_ps" class="alert danger" style="display:none"></div>
+      ${pBtnRow([pBtn('','Guardar','id="btn_ps_guardar"','primary'), pBtn('','Cancelar','id="btn_ps_cancelar"','ghost')])}
+    </div>`
+    : `${plan.length ? plan.map(p=>`<div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:11px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13.5px;font-weight:500;color:${NOM.tinta}">${p.nombre}</div>
+            <div style="font-size:11px;color:${NOM.tintaSuave};margin-top:2px">Semana ${p.semana}${p.via?` · ${p.via}`:''}</div>
+          </div>
+          <button class="btn ghost" data-editar-ps="${p.id}" style="padding:7px 12px;font-size:12px;flex-shrink:0">Editar</button>
+        </div>
+      </div>`).join('') : estadoVacio('Todavía no cargaste el plan sanitario.')}
+      <button class="btn primary" id="btn_ps_nuevo" style="width:100%">Agregar al plan</button>`}`)
+
+    admCampoVolver()
+    const bn = document.querySelector('#btn_ps_nuevo')
+    if(bn) bn.onclick = ()=>{ form = {}; dibujar() }
+    document.querySelectorAll('[data-editar-ps]').forEach(b=>b.onclick=()=>{
+      const p = plan.find(x=>x.id===b.dataset.editarPs)
+      form = { id:p.id, nombre:p.nombre, semana:p.semana, via:p.via, producto_id:p.producto_id }
+      dibujar()
+    })
+    document.querySelectorAll('[data-via]').forEach(b=>b.onclick=()=>{
+      form.nombre = document.querySelector('#ps_nombre').value
+      form.semana = document.querySelector('#ps_semana').value
+      form.via = b.dataset.via
+      dibujar()
+    })
+    const bc = document.querySelector('#btn_ps_cancelar')
+    if(bc) bc.onclick = ()=>{ form = null; dibujar() }
+    const bg = document.querySelector('#btn_ps_guardar')
+    if(bg) bg.onclick = async ()=>{
+      const box = document.querySelector('#err_ps')
+      const nombre = document.querySelector('#ps_nombre').value.trim()
+      const semana = Number(document.querySelector('#ps_semana').value)
+      if(!nombre){ box.textContent='Ponele un nombre.'; box.style.display='block'; return }
+      if(!semana && semana !== 0){ box.textContent='Poné a qué semana va.'; box.style.display='block'; return }
+      const { data: r, error } = await supabase.rpc('admin_guardar_plan_sanitario', {
+        p_id: form.id || null, p_nombre: nombre, p_semana: semana, p_via: form.via || null,
+        p_producto_id: document.querySelector('#ps_producto')?.value || null,
+        p_dosis: null, p_notas: document.querySelector('#ps_notas').value.trim() || null
+      })
+      if(error || !r?.ok){ box.textContent = r?.error || 'No se pudo guardar.'; box.style.display='block'; return }
+      form = null; campoCat = null
+      render()
+    }
+  }
+  dibujar()
+}
+
+// ---- DESCANSO POR MES ----
+async function admCampoDescanso(){
+  const { data: meses } = await supabase.from('descanso_estacional').select('*').order('mes')
+  const lista = meses || []
+  const { data: rec } = await supabase.rpc('descanso_recomendado', {})
+
+  layout(`${admCampoHeader('Descanso por mes')}
+  <div class="card"><p class="muted" style="margin:0;font-size:12.5px;line-height:1.55">Cuántos días conviene que descanse una parcela según la época. Vienen cargados con el clima de Rosario — ajustalos con lo que veas en tu campo.</p></div>
+
+  ${rec?`<div style="background:${NOM.verdeClaro};border-radius:12px;padding:13px;margin-bottom:9px">
+    <div style="font-size:12.5px;color:#5F5E5A;line-height:1.55">Ahora, en ${rec.mes}, el sistema recomienda <b>${rec.dias} días</b>.${rec.motivo_ajuste?` Ajustado porque ${rec.motivo_ajuste}.`:''}</div>
+  </div>`:''}
+
+  <div class="card">
+    ${lista.map(m=>`<div class="row">
+      <span style="font-size:12.5px">${m.nombre_mes}<br><small class="muted">crece ${m.crecimiento}</small></span>
+      <span style="display:flex;gap:7px;align-items:center">
+        <input type="number" inputmode="numeric" id="ds_${m.mes}" value="${m.dias_recomendados}" style="width:64px;text-align:center"/>
+        <span style="font-size:11.5px;color:${NOM.tintaSuave}">días</span>
+        <button class="btn ghost" data-guardar-mes="${m.mes}" style="padding:6px 10px;font-size:11.5px">Guardar</button>
+      </span>
+    </div>`).join('')}
+  </div>`)
+
+  admCampoVolver()
+  document.querySelectorAll('[data-guardar-mes]').forEach(b=>b.onclick=async()=>{
+    const mes = Number(b.dataset.guardarMes)
+    const dias = Number(document.querySelector('#ds_'+mes).value)
+    const { data: r } = await supabase.rpc('admin_guardar_descanso_mes', { p_mes: mes, p_dias: dias, p_nota: null })
+    if(!r?.ok){ mostrarAlerta(r?.error || 'No se pudo guardar.'); return }
+    b.textContent = 'Listo'
+    setTimeout(()=>{ b.textContent = 'Guardar' }, 1400)
+  })
+}
+
+// ============================================================
+//  CAMPO — LO QUE VE FEDERICO
+// ============================================================
+let campoLoteSel = null
+let campoVista = 'inicio'
+let campoCat = null
+
+async function campoCargarCatalogos(){
+  if(campoCat) return campoCat
+  const { data } = await supabase.rpc('campo_catalogos', {})
+  campoCat = data?.ok ? data : { razas:[], etapas:[], parcelas:[], insumos:[], plan_sanitario:[] }
+  return campoCat
+}
+
 async function campo(){
+  layout(`<div class="card">${skeletonBloque(4)}</div>`)
+  const [{ data: res }, { data: tar }] = await Promise.all([
+    supabase.rpc('campo_resumen', {}),
+    supabase.rpc('campo_tareas', {})
+  ])
+  const lotes = res?.lotes || []
+  const parcela = res?.parcela_actual || null
+  const tareas = (tar?.tareas || []).filter(t => Number(t.dias) <= 30)
+
+  if(!lotes.length){
+    layout(`<h2>El campo</h2>
+      <div class="card" style="text-align:center;padding:30px 16px">
+        ${ico('huevo',34,NOM.verdePastel)}
+        <p style="margin:12px 0 0;font-size:15px;font-weight:500;color:${NOM.tinta}">Todavía no hay lotes cargados</p>
+        <p style="margin:7px 0 0;font-size:12.5px;color:${NOM.tintaSuave};line-height:1.55">Cuando lleguen las aves, Gastón carga el lote desde Administración y acá vas a ver todo.</p>
+      </div>`)
+    return
+  }
+
+  if(!campoLoteSel || !lotes.some(l=>l.id===campoLoteSel)) campoLoteSel = lotes[0].id
+  const L = lotes.find(l=>l.id===campoLoteSel)
+  const etapa = L.etapa || {}
+
+  const colorEtapa = { cria:'#C4761F', recria:'#5C7A99', prepostura:'#7A5C99', produccion:NOM.verde }[etapa.codigo] || NOM.verde
+  const enProduccion = etapa.codigo === 'produccion'
+
+  layout(`<div style="background:${NOM.verde};border-radius:18px;padding:16px;margin-bottom:9px">
+    <div style="font-size:12px;color:${NOM.verdePastel}">${saludoHora()}, ${(staffProfile?.full_name||'').split(' ')[0]||'equipo'}</div>
+
+    ${lotes.length>1?`<div style="display:flex;gap:6px;margin-top:11px;overflow-x:auto;padding-bottom:2px">
+      ${lotes.map(l=>`<button class="btn" data-campo-lote="${l.id}" style="flex-shrink:0;padding:7px 13px;font-size:12px;background:${l.id===campoLoteSel?'#F5EFE0':'rgba(247,244,236,0.15)'};color:${l.id===campoLoteSel?NOM.verde:'#F5EFE0'};border:none">${l.nombre}</button>`).join('')}
+    </div>`:''}
+
+    <div style="background:rgba(247,244,236,0.12);border-radius:12px;padding:13px;margin-top:11px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div>
+          <div style="font-size:15px;font-weight:500;color:#F5EFE0">${L.nombre}</div>
+          <div style="font-size:12px;color:${NOM.verdePastel};margin-top:3px">${L.edad?.texto||''} · ${L.aves} aves</div>
+        </div>
+        <span style="background:rgba(247,244,236,0.2);color:#F5EFE0;font-size:11px;padding:5px 11px;border-radius:8px;white-space:nowrap">${etapa.nombre||''}</span>
+      </div>
+      ${L.razas?.length?`<div style="display:flex;gap:5px;margin-top:10px;flex-wrap:wrap">
+        ${L.razas.map(r=>`<span style="display:flex;align-items:center;gap:5px;background:rgba(247,244,236,0.1);border-radius:7px;padding:4px 8px">
+          <span style="width:10px;height:10px;border-radius:50%;background:${r.color};flex-shrink:0"></span>
+          <span style="font-size:10.5px;color:#F5EFE0">${r.cantidad}</span></span>`).join('')}
+      </div>`:''}
+    </div>
+
+    ${parcela?`<div style="background:rgba(247,244,236,0.12);border-radius:12px;padding:11px;margin-top:8px;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:12px;color:#F5EFE0">${parcela.parcela}</span>
+      <span style="font-size:11px;color:${NOM.verdePastel}">van ${parcela.dias} día(s)</span>
+    </div>`:''}
+  </div>
+
+  ${tareas.length?`<div style="background:#FBE9D4;border-radius:14px;padding:14px;margin-bottom:9px">
+    <div style="font-size:10.5px;letter-spacing:1.1px;color:${NOM.ambar};margin-bottom:10px">TAREAS PENDIENTES</div>
+    ${tareas.slice(0,3).map(t=>{
+      const d = Number(t.dias)
+      const urgente = d <= 2
+      return `<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 0${tareas.indexOf(t)<Math.min(tareas.length,3)-1?`;border-bottom:1px solid rgba(184,100,30,0.18)`:''}">
+        <div style="background:${urgente?NOM.ambar:'#FFFFFF'};color:${urgente?'#FFFFFF':NOM.ambar};border-radius:8px;padding:5px 8px;text-align:center;min-width:42px;flex-shrink:0">
+          <div style="font-size:15px;font-weight:500;line-height:1">${d<=0?'hoy':d}</div>
+          ${d>0?`<div style="font-size:9px">día${d===1?'':'s'}</div>`:''}
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12.5px;color:${NOM.tinta};font-weight:500">${t.titulo}</div>
+          <div style="font-size:11px;color:#5F5E5A;margin-top:2px">${t.detalle||''}</div>
+        </div>
+      </div>`
+    }).join('')}
+  </div>`:''}
+
+  ${!L.cargado_hoy?`<div class="card" style="border:2px solid ${NOM.verde};margin-bottom:7px;cursor:pointer" data-campo-ir="dia">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:11px">
+      <div style="display:flex;gap:11px;align-items:center">
+        <span style="width:34px;height:34px;border-radius:10px;background:${NOM.verdeClaro};display:flex;align-items:center;justify-content:center;flex-shrink:0">${ico('huevo',17,NOM.verde)}</span>
+        <div>
+          <div style="font-size:14px;font-weight:500;color:${NOM.tinta}">Cargar el día</div>
+          <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:1px">Todavía no lo hiciste hoy</div>
+        </div>
+      </div>
+      ${ico('flecha',17,NOM.verde)}
+    </div>
+  </div>`:`<div class="card" style="margin-bottom:7px;cursor:pointer" data-campo-ir="dia">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:11px">
+      <div style="display:flex;gap:11px;align-items:center">
+        <span style="width:34px;height:34px;border-radius:10px;background:${NOM.verdeClaro};display:flex;align-items:center;justify-content:center;flex-shrink:0">${ico('check',17,NOM.verde)}</span>
+        <div>
+          <div style="font-size:14px;font-weight:500;color:${NOM.tinta}">El día ya está cargado</div>
+          <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:1px">Tocá si querés corregirlo</div>
+        </div>
+      </div>
+      ${ico('flecha',17,NOM.verde)}
+    </div>
+  </div>`}
+
+  ${[['carro','camion','Mover el carro','Cambiar de parcela, con foto'],
+     ['insumo','canasta','Abrir un insumo','Bolsa, frasco o botella nueva'],
+     ['peso','grafico','Peso de la semana','Gallinas y huevos'],
+     ['sanidad','planilla','Sanidad','Vacunas y tratamientos'],
+     ['aves','personas','Entran o salen aves','Muertas, descarte o refuerzo'],
+     ['guia','planilla','Guía de la etapa','Qué toca en ' + (etapa.nombre||'').toLowerCase()],
+     ['ficha','grafico','Cómo va el lote','Postura, peso y mortalidad'],
+     ['granjeros','tienda','Huevos de otros productores','Encargos y recepción']]
+    .map(m=>`<div class="card" style="margin-bottom:7px;cursor:pointer" data-campo-ir="${m[0]}">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:11px">
+        <div style="display:flex;gap:11px;align-items:center;flex:1;min-width:0">
+          <span style="width:32px;height:32px;border-radius:10px;background:${NOM.verdeClaro};display:flex;align-items:center;justify-content:center;flex-shrink:0">${ico(m[1],16,NOM.verde)}</span>
+          <div style="min-width:0">
+            <div style="font-size:13px;font-weight:500;color:${NOM.tinta}">${m[2]}</div>
+            <div style="font-size:11px;color:${NOM.tintaSuave};margin-top:1px">${m[3]}</div>
+          </div>
+        </div>
+        ${ico('flecha',15,'#C9C4B4')}
+      </div>
+    </div>`).join('')}`)
+
+  document.querySelectorAll('[data-campo-lote]').forEach(b=>b.onclick=()=>{ campoLoteSel = b.dataset.campoLote; render() })
+  document.querySelectorAll('[data-campo-ir]').forEach(b=>b.onclick=()=>{
+    const d = b.dataset.campoIr
+    if(d==='granjeros'){ current='campo-granjeros'; render(); return }
+    current = 'campo-' + d
+    render()
+  })
+}
+
+async function campoGranjeros(){
   const today = new Date().toISOString().slice(0,10)
   const recientes = await q('production','id,production_date,eggs_count,maples_count,losses_count,notes,source,cost,supplier_name,lote')
   const [{ data: productosRaw }, { data: granjerosRaw }, { data: encargosRaw }] = await Promise.all([
@@ -4567,22 +6177,41 @@ async function admin(){
   const rolLabel = {admin:'Administrador',campo:'Personal de campo',repartidor:'Repartidor',preparador:'Preparador de pedidos',vendedor:'Vendedor',telefonico:'Personal telefónico'}
   const AS = (id)=> adminOpenSection===id
   const AREAS = [
-    { id:'operacion', ic:'camion', icono:'🚚', titulo:'Operación diaria', desc:'Reparto, capacidad y avisos', secciones:['capacidad','asignacion','recordatorios','mapa'] },
-    { id:'dinero', ic:'moneda', icono:'💰', titulo:'Dinero', desc:'Finanzas, rendición y cobros', secciones:['finanzas','rendicion','cobros'] },
-    { id:'proveedores', ic:'planilla', icono:'📋', titulo:'Proveedores', desc:'Compras, cuenta corriente e insumos', secciones:['pedidos_proveedor','insumos'] },
-    { id:'stock', ic:'calendario', icono:'📅', titulo:'Stock y pérdidas', desc:'Vencimientos y mermas', secciones:[], directo:'vencimientos' },
-    { id:'cobrados', ic:'moneda', icono:'💰', titulo:'Cobrados sin entregar', desc:'Plata cobrada que hay que resolver', secciones:[], directo:'cobrados' },
-    { id:'avisos', ic:'campana', icono:'⏰', titulo:'Avisos a clientes', desc:'Cambios de precio y novedades', secciones:[], directo:'avisos' },
-    { id:'comercial', ic:'carrito', icono:'🛒', titulo:'Comercial', desc:'Catálogo, precios y mayoristas', secciones:['catalogo','tamanos','cuenta_mayoristas','vendedores','agregado_manual'] },
-    { id:'clientes_area', ic:'estrella', icono:'⭐', titulo:'Clientes', desc:'Ranking, reseñas y sugerencias', secciones:['ranking','resenas','sugerencias'] },
-    { id:'deudores', ic:'moneda', icono:'💰', titulo:'Te deben', desc:'Cuenta corriente y cobros', secciones:[], directo:'deudores' },
-    { id:'fincanales', ic:'grafico', icono:'📊', titulo:'Los dos negocios', desc:'Minorista y mayorista por separado', secciones:[], directo:'fincanales' },
-    { id:'clasificaciones', ic:'huevo', icono:'🥚', titulo:'Tamaños de huevo', desc:'Jumbo, súper, N° 3 y los que quieras', secciones:[], directo:'clasificaciones' },
-    { id:'alta_comercio', ic:'tienda', icono:'🏪', titulo:'Sumar un comercio', desc:'Alta de mayorista en el momento', secciones:[], directo:'alta-comercio' },
-    { id:'mayoristas_riesgo', ic:'aviso', icono:'⚠️', titulo:'Comercios que se enfrían', desc:'Los que dejaron de pedir', secciones:[], directo:'mayoristas-riesgo' },
-    { id:'riesgo', ic:'personas', icono:'👥', titulo:'Clientes que se van', desc:'Los que dejaron de comprar', secciones:[], directo:'riesgo' },
-    { id:'equipo', ic:'personas', icono:'👥', titulo:'Equipo y empresa', desc:'Personal, trazabilidad y vehículos', secciones:['personal','trazabilidad','vehiculos'] },
-    { id:'backup', ic:'planilla', icono:'📋', titulo:'Copia de seguridad', desc:'Descargá todos tus datos', secciones:[], directo:'backup' }
+    // Todos los días
+    { g:'dia', id:'operacion', ic:'camion', titulo:'Reparto', desc:'Ruta, capacidad y asignación', secciones:['capacidad','asignacion','recordatorios','mapa'] },
+    { g:'dia', id:'stock', ic:'calendario', titulo:'Stock', desc:'Vencimientos y pérdidas', secciones:[], directo:'vencimientos' },
+    { g:'dia', id:'proveedores', ic:'planilla', titulo:'Proveedores', desc:'Compras y cuenta corriente', secciones:['pedidos_proveedor','insumos'] },
+    { g:'dia', id:'equipo', ic:'personas', titulo:'Equipo', desc:'Personal, vehículos y trazas', secciones:['personal','trazabilidad','vehiculos'] },
+    { g:'dia', id:'campo_area', ic:'huevo', titulo:'El campo', desc:'Gallinas, parcelas e insumos', secciones:[], directo:'adm-campo' },
+    { g:'dia', id:'zonas_area', ic:'mapa', titulo:'Zonas de reparto', desc:'Barrios y días de cada zona', secciones:[], directo:'zonas' },
+
+    // Minorista
+    { g:'min', id:'clientes_area', ic:'estrella', titulo:'Suscriptores', desc:'Ranking, reseñas y sugerencias', secciones:['ranking','resenas','sugerencias'] },
+    { g:'min', id:'riesgo', ic:'personas', titulo:'Los que se van', desc:'Dejaron de comprar', secciones:[], directo:'riesgo' },
+    { g:'min', id:'comercial', ic:'carrito', titulo:'Precios y catálogo', desc:'Lo que ve el público', secciones:['catalogo','tamanos','vendedores','agregado_manual'] },
+    { g:'min', id:'avisos', ic:'campana', titulo:'Avisos', desc:'Cambios de precio y novedades', secciones:[], directo:'avisos' },
+
+    // Mayorista
+    { g:'may', id:'cuenta_mayoristas_area', ic:'tienda', titulo:'Comercios', desc:'Fichas y cuenta corriente', secciones:['cuenta_mayoristas'] },
+    { g:'may', id:'alta_comercio', ic:'tienda', titulo:'Sumar comercio', desc:'Alta en el momento', secciones:[], directo:'alta-comercio' },
+    { g:'may', id:'mayoristas_riesgo', ic:'aviso', titulo:'Se enfrían', desc:'Dejaron de pedir', secciones:[], directo:'mayoristas-riesgo' },
+    { g:'may', id:'clasificaciones', ic:'huevo', titulo:'Lista mayorista', desc:'Tamaños y precios', secciones:[], directo:'clasificaciones' },
+
+    // La plata
+    { g:'plata', id:'fincanales', ic:'grafico', titulo:'Los dos negocios', desc:'Cuánto deja cada canal', secciones:[], directo:'fincanales' },
+    { g:'plata', id:'deudores', ic:'moneda', titulo:'Te deben', desc:'De los dos canales', secciones:[], directo:'deudores' },
+    { g:'plata', id:'dinero', ic:'moneda', titulo:'Caja y rendición', desc:'Movimientos y cobros', secciones:['finanzas','rendicion','cobros'] },
+    { g:'plata', id:'costo_huevo', ic:'grafico', titulo:'Cuánto te cuesta', desc:'Costo del huevo y margen por producto', secciones:[], directo:'costo-huevo' },
+    { g:'plata', id:'categorias_costo', ic:'planilla', titulo:'Qué es cada gasto', desc:'Producción, reparto o estructura', secciones:[], directo:'categorias-costo' },
+    { g:'plata', id:'gastos_equipo', ic:'moneda', titulo:'Gastos del equipo', desc:'Lo que cargan en la calle', secciones:[], directo:'gastos-equipo' },
+    { g:'plata', id:'cobrados', ic:'aviso', titulo:'Cobrado sin entregar', desc:'Hay que resolverlo', secciones:[], directo:'cobrados' },
+    { g:'plata', id:'backup', ic:'planilla', titulo:'Copia de seguridad', desc:'Descargá todos tus datos', secciones:[], directo:'backup' }
+  ]
+  const GRUPOS = [
+    { g:'dia',   titulo:'TODOS LOS DÍAS', color:null },
+    { g:'min',   titulo:'MINORISTA',      color:NOM.verde },
+    { g:'may',   titulo:'MAYORISTA',      color:NOM.ambar },
+    { g:'plata', titulo:'LA PLATA',       color:null }
   ]
   const areaActual = AREAS.find(a=>a.id===adminAreaAbierta)
   const seccionVisible = (id)=> !!(areaActual && areaActual.secciones.includes(id))
@@ -4624,12 +6253,27 @@ async function admin(){
     ${statCard('incidencias','Incidencias',count('incident'))}
     ${statCard('reprogramados','Reprogramados',count('rescheduled'))}
   </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px">
-    ${AREAS.map(a=>`<button data-area="${a.id}" style="all:unset;box-sizing:border-box;cursor:pointer;background:${NOM.superficie};border:1px solid ${NOM.borde};border-radius:16px;padding:14px 13px;display:flex;flex-direction:column;gap:8px;min-height:108px">
-      ${ico(a.ic,20,NOM.verde)}
-      <span style="font-weight:500;font-size:13.5px;color:${NOM.tinta};line-height:1.25">${a.titulo}</span>
-      <span style="font-size:11px;color:${NOM.tintaSuave};line-height:1.35">${a.desc}</span>
-    </button>`).join('')}
+  <div style="margin-top:16px">
+    ${GRUPOS.map(gr=>{
+      const items = AREAS.filter(a=>a.g===gr.g)
+      if(!items.length) return ''
+      const col = gr.color || NOM.verde
+      return `<div style="margin-bottom:18px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px">
+          ${gr.color?`<span style="width:9px;height:9px;border-radius:3px;background:${gr.color}"></span>`:''}
+          <span style="font-size:11px;letter-spacing:1.4px;color:${NOM.tintaSuave}">${gr.titulo}</span>
+        </div>
+        <div style="${gr.color?`border-left:3px solid ${gr.color};padding-left:11px`:''}">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            ${items.map(a=>`<button data-area="${a.id}" style="all:unset;box-sizing:border-box;cursor:pointer;background:${NOM.superficie};border:1px solid ${NOM.borde};border-radius:14px;padding:13px 12px;display:flex;flex-direction:column;gap:7px;min-height:100px">
+              ${ico(a.ic,19,col)}
+              <span style="font-weight:500;font-size:13px;color:${NOM.tinta};line-height:1.25">${a.titulo}</span>
+              <span style="font-size:11px;color:${NOM.tintaSuave};line-height:1.35">${a.desc}</span>
+            </button>`).join('')}
+          </div>
+        </div>
+      </div>`
+    }).join('')}
   </div>`}
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:14px">
   ${accHead('trazabilidad','🔍','Trazabilidad y datos de la empresa')}
@@ -6911,6 +8555,7 @@ function telReset(){
     preciosManuales: {},     // product_id -> precio escrito a mano
     carritoHuevos: {},       // egg_quantity -> cantidad
     ultimoPedido: null,      // lo que pidió la vez pasada
+    tipoCliente: 'minorista',
     entregaElegida: null,    // order_id de una entrega ya programada
     fechaNueva: '',          // fecha elegida para un pedido suelto
     fechasZona: [],
@@ -6935,15 +8580,18 @@ function telTotalProductos(){
 }
 
 function telTotalHuevos(){
-  return Object.entries(telState.carritoHuevos).reduce((sum,[size,q])=>{
+  return Object.entries(telState.carritoHuevos).reduce((sum,[id,q])=>{
     if(!q) return sum
-    const pl = telState.planes.find(x=>String(x.egg_quantity)===String(size))
+    const pl = telState.planes.find(x=>String(x.id)===String(id))
     return sum + (pl ? Number(pl.price) : 0) * q
   }, 0)
 }
 
 function telCantidadHuevos(){
-  return Object.entries(telState.carritoHuevos).reduce((sum,[size,q])=>sum + Number(size)*(q||0), 0)
+  return Object.entries(telState.carritoHuevos).reduce((sum,[id,q])=>{
+    const pl = telState.planes.find(x=>String(x.id)===String(id))
+    return sum + (pl ? Number(pl.egg_quantity) : 0) * (q||0)
+  }, 0)
 }
 
 function telEsEntregaProgramada(){
@@ -7114,12 +8762,22 @@ async function telefonico(){
 
     <div class="card">
       <h3>🥚 Huevos</h3>
-      ${telState.planes.map(pl=>`<div class="row"><span>Maple de ${pl.egg_quantity} huevos<br><small class="muted">$${Number(pl.price).toLocaleString('es-AR')}</small></span>
-        <span style="display:flex;align-items:center;gap:8px">
-          <button data-tel-huevo-menos="${pl.egg_quantity}" style="width:28px;height:28px;border-radius:7px;background:#F5EFE0;color:#2F4D2A;border:none;font-size:15px;font-weight:700">−</button>
-          <b style="min-width:16px;text-align:center">${telState.carritoHuevos[pl.egg_quantity]||0}</b>
-          <button data-tel-huevo-mas="${pl.egg_quantity}" style="width:28px;height:28px;border-radius:7px;background:#2F4D2A;color:#F5EFE0;border:none;font-size:15px;font-weight:700">+</button>
-        </span></div>`).join('')}
+      ${telState.planes.map(pl=>{
+        const cargado = (telState.carritoHuevos[pl.id]||0) > 0
+        const porHuevo = pl.egg_quantity ? Math.round(Number(pl.price)/pl.egg_quantity) : 0
+        return `<div style="background:${NOM.superficie};border:1px solid ${NOM.borde};${cargado?`border-left:3px solid ${NOM.verde};border-radius:0 12px 12px 0`:'border-radius:12px'};padding:11px;margin-bottom:7px;display:flex;justify-content:space-between;align-items:center;gap:11px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13.5px;font-weight:500;color:${NOM.tinta}">${pl.nombre || `Maple de ${pl.egg_quantity} huevos`}</div>
+            <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">${pl.peso?`${pl.peso} · `:''}maple de ${pl.egg_quantity} · $${Number(pl.price).toLocaleString('es-AR')}</div>
+            ${porHuevo?`<div style="font-size:11px;color:${NOM.verde};margin-top:2px">$${porHuevo.toLocaleString('es-AR')} por huevo</div>`:''}
+          </div>
+          <span style="display:flex;align-items:center;gap:7px;flex-shrink:0">
+            <button data-tel-huevo-menos="${pl.id}" style="width:30px;height:30px;border-radius:8px;background:${NOM.fondo};color:${NOM.verde};border:none;font-size:16px;font-weight:600">−</button>
+            <b style="min-width:18px;text-align:center">${telState.carritoHuevos[pl.id]||0}</b>
+            <button data-tel-huevo-mas="${pl.id}" style="width:30px;height:30px;border-radius:8px;background:${NOM.verde};color:#F5EFE0;border:none;font-size:16px;font-weight:600">+</button>
+          </span>
+        </div>`
+      }).join('')}
     </div>
 
     <div class="card">
@@ -7172,7 +8830,10 @@ async function telefonico(){
     telState.carritoProductos = {}
     telState.carritoHuevos = telState.carritoHuevos || {}
     ;(u.productos||[]).forEach(p=>{ telState.carritoProductos[p.product_id] = p.cantidad })
-    ;(u.plan_breakdown||[]).forEach(b=>{ if(b.size) telState.carritoHuevos[b.size] = (telState.carritoHuevos[b.size]||0) + b.qty })
+    ;(u.plan_breakdown||[]).forEach(b=>{
+      const clave = b.plan_id || (telState.planes.find(x=>Number(x.egg_quantity)===Number(b.size))||{}).id
+      if(clave) telState.carritoHuevos[clave] = (telState.carritoHuevos[clave]||0) + b.qty
+    })
     mostrarAlerta('Cargamos lo mismo del pedido anterior. Revisá y ajustá lo que haga falta.')
     render()
   }
@@ -7217,7 +8878,10 @@ async function telefonico(){
     if(!telState.entregaElegida && !telState.fechaNueva){ box.textContent='Elegí a qué entrega va el pedido.'; box.style.display='block'; return }
     if(telState.bonificarEnvio && !telState.motivoBonificacion.trim()){ box.textContent='Escribí el motivo de la bonificación.'; box.style.display='block'; return }
 
-    const eggs = Object.entries(telState.carritoHuevos).filter(([,q])=>q>0).map(([size,qty])=>({size:Number(size), qty}))
+    const eggs = Object.entries(telState.carritoHuevos).filter(([,q])=>q>0).map(([planId,qty])=>{
+      const pl = telState.planes.find(x=>String(x.id)===String(planId)) || {}
+      return { size: Number(pl.egg_quantity||0), qty, grade: pl.grade || null, plan_id: planId }
+    })
     const items = Object.entries(telState.carritoProductos).filter(([,q])=>q>0).map(([product_id,qty])=>({
       product_id, qty, price_override: telState.preciosManuales[product_id] || ''
     }))
@@ -7249,12 +8913,14 @@ async function telefonico(){
 }
 
 async function telCargarCatalogo(){
+  const idCliente = telState.cliente?.customer?.id || null
   const [{ data: cat }, { data: preps }] = await Promise.all([
-    supabase.rpc('telefono_catalogo', {}),
+    supabase.rpc('telefono_catalogo', { p_customer_id: idCliente }),
     supabase.from('staff_roles').select('user_id,full_name,role,roles').or('role.eq.preparador,roles.cs.{preparador}')
   ])
   telState.catalogo = cat?.catalogo || []
   telState.planes = cat?.planes || []
+  telState.tipoCliente = cat?.tipo_cliente || 'minorista'
   telState.preparadores = preps || []
 }
 
@@ -7770,6 +9436,180 @@ async function condicionesComerciales(customerId){
 }
 
 
+
+
+
+// ============ GASTOS QUE CARGÓ EL EQUIPO ============
+async function gastosEquipo(){
+  const [{ data: gRaw }, { data: rRaw }] = await Promise.all([
+    supabase.rpc('admin_gastos_equipo', {}),
+    supabase.rpc('admin_reintegros_pendientes', {})
+  ])
+  const g = gRaw || {}
+  const r = rRaw || {}
+  const gastos = g.gastos || []
+  const personas = r.personas || []
+
+  layout(`<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+    <button class="btn ghost" id="btn_volver_gastos_eq" style="padding:6px 12px">← Volver</button>
+    <h2 style="margin:0">Gastos del equipo</h2>
+  </div>
+
+  <div class="grid two" style="margin-bottom:12px">
+    <div class="card" style="margin:0">
+      <div style="font-size:11px;color:${NOM.tintaSuave}">Cargaron este mes</div>
+      <div style="font-size:22px;font-weight:500;font-variant-numeric:tabular-nums">$${Number(g.total||0).toLocaleString('es-AR')}</div>
+    </div>
+    <div class="card" style="margin:0">
+      <div style="font-size:11px;color:${NOM.tintaSuave}">Les debés</div>
+      <div style="font-size:22px;font-weight:500;color:${Number(r.total||0)>0?NOM.ambar:NOM.tinta};font-variant-numeric:tabular-nums">$${Number(r.total||0).toLocaleString('es-AR')}</div>
+    </div>
+  </div>
+
+  ${personas.length?`<div class="card">
+    <h3>Pendiente de reintegro</h3>
+    ${personas.map(p=>`<div style="border-bottom:1px solid ${NOM.borde};padding:11px 0">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div>
+          <div style="font-size:14px;font-weight:500;color:${NOM.tinta}">${p.nombre}</div>
+          <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">${p.cantidad} gasto(s) · el más viejo del ${formatearFecha(p.mas_viejo)}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:16px;font-weight:500;color:${NOM.ambar};font-variant-numeric:tabular-nums">$${Number(p.total).toLocaleString('es-AR')}</div>
+        </div>
+      </div>
+      <button class="btn ghost" data-reintegrar="${p.staff_id}" data-nombre="${p.nombre}" data-monto="${p.total}" style="width:100%;margin-top:9px">Ya se lo devolví</button>
+    </div>`).join('')}
+  </div>`:''}
+
+  <div class="card">
+    <h3>Últimos gastos cargados</h3>
+    ${gastos.length ? gastos.map(x=>`<div style="border-bottom:1px solid ${NOM.borde};padding:11px 0">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13.5px;font-weight:500;color:${NOM.tinta}">${x.categoria||'Sin categoría'}</div>
+          <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">${x.quien} · ${formatearFecha(x.fecha)}</div>
+          ${x.descripcion?`<div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">${x.descripcion}</div>`:''}
+          <div style="margin-top:5px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            ${x.pagado_por==='personal'
+              ? (x.reintegrado ? pPill('Ya reintegrado','#EAF0DC','#2F4D2A') : pPill('Le debés','#FBE9D4','#B8641E'))
+              : pPill('Caja de la empresa','#F1EFE8','#5F5E5A')}
+            ${x.comprobante?`<a href="${x.comprobante}" target="_blank" style="font-size:11.5px;color:${NOM.verde}">Ver ticket</a>`:''}
+          </div>
+        </div>
+        <div style="font-size:15px;font-weight:500;font-variant-numeric:tabular-nums">$${Number(x.monto).toLocaleString('es-AR')}</div>
+      </div>
+    </div>`).join('') : estadoVacio('Todavía no cargaron gastos.')}
+  </div>`)
+
+  document.querySelector('#btn_volver_gastos_eq').onclick = ()=>{ current='admin'; adminAreaAbierta=null; render() }
+  document.querySelectorAll('[data-reintegrar]').forEach(b=>b.onclick=async()=>{
+    const ok = await mostrarConfirmacion(`¿Ya le devolviste $${Number(b.dataset.monto).toLocaleString('es-AR')} a ${b.dataset.nombre}?`)
+    if(!ok) return
+    const { data, error } = await supabase.rpc('admin_marcar_reintegrado', { p_staff_id: b.dataset.reintegrar, p_gasto_id: null })
+    if(error || !data?.ok){ mostrarAlerta('No se pudo registrar.'); return }
+    mostrarAlerta(`Listo. Se marcaron ${data.cantidad} gasto(s) por $${Number(data.monto).toLocaleString('es-AR')}.`)
+    render()
+  })
+}
+
+// ============ EL EQUIPO CARGA UN GASTO ============
+async function cargarGasto(){
+  const { data: catsRaw } = await supabase.from('finance_categories')
+    .select('id,name,type').eq('active', true).in('type',['variable','fixed']).order('name')
+  const categorias = catsRaw || []
+
+  let catSel = ''
+  let pagadoPor = 'empresa'
+  let comprobante = null
+  let enviando = false
+
+  const dibujar = ()=>{
+    layout(`<h2>Cargar un gasto</h2>
+    <div class="card">
+      <p class="muted" style="margin:0 0 14px;font-size:12.5px">Peaje, lavado, un arreglo. Todo lo que gastes trabajando.</p>
+
+      <div class="field"><label>¿Para qué fue? *</label>
+        <div class="grid two">
+          ${categorias.map(c=>`<button type="button" class="btn ${catSel===c.name?'primary':'ghost'}" data-gasto-cat="${c.name}" style="font-size:12.5px;padding:11px 8px">${c.name}</button>`).join('')}
+        </div>
+        <input id="gasto_cat_otra" placeholder="O escribilo acá si no está en la lista" style="margin-top:8px" value="${catSel && !categorias.some(c=>c.name===catSel) ? catSel : ''}"/>
+      </div>
+
+      <div class="field"><label>¿Cuánto gastaste? *</label><input id="gasto_monto" type="number" inputmode="numeric" placeholder="0"/></div>
+
+      <div class="field"><label>¿Quién puso la plata? *</label>
+        <button type="button" class="btn ${pagadoPor==='empresa'?'primary':'ghost'}" data-gasto-quien="empresa" style="width:100%;text-align:left;padding:12px 14px;margin-bottom:8px">
+          <div style="font-size:13.5px;font-weight:500">La empresa</div>
+          <div style="font-size:11.5px;opacity:0.75;margin-top:2px">Caja chica o tarjeta del negocio</div>
+        </button>
+        <button type="button" class="btn ${pagadoPor==='personal'?'primary':'ghost'}" data-gasto-quien="personal" style="width:100%;text-align:left;padding:12px 14px">
+          <div style="font-size:13.5px;font-weight:500">La puse yo</div>
+          <div style="font-size:11.5px;opacity:0.75;margin-top:2px">Te lo tienen que reintegrar</div>
+        </button>
+      </div>
+
+      <div class="field"><label>Detalle (opcional)</label><input id="gasto_desc" placeholder="Ej: peaje de la autopista"/></div>
+      <div class="field"><label>Foto del ticket</label><input type="file" id="gasto_comprobante" accept="image/*"/></div>
+
+      ${pagadoPor==='personal'?`<div style="background:#FBE9D4;border-radius:11px;padding:12px;margin-bottom:12px">
+        <div style="font-size:12.5px;color:${NOM.ambar};line-height:1.5">Va a quedar anotado que te deben esta plata hasta que te la devuelvan.</div>
+      </div>`:''}
+
+      <div id="err_gasto" class="alert danger" style="display:none"></div>
+      <button class="btn primary" id="btn_guardar_gasto" style="width:100%" ${enviando?'disabled':''}>${enviando?'Guardando…':'Guardar gasto'}</button>
+    </div>`)
+
+    document.querySelectorAll('[data-gasto-cat]').forEach(b=>b.onclick=()=>{
+      catSel = b.dataset.gastoCat
+      const otra = document.querySelector('#gasto_cat_otra')
+      if(otra) otra.value = ''
+      dibujar()
+    })
+    document.querySelectorAll('[data-gasto-quien]').forEach(b=>b.onclick=()=>{ pagadoPor = b.dataset.gastoQuien; dibujar() })
+    const inpComp = document.querySelector('#gasto_comprobante')
+    if(inpComp) inpComp.onchange = (e)=>{ comprobante = e.target.files[0]||null }
+
+    document.querySelector('#btn_guardar_gasto').onclick = async ()=>{
+      const box = document.querySelector('#err_gasto')
+      const otra = document.querySelector('#gasto_cat_otra').value.trim()
+      const categoria = otra || catSel
+      const monto = Number(document.querySelector('#gasto_monto').value)
+
+      if(!categoria){ box.textContent='Elegí o escribí para qué fue el gasto.'; box.style.display='block'; return }
+      if(!monto || monto<=0){ box.textContent='Poné cuánto gastaste.'; box.style.display='block'; return }
+
+      enviando = true; dibujar()
+      let url = null
+      if(comprobante){
+        const path = `gastos/${Date.now()}.${(comprobante.name.split('.').pop()||'jpg')}`
+        const { error: upErr } = await supabase.storage.from('finance-attachments').upload(path, comprobante)
+        if(!upErr){ const { data: pub } = supabase.storage.from('finance-attachments').getPublicUrl(path); url = pub.publicUrl }
+      }
+
+      const { data, error } = await supabase.rpc('registrar_gasto_equipo', {
+        p_categoria: categoria, p_monto: monto,
+        p_descripcion: document.querySelector('#gasto_desc').value.trim() || null,
+        p_pagado_por: pagadoPor, p_comprobante_url: url, p_canal: 'compartido'
+      })
+
+      enviando = false
+      if(error || !data?.ok){
+        dibujar()
+        const b2 = document.querySelector('#err_gasto')
+        if(b2){ b2.textContent = data?.error || 'No se pudo guardar. Probá de nuevo.'; b2.style.display='block' }
+        return
+      }
+
+      mostrarAlerta(data.hay_que_reintegrar
+        ? `Gasto guardado.\n\nQuedó anotado que te deben $${monto.toLocaleString('es-AR')}.`
+        : 'Gasto guardado.')
+      current = myRole==='repartidor' ? 'repartidor' : 'admin'
+      render()
+    }
+  }
+  dibujar()
+}
 
 // ============ COMERCIOS QUE DEJARON DE PEDIR ============
 async function mayoristasEnRiesgo(){
@@ -8932,6 +10772,25 @@ async function render(){
   else if(current==='repartidor-mapa') await mapaRepartidor();
   else if(current==='historial') await historialRepartidor();
   else if(current==='campo') await campo();
+  else if(current==='campo-granjeros') await campoGranjeros();
+  else if(current==='campo-dia') await campoDia();
+  else if(current==='campo-carro') await campoCarro();
+  else if(current==='campo-insumo') await campoInsumo();
+  else if(current==='campo-peso') await campoPeso();
+  else if(current==='campo-sanidad') await campoSanidad();
+  else if(current==='campo-aves') await campoAves();
+  else if(current==='campo-guia') await campoGuia();
+  else if(current==='campo-ficha') await campoFicha();
+  else if(current==='adm-campo') await adminCampo();
+  else if(current==='adm-campo-lotes') await admCampoLotes();
+  else if(current==='adm-campo-parcelas') await admCampoParcelas();
+  else if(current==='adm-campo-razas') await admCampoRazas();
+  else if(current==='adm-campo-insumos') await admCampoInsumos();
+  else if(current==='adm-campo-sanitario') await admCampoSanitario();
+  else if(current==='adm-campo-descanso') await admCampoDescanso();
+  else if(current==='costo-huevo') await costoHuevo();
+  else if(current==='zonas') await zonasReparto();
+  else if(current==='categorias-costo') await categoriasCosto();
   else if(current==='preparador') await preparador();
   else if(current==='vendedor') await vendedor();
   else if(current==='mayorista-login') mayoristaLogin();
@@ -8954,6 +10813,8 @@ async function render(){
   else if(current==='deudores') await deudores();
   else if(current==='fincanales') await finanzasCanales();
   else if(current==='mayoristas-riesgo') await mayoristasEnRiesgo();
+  else if(current==='gasto') await cargarGasto();
+  else if(current==='gastos-equipo') await gastosEquipo();
   else if(current==='alta-comercio') await altaComercio();
   else if(current==='backup') await copiaSeguridad();
   else if(current==='auditoria') await auditoria();
