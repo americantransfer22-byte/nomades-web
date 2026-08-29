@@ -5261,6 +5261,8 @@ let pedidoExpandido = null
 let pedidoDetalleCache = {}
 
 let avisoRutaFecha = null
+let asignarDiaFecha = null
+let asignarDetalleAbierto = null
 let pedidosFechaFiltro = null // null | 'hoy' | 'manana'
 
 async function pedidos(){
@@ -6445,7 +6447,7 @@ async function fetchAdminData(){
     supabase.from('finance_categories').select('id,name,type,active').order('name'),
     supabase.from('finance_entries').select('id,category_id,type,amount,entry_date,description,attachment_url').order('entry_date',{ascending:false}).limit(30),
     supabase.rpc('finance_dashboard', {}),
-    supabase.from('vehicles').select('id,type,brand,model,year,plate,photo_url,current_km,service_interval_km,last_service_km,vtv_expiry,insurance_expiry,assigned_to,active,mechanic_name,mechanic_phone,mechanic_appointment_phone,mechanic_address,mechanic_hours,mechanic_email,mechanic_tax_id').order('created_at'),
+    supabase.from('vehicles').select('id,type,brand,model,year,plate,photo_url,current_km,service_interval_km,last_service_km,vtv_expiry,insurance_expiry,assigned_to,active,capacidad_maples,mechanic_name,mechanic_phone,mechanic_appointment_phone,mechanic_address,mechanic_hours,mechanic_email,mechanic_tax_id').order('created_at'),
     supabase.rpc('admin_vehicle_alerts', {}),
     supabase.from('driver_ledger').select('id,driver_id,entry_date,amount,description,created_at').order('entry_date',{ascending:false}),
     supabase.rpc('admin_customer_ranking', {}),
@@ -6762,50 +6764,10 @@ async function admin(){
       }).join(''):'<p class="muted">Todavía no hay barrios cargados (aparecen cuando hay clientes con barrio).</p>'}
     </div>
     <button class="btn ghost" id="btn_recalcular_asignaciones" style="margin-top:12px">🔄 Recalcular asignaciones automáticas ahora</button>
-    <div style="margin-top:16px"><h3 style="font-size:15px;color:#2F4D2A">Reasignar pedidos puntuales</h3>
-      <div class="field"><label>Filtrar por fecha de entrega</label><input type="date" id="filtro_fecha_asignar" value="${adminAsignarFecha}"/></div>
-      ${adminAsignarFecha?`<button class="btn ghost" id="btn_limpiar_fecha_asignar" style="margin-bottom:10px">Ver todas las fechas</button>`:''}
-      <div class="field"><label>Filtrar por tipo de cliente</label>
-        <div class="grid three" id="filtro_tipo_asignar_group">
-          <button type="button" class="btn ${adminAsignarTipo==='todos'?'primary':'ghost'}" data-filtro-tipo-asignar="todos">Todos</button>
-          <button type="button" class="btn ${adminAsignarTipo==='minorista'?'primary':'ghost'}" data-filtro-tipo-asignar="minorista">🛍️ Minorista</button>
-          <button type="button" class="btn ${adminAsignarTipo==='mayorista'?'primary':'ghost'}" data-filtro-tipo-asignar="mayorista">🏭 Mayorista</button>
-        </div>
-      </div>
-      ${(()=>{
-        let pedidosFiltrados = adminAsignarFecha ? pedidosAsignar.filter(p=>p.delivery_date===adminAsignarFecha) : pedidosAsignar
-        if(adminAsignarTipo!=='todos') pedidosFiltrados = pedidosFiltrados.filter(p=>(p.customers?.customer_type||'minorista')===adminAsignarTipo)
-        if(!pedidosFiltrados.length) return `<p class="muted">No hay pedidos pendientes para ese filtro.</p>`
-        return pedidosFiltrados.map(p=>{
-        const c=p.customers||{}
-        const sub=p.subscriptions||{}
-        const asignadoNombre = staffMap[p.assigned_driver] || '(sin asignar)'
-        const freqLabel = FRECUENCIAS[sub.frequency]||sub.frequency||'-'
-        const esMayorista = c.customer_type==='mayorista'
-        const planLabel = sub.plan_breakdown && Array.isArray(sub.plan_breakdown) && sub.plan_breakdown.length
-          ? sub.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')
-          : `${p.egg_quantity||'-'} huevos`
-        return pCard(`
-          <div style="display:flex;align-items:flex-start;gap:10px">
-            ${pAvatar(c.first_name)}
-            <div style="flex:1">
-              <div style="font-weight:700;color:#2F4D2A">${c.first_name||''} ${c.last_name||''} ${esMayorista?pPill('🏭 Mayorista','#B85C00','#FFFFFF'):''}</div>
-              <div style="font-size:12px;color:#8A8570;margin-top:2px">🏘️ ${c.neighborhood||'-'} · 📍 ${c.street||''} ${c.street_number||''}</div>
-              <div style="display:flex;gap:6px;align-items:center;margin-top:5px">${zonaBadge(c.zone)}${pPill(freqLabel)}</div>
-              <div style="font-size:12px;color:#8A8570;margin-top:5px">🥚 ${planLabel}</div>
-              <div style="font-size:12px;color:#8A8570;margin-top:3px">${formatearFecha(p.delivery_date)}</div>
-              <div style="font-size:12px;margin-top:3px;color:${p.assignment_locked?'#B85C00':'#2F4D2A'}">${p.assignment_locked?'🔒 Manual':'🔄 Automático'} → <b>${asignadoNombre}</b></div>
-              ${p.customer_stage?`<div style="font-size:11px;margin-top:3px;color:#B85C00">${p.customer_stage==='preparing'?'🥚 Marcado como "Preparando"':'🚚 Marcado como "En camino"'}</div>`:''}
-            </div>
-          </div>
-          <select data-pedido-driver="${p.id}" style="width:100%;margin-top:10px"><option value="">— Sin asignar —</option>${repartidores.map(r=>`<option value="${r.user_id}" ${p.assigned_driver===r.user_id?'selected':''}>${r.full_name||'(sin nombre)'}</option>`).join('')}</select>
-          ${pBtnRow([
-            ...(p.assignment_locked?[pBtn('🔄','Volver a automático',`data-destrabar="${p.id}"`,'ghost')]:[])
-          ])}
-        `, 'margin-bottom:8px')
-        }).join('')
-      })()}
-      <div style="border-top:1px solid ${NOM.borde};margin-top:14px;padding-top:14px">
+    <div style="margin-top:16px"><h3 style="font-size:15px;color:#2F4D2A">Asignar la ruta de un día</h3>
+      <p class="muted" style="font-size:12px;margin:0 0 10px">Un día por vez, agrupado por zona. Podés asignar toda una zona de una sola vez.</p>
+      <div id="asignacion_dia_box"><p class="muted" style="font-size:12px">Cargando…</p></div>
+    </div>
         <div style="font-size:14px;font-weight:500;margin-bottom:3px">💬 Avisar la ruta</div>
         <p class="muted" style="font-size:12px;margin:0 0 10px">Cuando termines de asignar, avisales a los clientes quién les lleva el pedido. Reasignar no manda nada: los mensajes salen solo cuando tocás el botón.</p>
         <div id="avisar_ruta_box"><p class="muted" style="font-size:12px">Cargando…</p></div>
@@ -6862,6 +6824,10 @@ async function admin(){
               <div style="font-size:11px;color:#8A8570">Seguro</div>
               <div style="font-size:13px;font-weight:600;color:${seguroPronto?'#B85C00':'#2F4D2A'}">${v.insurance_expiry||'-'}${seguroPronto?' ⚠️':''}</div>
             </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;background:${NOM.crema};border-radius:10px;padding:8px 10px">
+            <div style="flex:1;font-size:12px;color:${NOM.tintaSuave}">¿Cuántos maples entran?<br><small>Para avisar cuando la carga se pasa</small></div>
+            <input type="number" min="0" step="1" data-cap-maples="${v.id}" value="${v.capacidad_maples||''}" placeholder="—" style="width:64px;text-align:center"/>
           </div>
           <select data-vehiculo-asignar="${v.id}" style="width:100%;margin-bottom:8px"><option value="">— Sin asignar —</option>${staff.filter(s=>s.role==='repartidor'||s.role==='admin').map(s=>`<option value="${s.user_id}" ${v.assigned_to===s.user_id?'selected':''}>${s.full_name||'(sin nombre)'}</option>`).join('')}</select>
           ${pBtnRow([
@@ -7854,6 +7820,12 @@ async function admin(){
     if(error || !data?.ok){ mostrarAlerta('No se pudo actualizar.'); return }
     adminData = null; render()
   })
+  document.querySelectorAll('[data-cap-maples]').forEach(inp=>inp.onchange=async()=>{
+    const { data, error } = await supabase.rpc('admin_set_capacidad_vehiculo', { p_vehicle_id: inp.dataset.capMaples, p_maples: Number(inp.value)||0 })
+    if(error || !data?.ok){ mostrarAlerta('No se pudo guardar la capacidad.'); return }
+    inp.style.background = '#E7F3DC'
+    setTimeout(()=>{ inp.style.background = '' }, 900)
+  })
   document.querySelectorAll('[data-ver-stats]').forEach(b=>b.onclick=()=>{
     const v = vehiculos.find(x=>x.id===b.dataset.verStats)
     verEstadisticasVehiculo(v)
@@ -8023,6 +7995,141 @@ async function admin(){
     adminAreaAbierta = b.dataset.area; adminOpenSection = null; window.scrollTo(0,0); render()
   })
   document.querySelectorAll('[data-resolver-colgada]').forEach(b=>b.onclick=()=>openDelivery(b.dataset.resolverColgada))
+
+  // ── Asignar la ruta de un día ─────────────────────────────
+  ;(async ()=>{
+    const caja = document.querySelector('#asignacion_dia_box')
+    if(!caja) return
+    const pintarAsignacion = async ()=>{
+      const { data } = await supabase.rpc('admin_asignacion_dia', { p_fecha: asignarDiaFecha })
+      if(!data?.ok){ caja.innerHTML = '<p class="muted" style="font-size:12px">No se pudo cargar.</p>'; return }
+      asignarDiaFecha = data.fecha
+      const pedidos = data.pedidos || []
+      const carga = data.carga || []
+      const opcionesRep = repartidores.map(r=>`<option value="${r.user_id}">${r.full_name||'(sin nombre)'}</option>`).join('')
+
+      // Resumen de lo que lleva: es lo que decide si entra en la moto o hay que ir en camioneta
+      const resumenCarga = (p)=>{
+        const partes = []
+        const m = Number(p.maples||0)
+        if(m) partes.push(`${m} maple${m>1?'s':''}`)
+        else if(p.egg_quantity) partes.push(`${p.egg_quantity} huevos`)
+        const np = (p.productos||[]).reduce((s,x)=>s+Number(x.cantidad||0),0)
+        if(np) partes.push(`${np} producto${np>1?'s':''}`)
+        return partes.join(' + ') || '—'
+      }
+      const detalleCarga = (p)=>{
+        const filas = []
+        ;(p.plan_breakdown||[]).forEach(b=>filas.push(`🥚 ${b.qty} maple${b.qty>1?'s':''} de ${b.size}`))
+        if(!filas.length && p.egg_quantity) filas.push(`🥚 ${p.egg_quantity} huevos`)
+        ;(p.extra_eggs||[]).forEach(e=>filas.push(`🥚 ${e.qty}×${e.size} <small>(sumados por teléfono)</small>`))
+        ;(p.productos||[]).forEach(x=>filas.push(`🛒 ${x.cantidad}× ${x.nombre}`))
+        return `<div style="margin-top:8px;padding:10px 12px;background:${NOM.crema};border-radius:8px">
+          <div style="font-size:12.5px;line-height:1.9">${filas.join('<br>')||'Sin detalle cargado'}</div>
+        </div>`
+      }
+
+      // Zona → barrio, y dentro de cada barrio los comercios primero:
+      // un local abre a horario fijo, una casa de familia es más flexible.
+      const porZona = {}
+      pedidos.forEach(p=>{
+        const b = p.neighborhood || 'Sin barrio'
+        porZona[p.zone] ??= {}
+        porZona[p.zone][b] ??= []
+        porZona[p.zone][b].push(p)
+      })
+      Object.values(porZona).forEach(barrios=>Object.values(barrios).forEach(l=>
+        l.sort((a,b)=>(b.customer_type==='mayorista'?1:0)-(a.customer_type==='mayorista'?1:0))))
+
+      caja.innerHTML = `
+        <div style="display:flex;gap:6px;margin-bottom:11px;overflow-x:auto;padding-bottom:2px">
+          ${(data.fechas||[]).map(f=>{
+            const activo = f.fecha === data.fecha
+            const et = f.atrasada ? 'Atrasados' : f.fecha===new Date().toISOString().slice(0,10) ? 'Hoy'
+              : new Date(f.fecha+'T00:00:00').toLocaleDateString('es-AR',{weekday:'short',day:'numeric'})
+            return `<button type="button" data-asig-fecha="${f.fecha}" style="all:unset;cursor:pointer;white-space:nowrap;padding:6px 12px;border-radius:999px;font-size:12.5px;background:${activo?NOM.verde:'#FFFFFF'};color:${activo?'#F7F4EC':NOM.tinta};border:1px solid ${activo?NOM.verde:NOM.borde}">${et} <span style="${f.atrasada&&!activo?`color:${NOM.rojo}`:'opacity:0.65'}">${f.cantidad}</span></button>`
+          }).join('') || '<span class="muted" style="font-size:12px">No hay pedidos por asignar.</span>'}
+        </div>
+        ${Object.entries(porZona).map(([z, barrios])=>{
+          const colZ = (ZONA_COLORES[z]||{text:NOM.verde, bg:NOM.verdeClaro})
+          const totZ = Object.values(barrios).flat().length
+          return `<div style="margin-bottom:18px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:${colZ.bg||NOM.verdeClaro};border-radius:10px;padding:9px 12px;margin-bottom:10px">
+              <div style="font-size:13.5px;font-weight:500;color:${colZ.text}">${z==='sin_zona'?'Sin zona':'Zona '+z[0].toUpperCase()+z.slice(1)} · ${totZ} pedido${totZ>1?'s':''}</div>
+              <select data-asig-zona="${z}" style="font-size:11.5px;padding:4px 6px;max-width:46%;background:#FFFFFF"><option value="">Asignar a…</option>${opcionesRep}</select>
+            </div>
+            ${Object.entries(barrios).map(([b, lista])=>`
+              <div style="border:1px solid ${NOM.borde};border-radius:12px;padding:10px;margin-bottom:10px;background:${NOM.crema}">
+                <div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;color:${NOM.tintaSuave};margin:0 2px 9px"><span>📍 ${b||'Sin barrio'}</span><span>${lista.length}</span></div>
+                ${lista.map((p,ix)=>{
+                  const may = p.customer_type==='mayorista'
+                  const bultoso = (p.productos||[]).reduce((s,x)=>s+Number(x.cantidad||0),0) >= 5 || Number(p.maples||0) >= 4
+                  const nProd = (p.productos||[]).reduce((s,x)=>s+Number(x.cantidad||0),0)
+                  const alertas = (tieneRestriccionHoraria(p) || p.important_note)
+                  return `<div style="background:#FFFFFF;border:1px solid ${NOM.borde};${may?`border-left:4px solid ${NOM.ambar};border-radius:0 10px 10px 0;`:'border-radius:10px;'}padding:11px 12px;${ix<lista.length-1?'margin-bottom:8px':''}">
+                    <div style="display:flex;align-items:flex-start;gap:10px">
+                      <div style="flex:1;min-width:0">
+                        <div style="font-size:14px;font-weight:500">${p.direccion||'Sin dirección'}</div>
+                        <div style="font-size:12.5px;color:${NOM.tintaSuave};margin-top:2px">${p.nombre}${may?` <span style="font-size:10px;background:${NOM.ambarClaro};color:#854F0B;padding:1px 7px;border-radius:999px">mayorista</span>`:''}</div>
+                      </div>
+                      <select data-pedido-driver="${p.id}" style="font-size:11.5px;padding:5px 6px;width:34%;flex-shrink:0"><option value="">— sin asignar —</option>${repartidores.map(r=>`<option value="${r.user_id}" ${p.assigned_driver===r.user_id?'selected':''}>${r.full_name||'(sin nombre)'}</option>`).join('')}</select>
+                    </div>
+                    <div style="display:flex;gap:7px;margin-top:9px;flex-wrap:wrap">
+                      <span style="font-size:12.5px;font-weight:500;background:#EAF3DE;color:#27500A;padding:4px 10px;border-radius:8px">🥚 ${Number(p.maples||0)||p.egg_quantity||0} ${Number(p.maples||0)?`maple${Number(p.maples)>1?'s':''}`:'huevos'}</span>
+                      ${nProd?`<span style="font-size:12.5px;font-weight:500;background:#E6F1FB;color:#0C447C;padding:4px 10px;border-radius:8px">🛒 ${nProd} producto${nProd>1?'s':''}</span>`:''}
+                      ${bultoso?`<span style="font-size:12.5px;font-weight:500;background:${NOM.ambarClaro};color:#854F0B;padding:4px 10px;border-radius:8px">📦 Bulto grande</span>`:''}
+                    </div>
+                    ${alertas?`<div style="margin-top:9px;padding-top:9px;border-top:1px solid ${NOM.borde}">
+                      ${tieneRestriccionHoraria(p)?`<div style="font-size:11.5px;color:#854F0B">⏰ ${textoRestriccionHoraria(p)}</div>`:''}
+                      ${p.important_note?`<div style="font-size:11.5px;color:#993C1D;${tieneRestriccionHoraria(p)?'margin-top:4px':''}">⚠️ ${p.important_note}</div>`:''}
+                    </div>`:''}
+                    <button type="button" data-asig-detalle="${p.id}" style="all:unset;cursor:pointer;font-size:11.5px;color:#534AB7;margin-top:9px;display:inline-block">${asignarDetalleAbierto===p.id?'ocultar ▴':'ver qué lleva ▾'}</button>
+                    ${asignarDetalleAbierto===p.id?detalleCarga(p):''}
+                  </div>`
+                }).join('')}
+              </div>`).join('')}
+          </div>`
+        }).join('') || ''}
+        ${pedidos.length?`<div style="border-top:1px solid ${NOM.borde};margin-top:14px;padding-top:12px">
+          <div style="font-size:13px;font-weight:500;margin-bottom:6px">Carga de cada repartidor</div>
+          ${carga.map(r=>{
+            const v = r.vehiculo
+            const cap = v?.capacidad ? Number(v.capacidad) : null
+            const seP = cap!=null && Number(r.maples) > cap
+            const etiqueta = Number(r.pedidos)===0 ? ['Libre','#FFFFFF',NOM.tintaSuave] : seP ? ['Se pasa','#FBE9E7','#8C2F22'] : ['Ok','#E7F3DC','#3A6B1E']
+            return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-top:1px solid ${NOM.borde}">
+              <div style="min-width:0">
+                <div style="font-size:13.5px">${r.nombre||'(sin nombre)'} <span style="color:${NOM.tintaSuave};font-size:11.5px">· ${v?`${v.tipo==='moto'?'🏍️':'🚚'} ${v.brand||''} ${v.model||''}`:'sin vehículo asignado'}</span></div>
+                <div style="font-size:11.5px;color:${seP?NOM.rojo:NOM.tintaSuave};margin-top:1px">${r.maples} maple${Number(r.maples)===1?'':'s'} en ${r.pedidos} pedido${Number(r.pedidos)===1?'':'s'}${cap!=null?` · entran ${cap}`:''}</div>
+              </div>
+              <span style="font-size:11px;background:${etiqueta[1]};${etiqueta[1]==='#FFFFFF'?`border:1px solid ${NOM.borde};`:''}color:${etiqueta[2]};padding:3px 9px;border-radius:999px;flex-shrink:0">${etiqueta[0]}</span>
+            </div>`
+          }).join('')}
+          ${carga.some(r=>r.vehiculo && !r.vehiculo.capacidad) ? `<p class="muted" style="font-size:11px;margin:8px 0 0">Cargá cuántos maples entran en cada vehículo, en Vehículos, para que te avise cuando se pasa.</p>`:''}
+        </div>`:''}`
+
+      caja.querySelectorAll('[data-asig-fecha]').forEach(b=>b.onclick=async()=>{ asignarDiaFecha = b.dataset.asigFecha; asignarDetalleAbierto=null; await pintarAsignacion() })
+      caja.querySelectorAll('[data-asig-detalle]').forEach(b=>b.onclick=async()=>{
+        asignarDetalleAbierto = asignarDetalleAbierto===b.dataset.asigDetalle ? null : b.dataset.asigDetalle
+        await pintarAsignacion()
+      })
+      // Asignar no redibuja la pantalla: solo cambia esa fila y el resumen de carga.
+      caja.querySelectorAll('[data-pedido-driver]').forEach(sel=>sel.onchange=async()=>{
+        sel.disabled = true
+        const { data: r, error } = await supabase.rpc('admin_assign_driver', { p_order_id: sel.dataset.pedidoDriver, p_driver_user_id: sel.value || null })
+        sel.disabled = false
+        if(error || !r?.ok){ mostrarAlerta('No se pudo asignar: '+(error?.message||r?.error||'')); return }
+        await pintarAsignacion()
+      })
+      caja.querySelectorAll('[data-asig-zona]').forEach(sel=>sel.onchange=async()=>{
+        if(!sel.value) return
+        const { data: r, error } = await supabase.rpc('admin_asignar_zona', { p_fecha: asignarDiaFecha, p_zone: sel.dataset.asigZona, p_driver: sel.value })
+        if(error || !r?.ok){ mostrarAlerta('No se pudo asignar la zona: '+(error?.message||r?.error||'')); return }
+        await pintarAsignacion()
+      })
+    }
+    await pintarAsignacion()
+  })()
 
   // ── Avisar la ruta ────────────────────────────────────────
   ;(async ()=>{
