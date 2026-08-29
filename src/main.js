@@ -1878,9 +1878,28 @@ function staffLogin(){
     if(!code){ box.textContent='Ingresá tu código de acceso.'; box.style.display='block'; return }
     const email = `staff-${code.toLowerCase()}@nomades.internal`
     const { data, error } = await supabase.auth.signInWithPassword({ email, password: code })
-    if(error){ box.textContent='Código incorrecto o vencido.'; box.style.display='block'; return }
-    const { data: roleRow } = await supabase.from('staff_roles').select('*').eq('user_id', data.user.id).single()
-    if(!roleRow){ box.textContent='Este código no tiene un rol asignado.'; box.style.display='block'; await supabase.auth.signOut(); return }
+    if(error){
+      // Un solo mensaje para todo mandaba a buscar el problema al lado equivocado.
+      // El 500 del servidor y un código mal escrito no se arreglan igual.
+      const st = error.status || 0
+      const msg = (error.message||'').toLowerCase()
+      if(st >= 500 || msg.includes('unexpected')){
+        box.innerHTML = 'Hubo un problema del servidor, no es tu código.<br><small>Probá de nuevo en un minuto. Si sigue, avisale a administración.</small>'
+      } else if(msg.includes('rate') || st === 429){
+        box.innerHTML = 'Demasiados intentos seguidos.<br><small>Esperá un minuto y volvé a probar.</small>'
+      } else if(msg.includes('network') || msg.includes('fetch')){
+        box.innerHTML = 'No hay conexión.<br><small>Revisá los datos o el wifi y probá de nuevo.</small>'
+      } else {
+        box.innerHTML = 'Ese código no existe o fue dado de baja.<br><small>Fijate que esté bien escrito. Si te lo cambiaron, pedí el nuevo a administración.</small>'
+      }
+      box.style.display='block'
+      return
+    }
+    const { data: roleRow, error: rolError } = await supabase.from('staff_roles').select('*').eq('user_id', data.user.id).single()
+    if(rolError || !roleRow){
+      box.innerHTML = 'Tu código es válido pero no tiene ningún rol asignado.<br><small>Pedile a administración que te habilite las secciones.</small>'
+      box.style.display='block'; await supabase.auth.signOut(); return
+    }
     session = data.session
     myRole = roleRow.role
     myRoles = (Array.isArray(roleRow.roles) && roleRow.roles.length) ? roleRow.roles : (roleRow.role ? [roleRow.role] : [])
@@ -6515,6 +6534,12 @@ async function admin(){
     </div>
     <div class="field"><label>Código de acceso (opcional — si lo dejás vacío, se genera uno automático)</label><input id="staff_new_code" placeholder="Ej: 123 (mín. 3 caracteres, letras o números)"/></div>
     <button class="btn primary" id="btn_crear_staff">➕ Generar código de acceso</button>
+    <div id="salud_accesos" style="margin-top:10px"></div>
+    <div style="border-top:1px solid ${NOM.borde};margin-top:14px;padding-top:14px">
+      <div style="font-size:14px;font-weight:500;margin-bottom:3px">🧪 Datos de prueba</div>
+      <p class="muted" style="font-size:12px;margin:0 0 10px">Seis clientes inventados con entregas para hoy, para recorrer el circuito sin ensuciar tus números. Los nombres arrancan con "Prueba".</p>
+      <div id="estado_prueba"></div>
+    </div>
     <div id="codigo_generado" style="margin-top:10px"></div>
     <div style="margin-top:16px">${staff.length?staff.map(s=>{
       const esVos = session && s.user_id === session.user.id
@@ -7776,6 +7801,53 @@ async function admin(){
     if(error){ mostrarAlerta('Error: '+error.message); return }
     adminData = null; mostrarAlerta('Guardado ✅')
   })
+  // Control de salud de los accesos: detecta usuarios que el servidor de autenticación
+  // no puede leer. Si pasa, el login falla con un error que parece "código incorrecto".
+  ;(async ()=>{
+    const caja = document.querySelector('#salud_accesos')
+    if(!caja) return
+    const { data: salud } = await supabase.rpc('revisar_salud_auth')
+    if(!salud) return
+    const problemas = []
+    if(salud.rotos > 0) problemas.push(`${salud.rotos} acceso(s) no van a poder entrar (${(salud.emails_rotos||[]).map(e=>String(e).replace('staff-','').replace('@nomades.internal','').toUpperCase()).join(', ')})`)
+    if(salud.sin_identidad > 0) problemas.push(`${salud.sin_identidad} sin identidad registrada`)
+    if(salud.sin_rol > 0) problemas.push(`${salud.sin_rol} sin ningún rol asignado`)
+    caja.innerHTML = problemas.length
+      ? `<div class="alert danger" style="font-size:12.5px"><b>⚠️ Revisá estos accesos</b><br>${problemas.join('<br>')}<br><small>Generales de nuevo con "Nuevo código" para arreglarlos.</small></div>`
+      : `<div style="font-size:12px;color:${NOM.tintaSuave}">✅ Los ${salud.total} accesos están sanos</div>`
+  })()
+
+  ;(async ()=>{
+    const caja = document.querySelector('#estado_prueba')
+    if(!caja) return
+    const pintar = async ()=>{
+      const { count } = await supabase.from('customers').select('id', { count:'exact', head:true }).eq('es_prueba', true)
+      const hay = (count||0) > 0
+      caja.innerHTML = hay
+        ? `<div class="alert warning" style="font-size:12.5px"><b>Hay ${count} clientes de prueba cargados</b><br>Sus pedidos aparecen en la ruta y en las estadísticas. Borralos cuando termines.</div>
+           <button class="btn ghost" id="btn_borrar_prueba" style="width:100%">🗑️ Borrar los datos de prueba</button>`
+        : `<button class="btn ghost" id="btn_cargar_prueba" style="width:100%">➕ Cargar 6 clientes de prueba</button>`
+      const bc = document.querySelector('#btn_cargar_prueba')
+      if(bc) bc.onclick = async ()=>{
+        bc.disabled = true; bc.textContent = 'Cargando…'
+        const { data, error } = await supabase.rpc('cargar_datos_prueba')
+        if(error || !data?.ok){ mostrarAlerta('No se pudo cargar: '+(data?.error||error?.message||'')); await pintar(); return }
+        mostrarAlerta(`Listos ${data.clientes} clientes de prueba, con entregas para hoy.\n\nEntrá a Repartidor para ver la ruta.`)
+        adminData = null; render()
+      }
+      const bb = document.querySelector('#btn_borrar_prueba')
+      if(bb) bb.onclick = async ()=>{
+        if(!confirm('¿Borrar todos los clientes de prueba, con sus pedidos y cobros? Tus clientes reales no se tocan.')) return
+        bb.disabled = true; bb.textContent = 'Borrando…'
+        const { data, error } = await supabase.rpc('borrar_datos_prueba')
+        if(error || !data?.ok){ mostrarAlerta('No se pudo borrar: '+(data?.error||error?.message||'')); await pintar(); return }
+        mostrarAlerta(`Borrados ${data.borrados||0} clientes de prueba con todo lo que colgaba de ellos.`)
+        adminData = null; render()
+      }
+    }
+    await pintar()
+  })()
+
   document.querySelector('#btn_crear_staff').onclick = async ()=>{
     const full_name = document.querySelector('#staff_new_name').value.trim()
     const rolesElegidos = Array.from(document.querySelectorAll('[data-nuevo-rol]')).filter(x=>x.checked).map(x=>x.dataset.nuevoRol)
