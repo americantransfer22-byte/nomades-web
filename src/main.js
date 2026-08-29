@@ -5980,7 +5980,10 @@ async function openDelivery(id){
   const montoHuevos = sub.price_at_signup || 0
   const totalProductos = productos.reduce((s,p)=>s+Number(p.price)*p.quantity,0)
   const montoOriginal = montoHuevos + totalProductos
-  const descuentoBilletera = sub.payment_method==='mp' ? calcularDescuentoBilletera(montoOriginal, cfg.wallet_discount_type, cfg.wallet_discount_value) : 0
+  // El descuento es por transferencia — da igual si va al banco o a la billetera.
+  // Las dos le llegan instantáneas y sin comisión. El efectivo paga precio de lista.
+  const esPagoConDescuento = (m)=> m==='transfer' || m==='mp'
+  const descuentoBilletera = esPagoConDescuento(sub.payment_method) ? calcularDescuentoBilletera(montoOriginal, cfg.wallet_discount_type, cfg.wallet_discount_value) : 0
   const montoTrasBilletera = montoOriginal - descuentoBilletera
   const montoDefault = credito ? Math.max(0, montoTrasBilletera - credito.discount_amount) : montoTrasBilletera
   const { data: recepcion } = await supabase.rpc('puede_recibir', { p_customer_id: c.id, p_fecha: r.delivery_date })
@@ -6058,6 +6061,7 @@ async function openDelivery(id){
       <button class="btn primary" id="validate">Validar DNI</button>
       <div id="validation" style="margin-top:12px"></div>
       <div class="field" style="margin-top:12px"><label>Monto cobrado</label><input id="monto_cobrado" type="number" value="${montoDefault}"/></div>
+      <div id="aviso_descuento_billetera"></div>
       <div class="field"><label>¿Con qué método pagó?</label>
         <div class="grid three" id="metodo_group">
           <button type="button" class="btn ${sub.payment_method==='cash'?'primary':'ghost'}" data-metodo="cash">Efectivo</button>
@@ -6119,11 +6123,36 @@ async function openDelivery(id){
     })
   }
   renderDatosTransferencia()
+
+  // El descuento por billetera es una condición, no un premio de por vida:
+  // si el cliente se suscribió con billetera pero termina pagando en efectivo,
+  // el monto vuelve al precio completo y el repartidor ve por qué.
+  const recalcularMonto = ()=>{
+    const campo = document.querySelector('#monto_cobrado')
+    const aviso = document.querySelector('#aviso_descuento_billetera')
+    if(!campo) return
+    const descuentoAhora = esPagoConDescuento(metodoSel) ? calcularDescuentoBilletera(montoOriginal, cfg.wallet_discount_type, cfg.wallet_discount_value) : 0
+    const conCredito = credito ? Math.max(0, montoOriginal - descuentoAhora - credito.discount_amount) : (montoOriginal - descuentoAhora)
+    campo.value = conCredito
+    if(!aviso) return
+    if(descuentoAhora > 0){
+      const donde = metodoSel==='transfer' ? 'Transfiere al banco' : 'Transfiere a la billetera'
+      aviso.innerHTML = `<div class="alert info" style="margin-top:-4px;margin-bottom:10px">🎉 ${donde}: se le descuentan <b>$${Number(descuentoAhora).toLocaleString('es-AR')}</b> sobre $${Number(montoOriginal).toLocaleString('es-AR')}.</div>`
+    } else if(metodoSel==='cash' && esPagoConDescuento(sub.payment_method)){
+      const perdido = calcularDescuentoBilletera(montoOriginal, cfg.wallet_discount_type, cfg.wallet_discount_value)
+      aviso.innerHTML = `<div class="alert warning" style="margin-top:-4px;margin-bottom:10px">⚠️ Se había suscrito por transferencia, pero paga en efectivo: <b>no corresponde el descuento de $${Number(perdido).toLocaleString('es-AR')}</b>. Se cobra el precio de lista, $${Number(montoOriginal).toLocaleString('es-AR')}.</div>`
+    } else {
+      aviso.innerHTML = ''
+    }
+  }
+  recalcularMonto()
+
   document.querySelectorAll('#metodo_group [data-metodo]').forEach(b=> b.onclick = ()=>{
     metodoSel = b.dataset.metodo
     document.querySelectorAll('#metodo_group [data-metodo]').forEach(x=> x.className = 'btn '+(x.dataset.metodo===metodoSel?'primary':'ghost'))
     comprobanteFile = null
     renderDatosTransferencia()
+    recalcularMonto()
   })
 
   const btnLlegue = document.querySelector('#btn_llegue')
