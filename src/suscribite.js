@@ -208,17 +208,24 @@ async function consultarDisponibilidad(){
   document.querySelectorAll('[data-alt-dia]').forEach(b=> b.onclick = ()=>{ state.plan.preferred_weekday = Number(b.dataset.altDia); state.disponibilidad=null; render(); consultarDisponibilidad() })
 }
 
+// El carrito se indexa por id de plan, no por cantidad de huevos:
+// dos maples distintos pueden tener la misma cantidad y antes se pisaban entre sí.
+function planPorId(id){ return state.planes.find(p=>String(p.id)===String(id)) }
 function totalCarrito(){
-  return Object.entries(state.plan.carrito).reduce((sum,[eggQty,qty])=>sum + Number(eggQty)*qty, 0)
+  return Object.entries(state.plan.carrito).reduce((sum,[planId,qty])=>{
+    const plan = planPorId(planId)
+    return sum + (plan?Number(plan.egg_quantity):0)*qty
+  }, 0)
 }
 function precioCarrito(){
-  return Object.entries(state.plan.carrito).reduce((sum,[eggQty,qty])=>{
-    const plan = state.planes.find(p=>String(p.egg_quantity)===eggQty)
+  return Object.entries(state.plan.carrito).reduce((sum,[planId,qty])=>{
+    const plan = planPorId(planId)
     return sum + (plan?Number(plan.price):0)*qty
   }, 0)
 }
 function carritoResumen(){
-  return Object.entries(state.plan.carrito).filter(([,q])=>q>0).map(([eggQty,qty])=>`${qty}×${eggQty}`).join(' + ')
+  return Object.entries(state.plan.carrito).filter(([,q])=>q>0)
+    .map(([planId,qty])=>`${qty}×${planPorId(planId)?.egg_quantity||'?'}`).join(' + ')
 }
 function calcularDescuentoBilletera(precio){
   const v = state.walletDiscountValue||0
@@ -226,9 +233,11 @@ function calcularDescuentoBilletera(precio){
   if(state.walletDiscountType==='fixed') return Math.min(v, precio)
   return Math.round(precio * (v/100))
 }
+// El descuento es por transferencia: al banco o a la billetera, las dos igual.
+function pagaPorTransferencia(m){ return m==='transfer' || m==='mp' }
 function precioFinal(){
   const base = precioCarrito()
-  if(state.plan.payment_method!=='mp') return base
+  if(!pagaPorTransferencia(state.plan.payment_method)) return base
   return Math.max(0, base - calcularDescuentoBilletera(base))
 }
 
@@ -239,7 +248,7 @@ function paso2(){
   <div class="card">
     <h2>2. Elegí tu plan</h2>
     <div class="field"><label>Elegí y combiná los tamaños que quieras (podés mezclar varios)</label>
-      ${state.planes.map(pl=>`<div class="row"><span>Maple de ${pl.egg_quantity} huevos <small class="muted">$${Number(pl.price).toLocaleString('es-AR')} el maple ($${Math.round(pl.price/pl.egg_quantity).toLocaleString('es-AR')} por huevo)</small></span><span style="display:flex;align-items:center;gap:8px"><button type="button" class="btn ghost" data-carrito-menos="${pl.egg_quantity}" style="padding:6px 14px">−</button><b style="min-width:20px;text-align:center;display:inline-block">${p.carrito[pl.egg_quantity]||0}</b><button type="button" class="btn ghost" data-carrito-mas="${pl.egg_quantity}" style="padding:6px 14px">+</button></span></div>`).join('')}
+      ${state.planes.map(pl=>`<div class="row"><span>Maple de ${pl.egg_quantity} huevos <small class="muted">$${Number(pl.price).toLocaleString('es-AR')} el maple ($${Math.round(pl.price/pl.egg_quantity).toLocaleString('es-AR')} por huevo)</small></span><span style="display:flex;align-items:center;gap:8px"><button type="button" class="btn ghost" data-carrito-menos="${pl.id}" style="padding:6px 14px">−</button><b style="min-width:20px;text-align:center;display:inline-block">${p.carrito[pl.id]||0}</b><button type="button" class="btn ghost" data-carrito-mas="${pl.id}" style="padding:6px 14px">+</button></span></div>`).join('')}
     </div>
     <div class="alert info"><b>Total: ${total} huevos</b> ${carritoResumen()?`(${carritoResumen()})`:''} · $${precioCarrito().toLocaleString('es-AR')}</div>
     <div class="field" style="margin-top:10px"><label>Frecuencia de entrega</label>
@@ -248,9 +257,9 @@ function paso2(){
     <div class="field"><label>¿Cómo preferís pagar?</label>
       <div class="grid three">${METODOS_PAGO.map(m=>`<button class="btn ${p.payment_method===m.value?'primary':'ghost'}" data-pay="${m.value}">${m.label}</button>`).join('')}</div>
     </div>
-    ${p.payment_method==='mp' && state.walletDiscountValue>0 ? `
+    ${pagaPorTransferencia(p.payment_method) && state.walletDiscountValue>0 ? `
     <div class="alert info" style="background:#EAF0DC">
-      <div style="font-size:13px;color:#2E5C1E;font-weight:600">🎉 ${state.walletDiscountType==='fixed'?`$${state.walletDiscountValue.toLocaleString('es-AR')}`:`${state.walletDiscountValue}%`} de descuento por pagar con billetera</div>
+      <div style="font-size:13px;color:#2E5C1E;font-weight:600">🎉 ${state.walletDiscountType==='fixed'?`$${state.walletDiscountValue.toLocaleString('es-AR')}`:`${state.walletDiscountValue}%`} de descuento por pagar con transferencia</div>
       <div style="margin-top:6px;display:flex;align-items:baseline;gap:8px">
         <span style="font-size:13px;color:#8A8570;text-decoration:line-through">$${precioCarrito().toLocaleString('es-AR')}</span>
         <span style="font-size:20px;font-weight:700;color:#2F4D2A">$${precioFinal().toLocaleString('es-AR')}</span>
@@ -258,7 +267,11 @@ function paso2(){
     </div>
     <div class="alert info" style="display:flex;gap:8px;align-items:flex-start">
       <span style="font-size:14px">📄</span>
-      <span style="font-size:12px;color:#5F5E5A;line-height:1.4">Tené a mano el comprobante de la transferencia el día de la entrega — el repartidor te lo va a pedir para confirmar el pago antes de dejarte el pedido.</span>
+      <span style="font-size:12px;color:#5F5E5A;line-height:1.4">Hacés la transferencia en el momento de la entrega y le mostrás el comprobante al repartidor, que le saca una foto. Con eso queda confirmado el pago.</span>
+    </div>
+    <div class="alert warning" style="display:flex;gap:8px;align-items:flex-start">
+      <span style="font-size:14px">ℹ️</span>
+      <span style="font-size:12px;color:#5F5E5A;line-height:1.4">El descuento es <b>por transferencia</b>, tanto a nuestra cuenta bancaria como a la billetera — el día de la entrega elegís cuál y el repartidor te muestra los datos. Si preferís pagar en efectivo no hay problema, pero se cobra el precio de lista, $${precioCarrito().toLocaleString('es-AR')}.</span>
     </div>
     ` : ''}
     <div class="field"><label>¿Preferís algún día en particular para tu entrega? (opcional)</label>
@@ -312,8 +325,8 @@ function paso4(){
     <div class="row"><span>Barrio</span><span>${c.neighborhood} (Zona ${c.zone?c.zone[0].toUpperCase()+c.zone.slice(1):'-'})</span></div>
     <div class="row"><span>Localidad</span><span>${c.city}, ${c.province}, Argentina</span></div>
     <div class="row"><span>Plan</span><span><b>${total} huevos</b> (${carritoResumen()}) · ${freqLabel}</span></div>
-    <div class="row"><span>Precio</span><span>${p.payment_method==='mp' && state.walletDiscountValue>0 ? `<span class="muted" style="text-decoration:line-through;margin-right:6px">$${precioCarrito().toLocaleString('es-AR')}</span>` : ''}<b>$${precioFinal().toLocaleString('es-AR')}</b></span></div>
-    ${p.payment_method==='mp' && state.walletDiscountValue>0 ? `<div class="alert info" style="display:flex;gap:8px;align-items:flex-start"><span style="font-size:14px">📄</span><span style="font-size:12px;color:#5F5E5A;line-height:1.4">Tené a mano el comprobante de la transferencia el día de la entrega — el repartidor te lo va a pedir para confirmar el pago antes de dejarte el pedido.</span></div>` : ''}
+    <div class="row"><span>Precio</span><span>${pagaPorTransferencia(p.payment_method) && state.walletDiscountValue>0 ? `<span class="muted" style="text-decoration:line-through;margin-right:6px">$${precioCarrito().toLocaleString('es-AR')}</span>` : ''}<b>$${precioFinal().toLocaleString('es-AR')}</b></span></div>
+    ${pagaPorTransferencia(p.payment_method) && state.walletDiscountValue>0 ? `<div class="alert warning" style="display:flex;gap:8px;align-items:flex-start"><span style="font-size:14px">ℹ️</span><span style="font-size:12px;color:#5F5E5A;line-height:1.4">Los $${precioFinal().toLocaleString('es-AR')} son <b>pagando por transferencia</b> (banco o billetera, como prefieras). Si ese día preferís efectivo, se cobra $${precioCarrito().toLocaleString('es-AR')}.</span></div>` : ''}
     <div class="row"><span>Forma de pago</span><span>${payLabel}</span></div>
     <div class="row"><span>Persona de referencia</span><span>${state.tieneReferencia? (r.full_name+' ('+r.relationship+')') : 'No agregada'}</span></div>
     ${state.error?`<div class="alert danger">${state.error}</div>`:''}
@@ -453,6 +466,60 @@ function bind(){
   }
 }
 
+// ============ UBICACIÓN AUTOMÁTICA ============
+// Mismo criterio que usa el panel: si el buscador no encuentra la calle exacta,
+// el cliente NO queda con un punto falso — queda pendiente de ubicar a mano.
+async function geocodificarDireccion(direccion){
+  try{
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&addressdetails=1&countrycodes=ar&q=${encodeURIComponent(direccion)}`
+    const res = await fetch(url, { headers: { 'Accept-Language': 'es' } })
+    const data = await res.json()
+    if(data && data[0]) return { lat: Number(data[0].lat), lon: Number(data[0].lon), clase: data[0].type||'', detalle: data[0].address||{} }
+  }catch(e){}
+  return null
+}
+
+function direccionParaBuscar(c){
+  const calle = `${c.street||''} ${c.street_number||''}`.trim()
+  const localidad = (c.city||'').trim() || 'Rosario'
+  const provincia = (c.province||'').trim() || 'Santa Fe'
+  return [calle, localidad, provincia, 'Argentina'].filter(Boolean).join(', ')
+}
+
+function evaluarGeo(geo, c){
+  if(!geo) return { estado:'sin_ubicar', motivo:'No se encontró la dirección' }
+  const tipo = geo.clase || ''
+  const casa = ['house','building','residential','yes'].includes(tipo)
+  const calle = ['road','street','residential_road','tertiary','secondary','primary','unclassified'].includes(tipo)
+  if(!geo.detalle?.road && !casa && !calle) return { estado:'dudoso', motivo:'Se ubicó el barrio, no la calle' }
+  const localidadCliente = (c.city||'').trim().toLowerCase()
+  const localidadGeo = (geo.detalle?.city || geo.detalle?.town || geo.detalle?.village || geo.detalle?.municipality || '').trim().toLowerCase()
+  if(localidadCliente && localidadGeo && !localidadGeo.includes(localidadCliente) && !localidadCliente.includes(localidadGeo)){
+    return { estado:'dudoso', motivo:`Cayó en ${geo.detalle.city||geo.detalle.town||geo.detalle.village}, no en ${c.city}` }
+  }
+  if(casa) return { estado:'confirmado', motivo:null }
+  return { estado:'dudoso', motivo:'Se ubicó la calle, falta afinar la altura' }
+}
+
+// Nunca frena el alta ni le muestra un error al cliente: si falla,
+// queda pendiente en el mapa del panel y lo resuelve administración.
+async function ubicarSuscriptor(customerId, datos, dni){
+  if(!customerId) return
+  try{
+    const geo = await geocodificarDireccion(direccionParaBuscar(datos))
+    const veredicto = evaluarGeo(geo, datos)
+    if(veredicto.estado === 'sin_ubicar'){
+      await supabase.rpc('marcar_geo_fallido', { p_customer_id: customerId, p_motivo: veredicto.motivo })
+      return
+    }
+    await supabase.rpc('customer_set_location', {
+      p_dni: dni, p_customer_id: customerId,
+      p_latitude: geo.lat, p_longitude: geo.lon,
+      p_estado: veredicto.estado, p_motivo: veredicto.motivo
+    })
+  }catch(e){}
+}
+
 async function enviar(){
   state.enviando = true; state.error=''; render()
   try{
@@ -473,7 +540,10 @@ async function enviar(){
       receiverPayload = { full_name: r.full_name.trim(), dni: r.dni.trim(), phone: r.phone.trim() || '', relationship: r.relationship.trim() || '' }
     }
     const total = totalCarrito()
-    const breakdown = Object.entries(state.plan.carrito).filter(([,q])=>q>0).map(([size,qty])=>({size:Number(size),qty}))
+    const breakdown = Object.entries(state.plan.carrito).filter(([,q])=>q>0).map(([planId,qty])=>{
+      const pl = planPorId(planId)
+      return { size: Number(pl?.egg_quantity||0), qty, plan_id: planId }
+    })
     const subscriptionPayload = { frequency: state.plan.frequency, egg_quantity: total, payment_method: state.plan.payment_method, preferred_weekday: state.plan.preferred_weekday, plan_breakdown: breakdown, price: precioCarrito() }
 
     const { data, error } = await supabase.rpc('public_signup', {
@@ -483,6 +553,8 @@ async function enviar(){
 
     state.exitoData = data
     state.exito = true; state.enviando = false; render()
+    // Después de mostrar el éxito, para no hacerlo esperar por el buscador de mapas
+    ubicarSuscriptor(data?.customer_id, c, c.dni.trim())
   }catch(e){
     state.enviando = false
     state.error = 'No pudimos registrar tu suscripción. ' + (e?.message || 'Intentá de nuevo en unos minutos.')
@@ -491,8 +563,14 @@ async function enviar(){
 }
 
 async function init(){
-  const { data, error } = await supabase.from('plan_prices').select('egg_quantity,price').eq('active', true).order('egg_quantity')
-  state.planes = (!error && data && data.length) ? data : [{egg_quantity:15,price:7000},{egg_quantity:30,price:12000}]
+  // Solo planes minoristas. Sin este filtro el formulario público mostraba también
+  // los seis maples mayoristas de 30, con precios de comercio.
+  const { data, error } = await supabase.from('plan_prices')
+    .select('id,egg_quantity,price,customer_type')
+    .eq('active', true)
+    .or('customer_type.eq.minorista,customer_type.is.null')
+    .order('egg_quantity')
+  state.planes = (!error && data && data.length) ? data : [{id:'fb15',egg_quantity:15,price:7000},{id:'fb30',egg_quantity:30,price:12000}]
   const { data: settingsRaw } = await supabase.from('farm_settings').select('key,value').in('key',['wallet_discount_type','wallet_discount_value'])
   const settingsMap = Object.fromEntries((settingsRaw||[]).map(s=>[s.key,s.value]))
   state.walletDiscountType = settingsMap.wallet_discount_type || 'percent'
