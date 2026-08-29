@@ -143,12 +143,57 @@ function cargarLeaflet(){
 
 async function geocodificarDireccion(direccion){
   try{
-    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ar&q=${encodeURIComponent(direccion)}`
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&addressdetails=1&countrycodes=ar&q=${encodeURIComponent(direccion)}`
     const res = await fetch(url, { headers: { 'Accept-Language': 'es' } })
     const data = await res.json()
-    if(data && data[0]) return { lat: Number(data[0].lat), lon: Number(data[0].lon) }
+    if(data && data[0]) return { lat: Number(data[0].lat), lon: Number(data[0].lon), clase: data[0].type||'', detalle: data[0].address||{} }
   }catch(e){}
   return null
+}
+
+// Arma la dirección con la localidad y provincia REALES del cliente.
+// Antes decía "Rosario" fijo y por eso ningún cliente de Funes, Roldán o Ricardone se encontraba nunca.
+function direccionParaBuscar(c){
+  const calle = `${c.street||''} ${c.street_number||''}`.trim()
+  const localidad = (c.city||'').trim() || 'Rosario'
+  const provincia = (c.province||'').trim() || 'Santa Fe'
+  return [calle, localidad, provincia, 'Argentina'].filter(Boolean).join(', ')
+}
+
+// Decide si el resultado se puede dar por bueno o hay que revisarlo a mano.
+// Nominatim devuelve el centro de la ciudad cuando no encuentra la calle: eso NO es una ubicación.
+function evaluarGeo(geo, c){
+  if(!geo) return { estado:'sin_ubicar', motivo:'No se encontró la dirección' }
+  const tipo = geo.clase || ''
+  const casa = ['house','building','residential','yes'].includes(tipo)
+  const calle = ['road','street','residential_road','tertiary','secondary','primary','unclassified'].includes(tipo)
+  if(!geo.detalle?.road && !casa && !calle) return { estado:'dudoso', motivo:'Se ubicó el barrio, no la calle' }
+  const localidadCliente = (c.city||'').trim().toLowerCase()
+  const localidadGeo = (geo.detalle?.city || geo.detalle?.town || geo.detalle?.village || geo.detalle?.municipality || '').trim().toLowerCase()
+  if(localidadCliente && localidadGeo && !localidadGeo.includes(localidadCliente) && !localidadCliente.includes(localidadGeo)){
+    return { estado:'dudoso', motivo:`Cayó en ${geo.detalle.city||geo.detalle.town||geo.detalle.village}, no en ${c.city}` }
+  }
+  if(casa) return { estado:'confirmado', motivo:null }
+  return { estado:'dudoso', motivo:'Se ubicó la calle, falta afinar la altura' }
+}
+
+// Ubica un cliente recién dado de alta. Nunca frena el alta: si falla, queda pendiente.
+async function ubicarClienteNuevo(customerId, datos, dni){
+  if(!customerId) return null
+  try{
+    const geo = await geocodificarDireccion(direccionParaBuscar(datos))
+    const veredicto = evaluarGeo(geo, datos)
+    if(veredicto.estado === 'sin_ubicar'){
+      await supabase.rpc('marcar_geo_fallido', { p_customer_id: customerId, p_motivo: veredicto.motivo })
+      return veredicto
+    }
+    if(dni){
+      await supabase.rpc('customer_set_location', { p_dni: dni, p_customer_id: customerId, p_latitude: geo.lat, p_longitude: geo.lon, p_estado: veredicto.estado, p_motivo: veredicto.motivo })
+    } else {
+      await supabase.rpc('admin_set_customer_location', { p_customer_id: customerId, p_latitude: geo.lat, p_longitude: geo.lon, p_estado: veredicto.estado, p_motivo: veredicto.motivo })
+    }
+    return veredicto
+  }catch(e){ return null }
 }
 
 let menuMasAbierto = false
@@ -912,12 +957,15 @@ async function initAdminMapa(){
   try{ await cargarLeaflet() }
   catch(e){ if(estado) estado.textContent = 'No pudimos cargar el mapa. Revisá tu conexión.'; return }
 
-  const { data: clientesRaw } = await supabase.from('customers').select('id,first_name,last_name,phone,neighborhood,street,street_number,zone,latitude,longitude,status').neq('status','baja')
-  const clientes = clientesRaw || []
+  const { data: geoData } = await supabase.rpc('admin_clientes_geo')
+  const clientes = (geoData?.clientes || []).map(c=>({ ...c, latitude: c.latitude!=null?Number(c.latitude):null, longitude: c.longitude!=null?Number(c.longitude):null }))
+  const conteo = geoData?.conteo || {}
+  const nombreDe = c => (c.nombre_comercial||'').trim() || `${c.first_name||''} ${c.last_name||''}`.trim() || 'Sin nombre'
   const conCoords = clientes.filter(c=>c.latitude!=null && c.longitude!=null)
-  const sinCoords = clientes.filter(c=>c.latitude==null || c.longitude==null)
+  const dudosos = clientes.filter(c=>c.geo_estado==='dudoso')
+  const sinCoords = clientes.filter(c=>c.geo_estado==='sin_ubicar')
 
-  if(estado) estado.textContent = `${conCoords.length} de ${clientes.length} cliente(s) ubicados en el mapa.`
+  if(estado) estado.textContent = `${conteo.confirmados||0} de ${conteo.total||0} confirmados · ${conteo.dudosos||0} dudoso(s) · ${conteo.sin_ubicar||0} sin ubicar`
 
   const centro = conCoords.length ? [conCoords[0].latitude, conCoords[0].longitude] : [-32.9468, -60.6393]
   const map = L.map('admin_mapa_contenedor').setView(centro, conCoords.length ? 12 : 12)
@@ -928,36 +976,89 @@ async function initAdminMapa(){
 
   const grupo = []
   conCoords.forEach(c=>{
-    const color = (ZONA_COLORES[c.zone]||{text:'#2F4D2A'}).text
+    const esDudoso = c.geo_estado === 'dudoso'
+    const color = esDudoso ? NOM.ambar : (ZONA_COLORES[c.zone]||{text:'#2F4D2A'}).text
+    const borde = esDudoso ? `border:2px dashed ${NOM.ambar};background:${NOM.ambarClaro}` : `border:2px solid white;background:${color}`
     const marker = L.marker([c.latitude, c.longitude], {
       draggable: true,
-      icon: L.divIcon({ className:'', html:`<div style="width:16px;height:16px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 0 2px rgba(0,0,0,0.5)"></div>`, iconSize:[16,16], iconAnchor:[8,8] })
+      icon: L.divIcon({ className:'', html:`<div style="width:16px;height:16px;border-radius:50%;${borde};box-shadow:0 0 2px rgba(0,0,0,0.5)"></div>`, iconSize:[16,16], iconAnchor:[8,8] })
     }).addTo(map)
-    marker.bindPopup(`<b>${c.first_name||''} ${c.last_name||''}</b><br>${c.neighborhood||''} · ${c.street||''} ${c.street_number||''}<br>📞 ${c.phone||'-'}`)
+    const popup = () => `<b>${nombreDe(c)}</b>${esDudoso?`<br><span style="color:${NOM.ambar}">⚠️ ${c.geo_motivo||'Ubicación sin confirmar'}</span>`:''}<br>${c.street||''} ${c.street_number||''}, ${c.neighborhood||''}<br>📞 ${c.phone||'-'}${esDudoso?'<br><small>Arrastrá el pin al lugar correcto para confirmarlo.</small>':''}`
+    marker.bindPopup(popup())
+    // Arrastrar el pin a mano es la confirmación: lo puso una persona, no el buscador.
     marker.on('dragend', async ()=>{
       const pos = marker.getLatLng()
-      const { data, error } = await supabase.rpc('admin_set_customer_location', { p_customer_id: c.id, p_latitude: pos.lat, p_longitude: pos.lng })
+      const { data, error } = await supabase.rpc('admin_set_customer_location', { p_customer_id: c.id, p_latitude: pos.lat, p_longitude: pos.lng, p_estado: 'confirmado', p_motivo: null })
       if(error || !data?.ok){ mostrarAlerta('No se pudo guardar la nueva ubicación.'); return }
-      marker.bindPopup(`<b>${c.first_name||''} ${c.last_name||''}</b><br>📍 Ubicación actualizada`).openPopup()
+      marker.bindPopup(`<b>${nombreDe(c)}</b><br>✅ Ubicación confirmada`).openPopup()
+      initAdminMapa()
     })
     grupo.push(marker)
   })
   if(grupo.length>1){ map.fitBounds(L.featureGroup(grupo).getBounds().pad(0.2)) }
 
   if(sinGeoBox){
-    sinGeoBox.innerHTML = sinCoords.length ? `<h3 style="font-size:15px">Sin ubicar todavía (${sinCoords.length})</h3>${sinCoords.map(c=>`<div class="row"><span>${c.first_name||''} ${c.last_name||''}<br><small>${c.street||''} ${c.street_number||''}, ${c.neighborhood||''}</small></span><button class="btn ghost" data-geocodificar="${c.id}" style="font-size:12px">📍 Ubicar</button></div>`).join('')}` : ''
+    const apilados = {}
+    conCoords.filter(c=>c.geo_estado==='dudoso').forEach(c=>{
+      const k = `${Number(c.latitude).toFixed(4)},${Number(c.longitude).toFixed(4)}`
+      apilados[k] = (apilados[k]||0) + 1
+    })
+    const maxApilados = Math.max(0, ...Object.values(apilados))
+
+    const fila = (c, conMotivo) => `<div class="row"><span>${nombreDe(c)}${c.customer_type==='mayorista'?` <span class="badge" style="background:${NOM.ambar}">Comercio</span>`:''}<br><small>${c.street||''} ${c.street_number||''}, ${c.neighborhood||''}${c.city?' · '+c.city:''}</small>${conMotivo&&c.geo_motivo?`<br><span style="display:inline-block;margin-top:4px;font-size:11px;background:${NOM.ambarClaro};color:#854F0B;padding:2px 8px;border-radius:8px">${c.geo_motivo}</span>`:''}</span><button class="btn ghost" data-geocodificar="${c.id}" style="font-size:12px;white-space:nowrap">📍 Ubicar</button></div>`
+
+    const alertaApilados = maxApilados > 1
+      ? `<div class="alert warning" style="margin-bottom:12px"><b>⚠️ ${maxApilados} clientes apilados en el mismo punto</b><br>Cayeron todos en el mismo lugar porque no se encontró la dirección. El repartidor los ve como si estuvieran bien.</div>`
+      : ''
+
+    const bloqueMayoristas = (conteo.mayoristas_sin_ubicar||0) > 0
+      ? `<div class="alert danger" style="margin-bottom:12px"><b>🏪 ${conteo.mayoristas_sin_ubicar} comercio(s) sin ubicación confirmada</b><br>Un comercio sin ubicar no entra en ninguna ruta de reparto.</div>`
+      : ''
+
+    sinGeoBox.innerHTML = `${bloqueMayoristas}${alertaApilados}
+      ${dudosos.length ? `<h3 style="font-size:15px">Ubicación dudosa (${dudosos.length})</h3><p class="muted" style="font-size:12px;margin:0 0 6px">Tienen un punto en el mapa, pero lo puso el buscador y nadie lo confirmó.</p>${dudosos.map(c=>fila(c,true)).join('')}` : ''}
+      ${sinCoords.length ? `<h3 style="font-size:15px;margin-top:${dudosos.length?'18px':'0'}">Sin ubicar todavía (${sinCoords.length})</h3>${sinCoords.map(c=>fila(c,true)).join('')}
+        <button class="btn ghost" id="btn_ubicar_todos" style="width:100%;margin-top:10px">🔄 Ubicar los ${sinCoords.length} automáticamente</button>
+        <p class="muted" style="font-size:11px;margin-top:6px">Va de a uno por segundo: el servicio de mapas es gratuito y no deja ir más rápido.</p>` : ''}
+      ${!dudosos.length && !sinCoords.length ? `<p class="muted">Todos los clientes tienen su ubicación confirmada 🎉</p>` : ''}`
+
+    const ubicarUno = async (cli, boton) => {
+      if(boton) boton.textContent = 'Buscando…'
+      const geo = await geocodificarDireccion(direccionParaBuscar(cli))
+      const veredicto = evaluarGeo(geo, cli)
+      if(veredicto.estado === 'sin_ubicar'){
+        await supabase.rpc('marcar_geo_fallido', { p_customer_id: cli.id, p_motivo: veredicto.motivo })
+        return veredicto
+      }
+      await supabase.rpc('admin_set_customer_location', { p_customer_id: cli.id, p_latitude: geo.lat, p_longitude: geo.lon, p_estado: veredicto.estado, p_motivo: veredicto.motivo })
+      return veredicto
+    }
+
     sinGeoBox.querySelectorAll('[data-geocodificar]').forEach(b=>b.onclick=async()=>{
-      const cli = sinCoords.find(c=>c.id===b.dataset.geocodificar)
+      const cli = clientes.find(c=>c.id===b.dataset.geocodificar)
       if(!cli) return
-      b.textContent = 'Buscando…'
-      const direccion = `${cli.street||''} ${cli.street_number||''}, ${cli.neighborhood||''}, Rosario, Santa Fe, Argentina`
-      const geo = await geocodificarDireccion(direccion)
-      const coords = geo || { lat: -32.9468, lon: -60.6393 }
-      const { data, error } = await supabase.rpc('admin_set_customer_location', { p_customer_id: cli.id, p_latitude: coords.lat, p_longitude: coords.lon })
-      if(error || !data?.ok){ b.textContent = 'Error'; return }
-      if(!geo) mostrarAlerta(`No pudimos encontrar automáticamente la dirección de ${cli.first_name||'este cliente'}. Puse un punto en el centro de Rosario — arrastralo con el dedo hasta la ubicación correcta.`)
+      const veredicto = await ubicarUno(cli, b)
+      if(veredicto.estado === 'sin_ubicar'){
+        mostrarAlerta(`No encontramos la dirección de ${nombreDe(cli)} (${veredicto.motivo.toLowerCase()}).\n\nRevisá que la calle y la localidad estén bien escritas, o ubicalo a mano arrastrando su pin cuando aparezca.`)
+      }
       initAdminMapa()
     })
+
+    const btnTodos = document.querySelector('#btn_ubicar_todos')
+    if(btnTodos) btnTodos.onclick = async ()=>{
+      btnTodos.disabled = true
+      let ok = 0, revisar = 0, fallaron = 0
+      for(let i=0; i<sinCoords.length; i++){
+        btnTodos.textContent = `Ubicando ${i+1} de ${sinCoords.length}…`
+        const v = await ubicarUno(sinCoords[i], null)
+        if(v.estado === 'confirmado') ok++
+        else if(v.estado === 'dudoso') revisar++
+        else fallaron++
+        if(i < sinCoords.length-1) await new Promise(r=>setTimeout(r, 1100))
+      }
+      mostrarAlerta(`Listo.\n\n✅ ${ok} ubicado(s) con precisión\n⚠️ ${revisar} para revisar a mano\n❌ ${fallaron} sin encontrar`)
+      initAdminMapa()
+    }
   }
 }
 
@@ -977,11 +1078,13 @@ async function mapaSuscriptores(){
 
   // Si el cliente todavía no tiene coordenadas guardadas, las geocodificamos ahora con su dirección
   if(!c.latitude || !c.longitude){
-    const direccion = `${c.street||''} ${c.street_number||''}, ${c.city||'Rosario'}, ${c.province||'Santa Fe'}, Argentina`
-    const geo = await geocodificarDireccion(direccion)
-    if(geo){
+    const geo = await geocodificarDireccion(direccionParaBuscar(c))
+    const veredicto = evaluarGeo(geo, c)
+    if(veredicto.estado === 'sin_ubicar'){
+      await supabase.rpc('marcar_geo_fallido', { p_customer_id: c.id, p_motivo: veredicto.motivo })
+    } else {
       c.latitude = geo.lat; c.longitude = geo.lon
-      await supabase.rpc('customer_set_location', { p_dni: c.dni, p_customer_id: c.id, p_latitude: geo.lat, p_longitude: geo.lon })
+      await supabase.rpc('customer_set_location', { p_dni: c.dni, p_customer_id: c.id, p_latitude: geo.lat, p_longitude: geo.lon, p_estado: veredicto.estado, p_motivo: veredicto.motivo })
     }
   }
 
@@ -2294,6 +2397,7 @@ async function mayoristaSignupForm(){
 
       const { data: fresh } = await supabase.rpc('customer_login', { p_dni: c.dni })
       if(fresh?.found) cuenta = fresh
+      if(fresh?.customer?.id) await ubicarClienteNuevo(fresh.customer.id, { street:c.street, street_number:c.street_number, city:c.city||'Rosario', province:c.province||'Santa Fe' }, c.dni)
       mostrarAlerta(`¡Bienvenido${(c.nombre_comercial||'').trim()?', '+c.nombre_comercial.trim():''}! Ya podés armar tu primer pedido.`)
       current = 'mayorista-panel'
       render()
@@ -5264,7 +5368,7 @@ async function repartidor(){
     window.open(`https://wa.me/54${b.dataset.tel}?text=${mensaje}`, '_blank')
     render()
   })
-  document.querySelector('#btn_ver_mapa_repartidor').onclick = ()=>mapaRepartidor()
+  document.querySelector('#btn_ver_mapa_repartidor').onclick = ()=>{ current='repartidor-mapa'; render() }
   document.querySelector('#btn_sali_a_repartir').onclick = async ()=>{
     const esAdmin = myRole==='admin'
     if(!(await mostrarConfirmacion(`¿Marcar como "En reparto" ${esAdmin?'todos los pedidos pendientes de todos los repartidores':'todos tus pedidos pendientes'} del ${subtitulo}?`)))return
@@ -8966,6 +9070,10 @@ function telBindAlta(){
     }
     const { data, error } = await supabase.rpc('telefono_registrar_cliente', { p_customer: { ...a, dni: telState.dni } })
     if(error || !data?.ok){ box.textContent='No se pudo registrar: '+(data?.error||error?.message||''); box.style.display='block'; return }
+    if(data.customer_id && !data.ya_existia){
+      const v = await ubicarClienteNuevo(data.customer_id, a, null)
+      if(v && v.estado !== 'confirmado') mostrarAlerta(`Cliente registrado. Ojo: no pudimos ubicar bien la dirección (${v.motivo.toLowerCase()}). Quedó pendiente en el mapa del panel.`)
+    }
     const { data: buscado } = await supabase.rpc('telefono_buscar_cliente', { p_dni: telState.dni })
     if(buscado?.found){ telState.cliente = buscado; telState.altaForm = null; await telCargarCatalogo() }
     render()
@@ -9819,11 +9927,15 @@ async function altaComercio(){
           if(b3){ b3.textContent = data?.error || error?.message || 'No se pudo dar de alta.'; b3.style.display='block' }
           return
         }
-        mostrarAlerta(data.status==='active'
+        const vGeo = data.customer_id ? await ubicarClienteNuevo(data.customer_id, f, null) : null
+        const avisoGeo = (vGeo && vGeo.estado !== 'confirmado')
+          ? `\n\n⚠️ No pudimos ubicar el local en el mapa (${vGeo.motivo.toLowerCase()}). Sin ubicación no entra en la ruta de reparto — avisale a administración.`
+          : ''
+        mostrarAlerta((data.status==='active'
           ? `Comercio dado de alta.\n\nPrimera entrega: ${formatearFecha(data.next_delivery_date)}`
           : data.status==='waitlist'
             ? 'Comercio dado de alta. Quedó en lista de espera por capacidad.'
-            : 'Comercio dado de alta, sin pedido todavía.')
+            : 'Comercio dado de alta, sin pedido todavía.') + avisoGeo)
         current = myRole==='vendedor'?'vendedor':'clientes'
         render()
       }
