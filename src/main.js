@@ -1682,6 +1682,10 @@ function descargarCSV(nombreArchivo, columnas, filas){
   document.body.appendChild(a); a.click(); document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
+// El descuento es por transferencia, al banco o a la billetera: las dos le llegan
+// instantáneas y sin comisión. La usan la entrega, la ruta y los avisos, así que va global.
+function esPagoConDescuento(m){ return m==='transfer' || m==='mp' }
+
 function calcularDescuentoBilletera(precio, tipo, valor){
   const v = Number(valor)||0
   if(!v) return 0
@@ -6167,7 +6171,6 @@ async function openDelivery(id){
   const montoOriginal = montoHuevos + totalProductos
   // El descuento es por transferencia — da igual si va al banco o a la billetera.
   // Las dos le llegan instantáneas y sin comisión. El efectivo paga precio de lista.
-  const esPagoConDescuento = (m)=> m==='transfer' || m==='mp'
   const descuentoBilletera = esPagoConDescuento(sub.payment_method) ? calcularDescuentoBilletera(montoOriginal, cfg.wallet_discount_type, cfg.wallet_discount_value) : 0
   const montoTrasBilletera = montoOriginal - descuentoBilletera
   const montoDefault = credito ? Math.max(0, montoTrasBilletera - credito.discount_amount) : montoTrasBilletera
