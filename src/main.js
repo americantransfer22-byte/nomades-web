@@ -3022,12 +3022,50 @@ async function preparador(){
   const hoy = new Date().toISOString().slice(0,10)
   const grupos = {}
   pedidos.forEach(p=>{ grupos[p.delivery_date] ??= []; grupos[p.delivery_date].push(p) })
+  const mn = new Date(); mn.setDate(mn.getDate()+1)
+  const manana = mn.toISOString().slice(0,10)
+  const pm = new Date(); pm.setDate(pm.getDate()+2)
+  const pasado = pm.toISOString().slice(0,10)
+  // "Hoy" a secas no decía si era el día de armarlo o el de entregarlo.
+  const cuandoSeEntrega = f => f===hoy ? 'Se entregan HOY' : f===manana ? 'Se entregan MAÑANA' : f===pasado ? 'Se entregan PASADO MAÑANA' : 'Se entregan el '+formatearFecha(f)
+  // El preparador arma maples, no cuenta huevos de a uno.
+  const enMaples = p => (p.plan_breakdown && p.plan_breakdown.length)
+    ? p.plan_breakdown.map(b=>`${b.qty} maple${b.qty>1?'s':''} de ${b.size}${b.grade?` <span style="color:${NOM.verde}">${GRADO_LABEL[b.grade]||b.grade}</span>`:''}`).join(' + ')
+    : `${p.egg_quantity||0} huevos`
+  const nombreP = p => (p.nombre_comercial||'').trim() || `${p.last_name||''}, ${p.first_name||''}`
+
   const fechasOrdenadas = Object.keys(grupos).sort()
   const contenido = fechasOrdenadas.length ? fechasOrdenadas.map(f=>{
-    const titulo = f===hoy ? 'Hoy' : formatearFecha(f)
+    const delDia = grupos[f]
+    const huevosDia = delDia.reduce((s,p)=>s+Number(p.egg_quantity||0),0)
+    const maplesDia = Math.round((huevosDia/30)*10)/10
     return pCard(`
-      <div style="font-size:13px;font-weight:700;color:#2F4D2A;margin-bottom:8px">${titulo}</div>
-      ${grupos[f].map(p=>`<div class="row"><span><b>${p.last_name||''}</b>, ${p.first_name||''}<br><small class="muted">${(p.plan_breakdown&&p.plan_breakdown.length)?p.plan_breakdown.map(b=>`${b.qty}×${b.size}`).join(' + ')+' huevos':`${p.egg_quantity||0} huevos`}</small></span><button data-preparar="${p.id}" style="background:#2F4D2A;color:#F5EFE0;border:none;border-radius:8px;padding:8px 14px;font-size:12px;font-weight:600">Preparar</button></div>`).join('')}
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding-bottom:10px;border-bottom:1px solid ${NOM.borde};margin-bottom:4px">
+        <div>
+          <div style="font-size:13.5px;font-weight:600;color:${NOM.verde}">${cuandoSeEntrega(f)}</div>
+          <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:1px">${formatearFecha(f)}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:13.5px;font-weight:600;color:${NOM.verde}">${delDia.length} pedido${delDia.length===1?'':'s'}</div>
+          <div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:1px">${huevosDia} huevos · ${maplesDia} maples</div>
+        </div>
+      </div>
+      ${delDia.map(p=>{
+        const restriccion = tieneRestriccionHoraria(p) ? textoRestriccionHoraria(p) : ''
+        const ubicacion = [p.neighborhood, p.zone?'zona '+p.zone:''].filter(Boolean).join(' · ')
+        return `<div style="display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid ${NOM.borde}">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:14.5px"><b>${p.last_name||''}</b>${p.last_name?', ':''}${p.nombre_comercial||p.first_name||''}${p.customer_type==='mayorista'?` <span style="font-size:10.5px;background:${NOM.ambarClaro};color:#B8641E;padding:1px 7px;border-radius:999px">Mayorista</span>`:''}</div>
+            <div style="font-size:12.5px;color:${NOM.verde};margin-top:2px">${enMaples(p)}</div>
+            ${ubicacion?`<div style="font-size:11.5px;color:${NOM.tintaSuave};margin-top:2px">${ubicacion}</div>`:''}
+            ${(p.extra_eggs&&p.extra_eggs.length)?`<div style="font-size:11px;color:${NOM.verde};margin-top:3px">🥚 Sumados por teléfono: ${p.extra_eggs.map(e=>`${e.qty}×${e.size}`).join(' + ')}</div>`:''}
+            ${restriccion?`<div style="font-size:11px;color:#B85C00;margin-top:3px">⏰ ${restriccion}</div>`:''}
+            ${p.important_note?`<div style="font-size:11px;color:#B85C00;margin-top:3px">⚠️ ${p.important_note}</div>`:''}
+            ${p.needs_review?`<div style="font-size:11px;color:${NOM.rojo};margin-top:3px">🔍 Marcado para revisar antes de armar</div>`:''}
+          </div>
+          <button data-preparar="${p.id}" style="background:${NOM.verde};color:#F5EFE0;border:none;border-radius:8px;padding:8px 14px;font-size:12.5px;font-weight:600;flex-shrink:0">Preparar</button>
+        </div>`
+      }).join('')}
     `, 'margin-bottom:10px')
   }).join('') : estadoVacio('No hay pedidos pendientes de preparar por ahora.')
   layout(`<h2>📦 Preparar pedidos</h2><p class="muted" style="margin-top:-8px;margin-bottom:12px">Podés ir armando con hasta 2 días de anticipación.</p>${contenido}`)
@@ -5218,14 +5256,30 @@ async function clientes(){
 let pedidoExpandido = null
 let pedidoDetalleCache = {}
 
+let avisoRutaFecha = null
+let pedidosFechaFiltro = null // null | 'hoy' | 'manana'
+
 async function pedidos(){
   const rows = await q('orders','id,order_number,delivery_date,status,egg_quantity,important_note,time_restriction_manual,assigned_driver,assigned_preparer,assignment_locked,customers(first_name,last_name,neighborhood,street,street_number)')
   const { data: staffRaw } = await supabase.from('staff_roles').select('user_id,full_name,role')
   const staffMap = Object.fromEntries((staffRaw||[]).map(s=>[s.user_id, s.full_name||'(sin nombre)']))
   const preparadoresRoles = Object.fromEntries((staffRaw||[]).map(s=>[s.user_id, s.role]))
-  const ordenados = [...rows].sort((a,b)=> new Date(b.delivery_date) - new Date(a.delivery_date))
+  const hoyStr = new Date().toISOString().slice(0,10)
+  const mm = new Date(); mm.setDate(mm.getDate()+1)
+  const mananaStr = mm.toISOString().slice(0,10)
+  const fechaDelFiltro = pedidosFechaFiltro==='hoy' ? hoyStr : pedidosFechaFiltro==='manana' ? mananaStr : null
+  const filtrados = fechaDelFiltro ? rows.filter(r=>r.delivery_date===fechaDelFiltro) : rows
+  const ordenados = [...filtrados].sort((a,b)=> new Date(b.delivery_date) - new Date(a.delivery_date))
+  const cont = f => rows.filter(r=>r.delivery_date===f).length
 
   layout(`<h2>Pedidos</h2>
+  <div style="display:flex;gap:7px;margin-bottom:12px;overflow-x:auto;padding-bottom:2px">
+    ${[['manana','Mañana',cont(mananaStr)],['hoy','Hoy',cont(hoyStr)],[null,'Todos',rows.length]].map(([v,l,n])=>{
+      const activo = pedidosFechaFiltro === v
+      return `<button type="button" data-filtro-fecha="${v===null?'':v}" style="all:unset;cursor:pointer;white-space:nowrap;padding:7px 13px;border-radius:999px;font-size:12.5px;background:${activo?NOM.verde:'#FFFFFF'};color:${activo?'#F7F4EC':NOM.tinta};border:1px solid ${activo?NOM.verde:NOM.borde}">${l} <span style="opacity:0.65">${n}</span></button>`
+    }).join('')}
+  </div>
+  ${fechaDelFiltro && !ordenados.length ? `<div class="alert info">No hay pedidos para ${pedidosFechaFiltro==='manana'?'mañana':'hoy'}.</div>` : ''}
   <button id="btn_exportar_pedidos" class="btn ghost" style="width:100%;margin-bottom:12px">📊 Exportar a Excel (CSV)</button>
   ${ordenados.length? ordenados.map((r,i)=>{
     const c = r.customers||{}
@@ -5291,6 +5345,11 @@ async function pedidos(){
   }).join('') : estadoVacio('Todavía no hay pedidos cargados.')}
   <p class="muted" style="margin-top:10px">Para reasignar repartidores, andá a Administración → 🚚 Asignación de repartidores.</p>`)
 
+  document.querySelectorAll('[data-filtro-fecha]').forEach(b=>b.onclick=()=>{
+    pedidosFechaFiltro = b.dataset.filtroFecha || null
+    pedidoExpandido = null
+    render()
+  })
   document.querySelector('#btn_exportar_pedidos').onclick = ()=>{
     descargarCSV('pedidos_nomades.csv', [
       {label:'N° Pedido', value:'order_number'}, {label:'Fecha', value:'delivery_date'},
@@ -5341,8 +5400,15 @@ async function repartidor(){
   const esFinde = diaSemana===0 || diaSemana===6
   const esPasado = fecha < hoy
 
-  const rows = await q('orders','id,status,delivery_date,important_note,time_restriction_manual,assigned_driver,customer_stage,customers(id,first_name,last_name,phone,neighborhood,street,street_number,zone,city)')
+  const rows = await q('orders','id,status,delivery_date,important_note,time_restriction_manual,assigned_driver,customer_stage,subscriptions(plan_breakdown,egg_quantity,price_at_signup,payment_method),customers(id,first_name,last_name,phone,neighborhood,street,street_number,zone,city)')
   const rowsDelDia = rows.filter(r=>r.delivery_date===fecha && (myRole==='admin' || r.assigned_driver===session?.user?.id))
+  const { data: cfgPagoRaw } = await supabase.from('farm_settings').select('key,value').in('key',['wallet_discount_type','wallet_discount_value','mp_wallet_name'])
+  const cfgPago = Object.fromEntries((cfgPagoRaw||[]).map(x=>[x.key,x.value]))
+  const planDe = (r)=>{ const sb=r.subscriptions||{}; return (sb.plan_breakdown&&sb.plan_breakdown.length) ? sb.plan_breakdown.map(b=>`${b.qty} maple${b.qty>1?'s':''} de ${b.size}`).join(' + ') : `${sb.egg_quantity||0} huevos` }
+  const montoDe = (r)=>{ const sb=r.subscriptions||{}; const base=Number(sb.price_at_signup||0)
+    return esPagoConDescuento(sb.payment_method) ? Math.max(0, base - calcularDescuentoBilletera(base, cfgPago.wallet_discount_type, cfgPago.wallet_discount_value)) : base }
+  const comoPagaDe = (r)=>{ const m=(r.subscriptions||{}).payment_method
+    return m==='transfer' ? 'por transferencia' : m==='mp' ? `por ${cfgPago.mp_wallet_name||'billetera'}` : 'en efectivo' }
 
   const { data: miVehiculoRaw } = await supabase.from('vehicles').select('type,brand,model,color,plate').eq('assigned_to', session.user.id).eq('active', true).maybeSingle()
   const miVehiculo = miVehiculoRaw || null
@@ -5350,6 +5416,30 @@ async function repartidor(){
 
   let tituloChico = fecha===hoy ? 'Entregas de hoy' : fecha===manana ? 'Entregas de mañana' : 'Entregas'
   const subtitulo = formatearFecha(fecha)
+
+  // Una entrega abierta bloquea el resto de la ruta. Sin esto, el repartidor
+  // arranca la siguiente y la anterior queda colgada: plata cobrada fuera de la caja
+  // o un cliente esperando. Ya pasó, y nadie se enteró hasta cinco días después.
+  const { data: abiertasRaw } = await supabase.rpc('entregas_sin_cerrar',
+    myRole==='admin' ? {} : { p_driver: session.user.id })
+  const abiertas = abiertasRaw || []
+  const entregaAbierta = abiertas.find(a=>!myRole || myRole!=='admin' || a.driver_id===session?.user?.id) || abiertas[0] || null
+  const hayBloqueo = !!entregaAbierta
+
+  const tiempoAbierta = (min)=>{
+    const m = Number(min)||0
+    if(m < 60) return `${m} min`
+    const h = Math.floor(m/60), d = Math.floor(h/24)
+    if(d >= 1) return `${d} día${d>1?'s':''}`
+    return `${h} h ${m%60} min`
+  }
+
+  const bannerBloqueo = entregaAbierta ? `<div style="background:${NOM.ambarClaro};border-left:3px solid ${NOM.ambar};border-radius:10px;padding:12px 13px;margin-bottom:12px">
+    <div style="font-size:13.5px;font-weight:600;color:#854F0B">🚚 Tenés una entrega sin cerrar</div>
+    <div style="font-size:12.5px;color:#BA7517;margin-top:3px">${entregaAbierta.nombre} · ${entregaAbierta.direccion||''} · saliste hace ${tiempoAbierta(entregaAbierta.minutos)}</div>
+    <div style="font-size:12.5px;color:#BA7517;margin-top:5px">Cerrala antes de seguir: confirmá la entrega o contá qué pasó.</div>
+    <button data-abrir-bloqueo="${entregaAbierta.order_id}" style="margin-top:10px;background:${NOM.verde};color:#F7F4EC;border:none;border-radius:9px;padding:9px 15px;font-size:12.5px;font-weight:600">Abrir esa entrega</button>
+  </div>` : ''
 
   const tarjetaCliente = (r)=>{
     const c=r.customers||{}
@@ -5363,9 +5453,11 @@ async function repartidor(){
       ${tieneRestriccionHoraria(r)?`<div class="alert warning" style="margin-top:6px">⏰ ${textoRestriccionHoraria(r)}</div>`:''}
       ${r.important_note && !tieneRestriccionHoraria(r)?`<div class="alert warning" style="margin-top:6px">⚠️ ${r.important_note}</div>`:''}
       <div style="display:flex;gap:6px;margin-top:8px">
-        <button data-delivery="${r.id}" style="flex:1;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:9px 0;font-size:11px;font-weight:600">Abrir</button>
+        ${(hayBloqueo && r.id !== entregaAbierta.order_id)
+          ? `<button disabled style="flex:1;background:#D8D4C6;color:#8A8570;border:none;border-radius:10px;padding:9px 0;font-size:11px;font-weight:600">Abrir</button>`
+          : `<button data-delivery="${r.id}" style="flex:1;background:#2F4D2A;color:#F5EFE0;border:none;border-radius:10px;padding:9px 0;font-size:11px;font-weight:600">Abrir</button>`}
         <button data-maps="${encodeURIComponent(direccionCompleta)}" style="flex:1;background:#FFFFFF;color:#2F4D2A;border:1px solid #E3DCC8;border-radius:10px;padding:9px 0;font-size:11px;font-weight:600">🧭 Maps</button>
-        ${telLimpio?`<button data-avisar="${r.id}" data-tel="${telLimpio}" data-nombre="${c.first_name||''}" data-driver="${r.assigned_driver||session.user.id}" style="flex:1;background:#25D366;color:#fff;border:none;border-radius:10px;padding:9px 0;font-size:11px;font-weight:600">🛵 Voy</button>`:''}
+        ${telLimpio?`<button data-avisar="${r.id}" data-tel="${telLimpio}" data-nombre="${c.first_name||''}" data-driver="${r.assigned_driver||session.user.id}" data-plan="${planDe(r)}" data-monto="${montoDe(r)}" data-comopaga="${comoPagaDe(r)}" style="flex:1;background:#25D366;color:#fff;border:none;border-radius:10px;padding:9px 0;font-size:11px;font-weight:600">🛵 Voy</button>`:''}
       </div>
     </div>`
   }
@@ -5450,6 +5542,7 @@ async function repartidor(){
 
   layout(`<h2>🚚 ${tituloChico}</h2>
   <p class="muted" style="margin-top:-8px;margin-bottom:12px">${subtitulo}</p>
+  ${bannerBloqueo}
   <div class="field"><label>Elegí la fecha a ver</label><input type="date" id="rep_ruta_fecha" value="${fecha}"/></div>
   <div style="display:flex;gap:8px;margin-bottom:12px">
     <button class="btn ghost" id="btn_ver_mapa_repartidor" style="flex:1">🗺️ Ver mapa</button>
@@ -5458,6 +5551,8 @@ async function repartidor(){
   <div class="alert warning"><b>⚠️ ATENCIÓN</b><br>Las restricciones horarias y observaciones importantes aparecen destacadas.</div>
   ${contenido}`)
 
+  const btnBloqueo = document.querySelector('[data-abrir-bloqueo]')
+  if(btnBloqueo) btnBloqueo.onclick = ()=>openDelivery(btnBloqueo.dataset.abrirBloqueo)
   document.querySelector('#rep_ruta_fecha').onchange = (e)=>{ repRutaFecha = e.target.value; render() }
   document.querySelectorAll('[data-delivery]').forEach(b=>b.onclick=()=>openDelivery(b.dataset.delivery))
   document.querySelectorAll('[data-maps]').forEach(b=>b.onclick=()=>{
@@ -5465,19 +5560,24 @@ async function repartidor(){
   })
   document.querySelectorAll('[data-avisar]').forEach(b=>b.onclick=async()=>{
     const id = b.dataset.avisar
+    if(hayBloqueo && id !== entregaAbierta.order_id){ mostrarAlerta(`Primero cerrá la entrega de ${entregaAbierta.nombre}.`); return }
     const driverId = b.dataset.driver || session.user.id
     // Solo un pedido puede estar "en camino" a la vez para ese repartidor
     await supabase.from('orders').update({ customer_stage: null }).eq('assigned_driver', driverId).eq('customer_stage', 'en_route')
     const { error } = await supabase.from('orders').update({ customer_stage: 'en_route', en_route_at: new Date().toISOString() }).eq('id', id)
     if(error){ mostrarAlerta('No se pudo actualizar el estado: '+error.message); return }
     const datosVehiculo = miVehiculo ? ` en mi ${miVehiculo.type==='moto'?'moto':'camioneta'} ${miVehiculo.brand||''} ${miVehiculo.model||''}${miVehiculo.color?` color ${miVehiculo.color}`:''}, patente ${miVehiculo.plate}` : ''
-    const mensaje = encodeURIComponent(`Hola ${b.dataset.nombre}! Soy ${miNombre}, tu repartidor de NÓMADES 🛵 Ya estoy yendo hacia tu casa${datosVehiculo}. Tu pedido llega en los próximos minutos.`)
+    // Decirle qué lleva y cuánto cobra le deja preparar la plata antes de abrir la puerta.
+    const lineaPedido = b.dataset.plan ? `\n\nTe llevo: ${b.dataset.plan}` : ''
+    const lineaMonto = b.dataset.monto ? `\nA pagar: $${Number(b.dataset.monto).toLocaleString('es-AR')} ${b.dataset.comopaga||''}` : ''
+    const mensaje = encodeURIComponent(`Hola ${b.dataset.nombre}! Soy ${miNombre}, tu repartidor de NÓMADES 🛵 Ya estoy yendo hacia tu casa${datosVehiculo}. Llego en los próximos minutos.${lineaPedido}${lineaMonto}\n\n¡Nos vemos!`)
     mostrarAlerta('✅ Estado actualizado a "Hacia tu casa". Ahora se abre WhatsApp con el aviso.')
     window.open(`https://wa.me/54${b.dataset.tel}?text=${mensaje}`, '_blank')
     render()
   })
   document.querySelector('#btn_ver_mapa_repartidor').onclick = ()=>{ current='repartidor-mapa'; render() }
   document.querySelector('#btn_sali_a_repartir').onclick = async ()=>{
+    if(hayBloqueo){ mostrarAlerta(`Primero cerrá la entrega de ${entregaAbierta.nombre}. Confirmala o registrá qué pasó.`); return }
     const esAdmin = myRole==='admin'
     if(!(await mostrarConfirmacion(`¿Marcar como "En reparto" ${esAdmin?'todos los pedidos pendientes de todos los repartidores':'todos tus pedidos pendientes'} del ${subtitulo}?`)))return
     let query = supabase.from('orders').update({ status: 'out_for_delivery', out_for_delivery_at: new Date().toISOString() }).eq('delivery_date', fecha).in('status',['pending','assigned'])
@@ -6323,9 +6423,9 @@ async function fetchAdminData(){
     entriesRes, dashRes, vehiculosRes, alertasRes, driverLedgerRes,
     rankingRes, reviewsRes,
     suppliersRes, catalogRes, recordatoriosRes, rendicionVendedoresRes, sugerenciasRes, rankingSugerenciasRes,
-    pedidosProveedorRes, rankingProveedoresRes, cuentaCorrienteMayoristasRes, cuentaProveedoresRes
+    pedidosProveedorRes, rankingProveedoresRes, cuentaCorrienteMayoristasRes, cuentaProveedoresRes, colgadasRes
   ] = await Promise.all([
-    q('orders','id,status,delivery_date,egg_quantity,important_note,time_restriction_manual'),
+    q('orders','id,status,delivery_date,egg_quantity,important_note,time_restriction_manual,assigned_driver,aviso_repartidor_enviado_at'),
     q('customers','id'),
     q('subscriptions','id,payment_status,created_at,customers(first_name,last_name)'),
     q('staff_roles','user_id,role,roles,full_name,created_at'),
@@ -6356,7 +6456,8 @@ async function fetchAdminData(){
     supabase.rpc('admin_pedidos_proveedores', {}),
     supabase.rpc('admin_ranking_proveedores', {}),
     supabase.rpc('admin_cuenta_corriente_mayoristas', {}),
-    supabase.rpc('admin_cuenta_proveedores', {})
+    supabase.rpc('admin_cuenta_proveedores', {}),
+    supabase.rpc('entregas_sin_cerrar', {})
   ])
 
   const movimientos = movimientosRes.data || []
@@ -6391,8 +6492,9 @@ async function fetchAdminData(){
   const rankingProveedores = rankingProveedoresRes.data || []
   const cuentaCorrienteMayoristas = cuentaCorrienteMayoristasRes.data || []
   const cuentaProveedores = cuentaProveedoresRes.data || []
+  const entregasColgadas = colgadasRes.data || []
 
-  return { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews,suppliers,catalogo,recordatorios,rendicionVendedores,sugerencias,rankingSugerencias,pedidosProveedor,rankingProveedores,cuentaCorrienteMayoristas,cuentaProveedores }
+  return { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews,suppliers,catalogo,recordatorios,rendicionVendedores,sugerencias,rankingSugerencias,pedidosProveedor,rankingProveedores,cuentaCorrienteMayoristas,cuentaProveedores,entregasColgadas }
 }
 
 async function admin(){
@@ -6400,7 +6502,7 @@ async function admin(){
     layout(`<h2>Panel de administración</h2><div class="card">${skeletonBloque(5)}</div>`)
     adminData = await fetchAdminData()
   }
-  const { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews,suppliers,catalogo,recordatorios,rendicionVendedores,sugerencias,rankingSugerencias,pedidosProveedor,rankingProveedores,cuentaCorrienteMayoristas,cuentaProveedores } = adminData
+  const { orders,customers,subs,staff,productos,movimientos,waitlist,settingsMap,repartidores,zoneDrivers,neighDrivers,barrios,barrioZonaMap,pedidosAsignar,pagos,productMap,planPrices,categorias,movimientosFinanzas,dash,vehiculos,alertas,driverLedger,ranking,reviews,suppliers,catalogo,recordatorios,rendicionVendedores,sugerencias,rankingSugerencias,pedidosProveedor,rankingProveedores,cuentaCorrienteMayoristas,cuentaProveedores,entregasColgadas } = adminData
   const capacidadBase = settingsMap.default_daily_capacity_maples || '300'
   const assignmentMode = settingsMap.assignment_mode || 'zone'
   const staffMap = Object.fromEntries(staff.map(s=>[s.user_id, s.full_name||'(sin nombre)']))
@@ -6481,8 +6583,52 @@ async function admin(){
     </div>`
   })()
 
+  // Mirar mañana antes de que llegue: si falta preparar o hay horarios restringidos,
+  // eso se resuelve hoy a la tarde, no mañana a la mañana.
+  const resumenManana = (()=>{
+    const m = new Date(); m.setDate(m.getDate()+1)
+    const manana = m.toISOString().slice(0,10)
+    const ordersManana = orders.filter(o=>o.delivery_date===manana && o.status!=='cancelled')
+    if(!ordersManana.length) return ''
+    const huevos = ordersManana.reduce((s,o)=>s+Number(o.egg_quantity||0),0)
+    const maples = Math.round((huevos/30)*10)/10
+    const restricciones = ordersManana.filter(o=>tieneRestriccionHoraria(o)).length
+    const conNota = ordersManana.filter(o=>o.important_note).length
+    const sinAsignar = ordersManana.filter(o=>o.status==='pending').length
+    const dia = new Date(manana+'T00:00:00').toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long'})
+    const avisos = []
+    const sinAvisar = ordersManana.filter(o=>o.assigned_driver && !o.aviso_repartidor_enviado_at).length
+    if(sinAsignar) avisos.push(`${sinAsignar} sin repartidor`)
+    if(sinAvisar) avisos.push(`${sinAvisar} sin avisar`)
+    if(restricciones) avisos.push(`${restricciones} con horario`)
+    if(conNota) avisos.push(`${conNota} con observación`)
+    return `<button id="btn_ver_manana" style="all:unset;cursor:pointer;display:block;width:100%;background:${NOM.crema};border:1px solid ${NOM.borde};border-radius:16px;padding:14px 16px;margin-bottom:12px;box-sizing:border-box">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div style="min-width:0">
+          <div style="color:${NOM.tintaSuave};font-size:10.5px;letter-spacing:0.9px;text-transform:uppercase">Mañana · ${dia}</div>
+          <div style="color:${NOM.tinta};font-size:19px;font-weight:500;margin-top:5px">${ordersManana.length} entrega${ordersManana.length===1?'':'s'} · ${huevos} huevos <span style="color:${NOM.tintaSuave};font-size:13px">(${maples} maples)</span></div>
+          ${avisos.length?`<div style="color:${NOM.ambar};font-size:12px;margin-top:5px">⚠️ ${avisos.join(' · ')}</div>`:`<div style="color:${NOM.tintaSuave};font-size:12px;margin-top:5px">Todo asignado y sin observaciones</div>`}
+        </div>
+        <div style="flex-shrink:0;color:${NOM.tintaSuave}">${ico('flecha',18,NOM.tintaSuave)}</div>
+      </div>
+    </button>`
+  })()
+
+  // Una entrega que salió y nunca se cerró es plata cobrada fuera de la caja
+  // o un cliente esperando. Va arriba de todo, antes que las ventas del día.
+  const alertaColgadas = (!areaActual && entregasColgadas.length) ? `<div style="background:#FBE9E7;border:1px solid #F0BDB6;border-radius:16px;padding:13px 15px;margin-bottom:12px">
+    <div style="font-size:13.5px;font-weight:600;color:#8C2F22">🔴 ${entregasColgadas.length} entrega${entregasColgadas.length===1?'':'s'} quedó sin cerrar</div>
+    ${entregasColgadas.map(e=>`<div style="font-size:12px;color:#B03A2E;margin-top:4px">${e.nombre} · salió el ${formatearFecha(e.delivery_date)}${e.driver_nombre?` con ${e.driver_nombre}`:''} y nunca se confirmó</div>`).join('')}
+    <div style="font-size:11.5px;color:#B03A2E;margin-top:6px">Si se entregó, hay plata cobrada que no está en la caja. Si no, el cliente sigue esperando.</div>
+    <div style="display:flex;gap:7px;margin-top:11px;flex-wrap:wrap">
+      ${entregasColgadas.map(e=>`<button data-resolver-colgada="${e.order_id}" style="background:${NOM.verde};color:#F7F4EC;border:none;border-radius:9px;padding:8px 13px;font-size:12px;font-weight:600">Resolver la de ${(e.nombre||'').split(' ')[0]}</button>`).join('')}
+    </div>
+  </div>` : ''
+
   layout(`<h2 style="display:flex;align-items:center;gap:8px">${areaActual?`<button id="btn_volver_areas" style="all:unset;cursor:pointer;padding:0 6px 0 0;display:inline-flex">${ico('flecha',20,NOM.tinta)}</button>${areaActual.titulo}`:'Panel de administración'}</h2>
+  ${alertaColgadas}
   ${areaActual?'':resumenDia}
+  ${areaActual?'':resumenManana}
   ${areaActual?'':`<div style="overflow-x:auto;display:flex;gap:8px;padding-bottom:4px">
     ${statCard('clientes','Clientes',customers.length)}
     ${statCard('pend_entrega','Pend. entrega',count('pending')+count('assigned')+count('out_for_delivery'))}
@@ -6651,12 +6797,16 @@ async function admin(){
           </div>
           <select data-pedido-driver="${p.id}" style="width:100%;margin-top:10px"><option value="">— Sin asignar —</option>${repartidores.map(r=>`<option value="${r.user_id}" ${p.assigned_driver===r.user_id?'selected':''}>${r.full_name||'(sin nombre)'}</option>`).join('')}</select>
           ${pBtnRow([
-            p.customer_stage==='preparing' ? pBtn('✖️','Quitar "Preparando"',`data-quitar-preparando="${p.id}"`,'ghost') : pBtn('🥚','Marcar "Preparando"',`data-marcar-preparando="${p.id}"`,'ghost'),
             ...(p.assignment_locked?[pBtn('🔄','Volver a automático',`data-destrabar="${p.id}"`,'ghost')]:[])
           ])}
         `, 'margin-bottom:8px')
         }).join('')
       })()}
+      <div style="border-top:1px solid ${NOM.borde};margin-top:14px;padding-top:14px">
+        <div style="font-size:14px;font-weight:500;margin-bottom:3px">💬 Avisar la ruta</div>
+        <p class="muted" style="font-size:12px;margin:0 0 10px">Cuando termines de asignar, avisales a los clientes quién les lleva el pedido. Reasignar no manda nada: los mensajes salen solo cuando tocás el botón.</p>
+        <div id="avisar_ruta_box"><p class="muted" style="font-size:12px">Cargando…</p></div>
+      </div>
     </div>
   </div></div>
   <div style="background:#FFFFFF;border-radius:16px;border:1px solid #E3DCC8;overflow:hidden;margin-top:10px">
@@ -7869,6 +8019,84 @@ async function admin(){
     if(area && area.directo){ current = area.directo; render(); return }
     adminAreaAbierta = b.dataset.area; adminOpenSection = null; window.scrollTo(0,0); render()
   })
+  document.querySelectorAll('[data-resolver-colgada]').forEach(b=>b.onclick=()=>openDelivery(b.dataset.resolverColgada))
+
+  // ── Avisar la ruta ────────────────────────────────────────
+  ;(async ()=>{
+    const caja = document.querySelector('#avisar_ruta_box')
+    if(!caja) return
+    const pintarAvisos = async ()=>{
+      const { data } = await supabase.rpc('admin_ruta_para_avisar', { p_fecha: avisoRutaFecha })
+      if(!data?.ok){ caja.innerHTML = '<p class="muted" style="font-size:12px">No se pudo cargar la ruta.</p>'; return }
+      const cfgAv = data.cfg || {}
+      const lista = data.entregas || []
+      const sinAvisar = lista.filter(e=>e.driver_id && !e.aviso_enviado_at)
+      const cambiados = lista.filter(e=>e.cambio_despues_del_aviso)
+      const sinDriver = lista.filter(e=>!e.driver_id)
+
+      const planTexto = e => (e.plan_breakdown && e.plan_breakdown.length)
+        ? e.plan_breakdown.map(b=>`${b.qty} maple${b.qty>1?'s':''} de ${b.size}`).join(' + ')
+        : `${e.egg_quantity||0} huevos`
+      const montoFinal = e => {
+        const base = Number(e.precio||0)
+        return esPagoConDescuento(e.payment_method)
+          ? Math.max(0, base - calcularDescuentoBilletera(base, cfgAv.wallet_discount_type, cfgAv.wallet_discount_value))
+          : base
+      }
+      const comoPaga = e => e.payment_method==='transfer' ? 'por transferencia' : e.payment_method==='mp' ? `por ${cfgAv.mp_wallet_name||'billetera'}` : 'en efectivo'
+      // El alias va en el mensaje: es un recordatorio, no información nueva.
+      const datosPago = e => {
+        if(e.payment_method==='transfer') return cfgAv.transfer_alias || cfgAv.transfer_cbu
+          ? `\n\nPara transferir:\n${cfgAv.transfer_bank_name?cfgAv.transfer_bank_name+'\n':''}Alias: ${cfgAv.transfer_alias||'-'}\nCBU: ${cfgAv.transfer_cbu||'-'}${cfgAv.transfer_holder_name?`\nTitular: ${cfgAv.transfer_holder_name}`:''}` : ''
+        if(e.payment_method==='mp') return cfgAv.mp_alias || cfgAv.mp_cbu
+          ? `\n\nPara transferir a ${cfgAv.mp_wallet_name||'la billetera'}:\nAlias: ${cfgAv.mp_alias||'-'}\nCBU: ${cfgAv.mp_cbu||'-'}${cfgAv.mp_holder_name?`\nTitular: ${cfgAv.mp_holder_name}`:''}` : ''
+        return ''
+      }
+      const mensajeDe = e => `Hola ${e.first_name||e.nombre}! 👋 Te escribimos de NÓMADES.\n\nEl ${formatearFecha(data.fecha)} te llevamos tu pedido: ${planTexto(e)}.\n\nTu repartidor va a ser ${e.driver_nombre||'nuestro repartidor'} 🛵 Podés ver su foto, la del vehículo y la patente en tu cuenta: granjanomades.ar\n\nA pagar: $${montoFinal(e).toLocaleString('es-AR')} ${comoPaga(e)}.${datosPago(e)}\n\n¡Gracias por elegirnos!`
+      const mensajeCambio = e => `Hola ${e.first_name||e.nombre}! Cambio de último momento: el ${formatearFecha(data.fecha)} te lleva el pedido ${e.driver_nombre||'otro repartidor'} en vez de ${e.aviso_driver_nombre||'quien te dijimos'}. ¡Perdón por el cambio!`
+
+      caja.innerHTML = `
+        <div class="field"><label>Fecha de la ruta</label><input type="date" id="aviso_ruta_fecha" value="${data.fecha}"/></div>
+        ${cambiados.length ? cambiados.map(e=>`<div style="background:${NOM.ambarClaro};border:1px solid #EBCFA0;border-radius:11px;padding:11px 13px;margin-bottom:9px">
+          <div style="font-size:12.5px;font-weight:600;color:#854F0B">⚠️ Cambiaste un repartidor ya avisado</div>
+          <div style="font-size:12px;color:#BA7517;margin-top:3px">A ${e.first_name||e.nombre} le dijimos que iba <b>${e.aviso_driver_nombre||'(sin nombre)'}</b>. Ahora figura <b>${e.driver_nombre||'sin asignar'}</b>.</div>
+          <div style="display:flex;gap:7px;margin-top:9px;flex-wrap:wrap">
+            <a href="https://wa.me/54${(e.phone||'').replace(/\D/g,'')}?text=${encodeURIComponent(mensajeCambio(e))}" target="_blank" data-aviso-enviado="${e.order_id}" style="background:${NOM.verde};color:#F7F4EC;border-radius:9px;padding:8px 13px;font-size:12px;font-weight:600;text-decoration:none">Mandar la corrección</a>
+            <button data-aviso-ignorar="${e.order_id}" style="background:#FFFFFF;border:1px solid ${NOM.borde};border-radius:9px;padding:8px 13px;font-size:12px">Dejarlo así</button>
+          </div>
+        </div>`).join('') : ''}
+        ${lista.length ? lista.map(e=>{
+          const estado = !e.driver_id ? `<span style="font-size:11px;color:${NOM.rojo}">Sin repartidor</span>`
+            : e.aviso_enviado_at ? `<span style="font-size:11px;background:#E7F3DC;color:#3A6B1E;padding:3px 9px;border-radius:999px">✓ Avisado</span>`
+            : `<span style="font-size:11px;background:#FFFFFF;border:1px solid ${NOM.borde};color:${NOM.tintaSuave};padding:3px 9px;border-radius:999px">Sin avisar</span>`
+          return `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid ${NOM.borde};${!e.driver_id?'opacity:0.55':''}">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13.5px">${e.nombre}</div>
+              <div style="font-size:11.5px;color:${e.driver_id?NOM.tintaSuave:NOM.rojo};margin-top:1px">${e.driver_id?`${e.driver_nombre||'(sin nombre)'} · ${planTexto(e)} · $${montoFinal(e).toLocaleString('es-AR')} ${comoPaga(e)}`:'Sin repartidor asignado'}</div>
+            </div>
+            <div style="flex-shrink:0">${estado}</div>
+          </div>`
+        }).join('') : '<p class="muted" style="font-size:12px">No hay entregas para esa fecha.</p>'}
+        ${sinAvisar.length ? `<div id="avisar_uno_a_uno" style="margin-top:11px">
+          <a href="https://wa.me/54${(sinAvisar[0].phone||'').replace(/\D/g,'')}?text=${encodeURIComponent(mensajeDe(sinAvisar[0]))}" target="_blank" data-aviso-enviado="${sinAvisar[0].order_id}" style="display:block;text-align:center;background:${NOM.verde};color:#F7F4EC;border-radius:11px;padding:11px 0;font-size:13px;font-weight:600;text-decoration:none">Avisar a ${sinAvisar[0].first_name||sinAvisar[0].nombre}${sinAvisar.length>1?` (falta${sinAvisar.length>1?'n':''} ${sinAvisar.length})`:''}</a>
+          <p class="muted" style="font-size:11px;margin:7px 0 0;text-align:center">Abre WhatsApp con el mensaje escrito. Al volver, aparece el siguiente.</p>
+        </div>` : `<p class="muted" style="font-size:12px;margin-top:10px">${sinDriver.length?`Faltan asignar ${sinDriver.length} pedido(s) antes de poder avisar.`:'Todos avisados 🎉'}</p>`}`
+
+      const inputFecha = document.querySelector('#aviso_ruta_fecha')
+      if(inputFecha) inputFecha.onchange = async (ev)=>{ avisoRutaFecha = ev.target.value; await pintarAvisos() }
+      caja.querySelectorAll('[data-aviso-enviado]').forEach(a=>a.onclick=async()=>{
+        await supabase.rpc('marcar_aviso_repartidor', { p_order_id: a.dataset.avisoEnviado })
+        setTimeout(pintarAvisos, 800)
+      })
+      caja.querySelectorAll('[data-aviso-ignorar]').forEach(b=>b.onclick=async()=>{
+        await supabase.rpc('marcar_aviso_repartidor', { p_order_id: b.dataset.avisoIgnorar })
+        await pintarAvisos()
+      })
+    }
+    await pintarAvisos()
+  })()
+  const btnManana = document.querySelector('#btn_ver_manana')
+  if(btnManana) btnManana.onclick = ()=>{ pedidosFechaFiltro = 'manana'; current='pedidos'; render() }
   const btnVolverAreas = document.querySelector('#btn_volver_areas')
   if(btnVolverAreas) btnVolverAreas.onclick = ()=>{ adminAreaAbierta = null; adminOpenSection = null; window.scrollTo(0,0); render() }
   const btnIrAuditoria = document.querySelector('#btn_ir_auditoria')
@@ -7947,16 +8175,6 @@ async function admin(){
   document.querySelectorAll('[data-destrabar]').forEach(b=>b.onclick=async()=>{
     const { data, error } = await supabase.rpc('admin_unlock_driver', { p_order_id: b.dataset.destrabar })
     if(error || !data?.ok){ mostrarAlerta('No se pudo destrabar: '+(error?.message||data?.error||'')); return }
-    adminData = null; render()
-  })
-  document.querySelectorAll('[data-marcar-preparando]').forEach(b=>b.onclick=async()=>{
-    const { error } = await supabase.from('orders').update({ customer_stage: 'preparing' }).eq('id', b.dataset.marcarPreparando)
-    if(error){ mostrarAlerta('Error: '+error.message); return }
-    adminData = null; render()
-  })
-  document.querySelectorAll('[data-quitar-preparando]').forEach(b=>b.onclick=async()=>{
-    const { error } = await supabase.from('orders').update({ customer_stage: null }).eq('id', b.dataset.quitarPreparando)
-    if(error){ mostrarAlerta('Error: '+error.message); return }
     adminData = null; render()
   })
   document.querySelector('#btn_crear_producto').onclick = async ()=>{
